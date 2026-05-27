@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\Jason\\\\Coding Projects\\\\PokePrice\" -Exclude node_modules | Select-Object Name, @{Name=\"Type\";Expression={if\\($_.PSIsContainer\\){\"DIR\"}else{\"FILE\"}}})",
+      "PowerShell(ls -File \"C:\\\\Users\\\\Jason\\\\Coding Projects\\\\PokePrice\" | Where-Object { $_.Name -match \"\\\\.\\(md|txt|json|js|jsx\\)$\" -and $_.Name -ne \"node_modules\" } | Select-Object Name)",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\Jason\\\\Coding Projects\\\\PokePrice\" | Where-Object { -not $_.PSIsContainer -or $_.Name -eq \"src\" -or $_.Name -eq \"scripts\" -or $_.Name -eq \"dist\" } | Select-Object Name, @{N=\"Type\";E={if\\($_.PSIsContainer\\){\"DIR\"}else{\"FILE\"}}} | Sort-Object Name)"
+    ]
+  }
+}

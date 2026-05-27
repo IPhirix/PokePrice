@@ -1,0 +1,12 @@
+{
+  "name": "pokeprice-functions",
+  "version": "1.0.0",
+  "description": "Firebase Cloud Functions for PokePrice daily price downloads",
+  "engines": { "node": "20" },
+  "main": "index.js",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^5.0.0"
+  }
+}
