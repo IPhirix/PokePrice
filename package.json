@@ -33,6 +33,7 @@
   "build": {
     "appId": "com.pokeprice.app",
     "productName": "PokePrice",
+    "asar": false,
     "files": [
       "src/main/**/*",
       "dist/web/**/*",

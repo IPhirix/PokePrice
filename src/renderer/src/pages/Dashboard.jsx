@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 
 const tcgCache = {} // tcgId → full TCG card object, persists for the session
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -11,19 +11,20 @@ import WatchlistSummary from '../components/WatchlistSummary'
 import SearchPage, { CardDetailModal } from './SearchPage'
 import Settings from './Settings'
 import AccountModal from '../components/AccountModal'
-import HistoricalPrices from './HistoricalPrices'
 import TradeAnalyzer from './TradeAnalyzer'
 import Pokedex from './Pokedex'
+import CardShows from './CardShows'
 import NotificationPanel from '../components/NotificationPanel'
 import { useAlerts } from '../context/AlertsContext'
+import { useCurrency } from '../context/CurrencyContext'
 
 
 const TABS = [
   { id: 'collection', label: 'Collection',         color: 'text-emerald-400',  activeBg: 'bg-emerald-900/30 border-emerald-500' },
   { id: 'watchlist', label: 'Watchlist',         color: 'text-sky-400',      activeBg: 'bg-sky-900/30 border-sky-500' },
-  { id: 'history',   label: 'Historical Prices', color: 'text-violet-400',   activeBg: 'bg-violet-900/30 border-violet-500' },
   { id: 'trade',     label: 'Trade Analyzer',    color: 'text-yellow-300',   activeBg: 'bg-yellow-900/20 border-yellow-400' },
   { id: 'pokedex',   label: 'Pokédex',           color: 'text-red-400',      activeBg: 'bg-red-900/20 border-red-500' },
+  { id: 'cardshows', label: 'Card Shows',        color: 'text-violet-400',   activeBg: 'bg-violet-900/30 border-violet-500' },
   { id: 'search',    label: 'Search',            color: 'text-accent',       activeBg: 'bg-amber-900/20 border-accent' },
 ]
 
@@ -43,12 +44,6 @@ const TAB_ICONS = {
       <polyline points="14 2 14 8 20 8" />
       <line x1="8" y1="13" x2="16" y2="13" />
       <line x1="8" y1="17" x2="13" y2="17" />
-    </svg>
-  ),
-  history: (
-    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="1" x2="12" y2="23" />
-      <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
     </svg>
   ),
   trade: (
@@ -71,6 +66,14 @@ const TAB_ICONS = {
     <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="11" cy="11" r="8" />
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  ),
+  cardshows: (
+    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   ),
 }
@@ -99,7 +102,7 @@ function parseCardNum(num) {
   return match ? parseInt(match[1], 10) : Infinity
 }
 
-function applySort(cards, sortBy) {
+function applySort(cards, sortBy, setDateMap = new Map()) {
   return [...cards].sort((a, b) => {
     if (sortBy === 'name') return a.name.localeCompare(b.name)
     if (sortBy === 'price') return (b.currentPrice || 0) - (a.currentPrice || 0)
@@ -128,6 +131,12 @@ function applySort(cards, sortBy) {
       if (pa == null) return 1
       if (pb == null) return -1
       return sortBy === 'pnl_best' ? pb - pa : pa - pb
+    }
+    if (sortBy === 'released_desc' || sortBy === 'released_asc') {
+      const da = setDateMap.get(a.setId) || ''
+      const db = setDateMap.get(b.setId) || ''
+      const cmp = db.localeCompare(da)
+      return sortBy === 'released_desc' ? cmp : -cmp
     }
     return new Date(b.addedDate) - new Date(a.addedDate)
   })
@@ -158,16 +167,260 @@ function buildExportRows(cards, enabledCols, section) {
   return rows
 }
 
-function ExportModal({ cards, section, onClose }) {
+const SOLD_COND_LABEL = { raw: 'Raw', psa10: 'PSA 10', psa9: 'PSA 9', psa8: 'PSA 8', cgc10: 'CGC 10', cgc9: 'CGC 9' }
+const SOLD_COND_COLOR = {
+  raw:   'bg-slate-700 text-slate-300',
+  psa10: 'bg-yellow-600/50 text-yellow-200 ring-1 ring-yellow-500/40',
+  psa9:  'bg-zinc-500/50 text-zinc-100',
+  psa8:  'bg-orange-800/60 text-orange-300',
+  cgc10: 'bg-yellow-600/50 text-yellow-200 ring-1 ring-yellow-500/40',
+  cgc9:  'bg-zinc-500/50 text-zinc-100',
+}
+
+function SoldCardRow({ card, onRemove, onUndo, onEdit }) {
+  const { format } = useCurrency()
+  const { soldInfo } = card
+  const [confirming, setConfirming] = useState(false)
+  const condLabel = SOLD_COND_LABEL[card.condition] || card.condition
+  const condColor = SOLD_COND_COLOR[card.condition] || 'bg-slate-700 text-slate-300'
+  const pl = soldInfo?.salePrice != null && card.purchasePrice != null
+    ? soldInfo.salePrice - card.purchasePrice : null
+  const dateStr = soldInfo?.saleDate
+    ? new Date(soldInfo.saleDate + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : '—'
+
+  return (
+    <div
+      className="flex items-center gap-4 bg-surface-800 border border-surface-700 rounded-xl px-4 py-3 mb-2 cursor-pointer hover:border-surface-500 hover:bg-surface-700/50 transition-all group"
+      onClick={() => !confirming && onEdit?.(card)}
+    >
+      <div className="w-10 h-14 flex-shrink-0 rounded overflow-hidden bg-surface-900 border border-surface-700">
+        {card.imageUrl
+          ? <img src={card.imageUrl} alt={card.name} className="h-full w-full object-contain" />
+          : <div className="w-full h-full" />
+        }
+      </div>
+      <div className="w-56 flex-shrink-0 min-w-0">
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <span className="text-slate-300 font-semibold text-sm truncate">{card.name}</span>
+          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${condColor}`}>{condLabel}</span>
+        </div>
+        <p className="text-slate-600 text-xs truncate">{card.setName}{card.number ? ` · #${card.number}` : ''}</p>
+      </div>
+      <div className="flex-shrink-0">
+        {soldInfo?.isTrade ? (
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-sky-900/40 border border-sky-600/40 text-sky-400">Traded</span>
+        ) : (
+          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-900/40 border border-emerald-600/40 text-emerald-400">Sold</span>
+        )}
+      </div>
+      <div className="flex-1 text-slate-500 text-sm">{dateStr}</div>
+      <div className="w-28 flex-shrink-0 text-right">
+        <p className="text-slate-600 text-xs mb-0.5">Sale Price</p>
+        <p className="text-slate-300 font-bold text-sm">{soldInfo?.salePrice != null ? format(soldInfo.salePrice) : '—'}</p>
+      </div>
+      <div className="w-24 flex-shrink-0 text-right">
+        <p className="text-slate-600 text-xs mb-0.5">P&L</p>
+        <p className={`font-bold text-sm ${pl != null ? (pl >= 0 ? 'text-emerald-400' : 'text-red-400') : 'text-slate-600'}`}>
+          {pl != null ? `${pl >= 0 ? '+' : '−'}${format(Math.abs(pl))}` : '—'}
+        </p>
+      </div>
+      <div className={`flex-shrink-0 flex items-center justify-end ${confirming ? '' : 'w-24'}`} onClick={(e) => e.stopPropagation()}>
+        {confirming ? (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onUndo?.(card.id)}
+              className="text-xs px-2 py-0.5 bg-sky-700 hover:bg-sky-600 text-white rounded font-semibold transition-colors whitespace-nowrap"
+              title="Move back to Collection"
+            >Undo</button>
+            <button
+              onClick={() => onRemove?.(card.id)}
+              className="text-xs px-2 py-0.5 bg-red-700 hover:bg-red-600 text-white rounded font-semibold transition-colors"
+            >Remove</button>
+            <button
+              onClick={() => setConfirming(false)}
+              className="text-slate-500 hover:text-white text-sm leading-none transition-colors px-1"
+            >✕</button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setConfirming(true)}
+            className="text-slate-600 hover:text-red-400 transition-colors text-xl leading-none opacity-0 group-hover:opacity-100"
+            title="Remove"
+          >✕</button>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function SoldEditModal({ card, onClose, onSaved }) {
+  const { format } = useCurrency()
+  const [salePrice, setSalePrice] = useState(
+    card.soldInfo?.salePrice != null ? String(card.soldInfo.salePrice) : ''
+  )
+  const [purchasePrice, setPurchasePrice] = useState(
+    card.purchasePrice != null ? String(card.purchasePrice) : ''
+  )
+  const [saleDate, setSaleDate] = useState(
+    card.soldInfo?.saleDate || new Date().toISOString().split('T')[0]
+  )
+  const [saving, setSaving] = useState(false)
+
+  const isTrade = card.soldInfo?.isTrade || false
+  const salePriceNum = parseFloat(salePrice)
+  const purchasePriceNum = parseFloat(purchasePrice)
+  const effectiveSalePrice = isTrade && !salePrice ? 0 : salePriceNum
+  const previewPL = !isNaN(effectiveSalePrice) && salePrice !== '' && !isNaN(purchasePriceNum) && purchasePrice !== ''
+    ? effectiveSalePrice - purchasePriceNum : null
+  const canSubmit = isTrade
+    ? !salePrice || (!isNaN(salePriceNum) && salePriceNum >= 0)
+    : !isNaN(salePriceNum) && salePriceNum > 0
+
+  async function handleSave() {
+    if (!canSubmit) return
+    setSaving(true)
+    try {
+      const updates = {
+        soldInfo: {
+          ...card.soldInfo,
+          salePrice: Math.round(effectiveSalePrice * 100) / 100,
+          saleDate,
+        }
+      }
+      if (!isNaN(purchasePriceNum) && purchasePrice !== '') {
+        updates.purchasePrice = Math.round(purchasePriceNum * 100) / 100
+      } else if (purchasePrice === '') {
+        updates.purchasePrice = null
+      }
+      await window.api.updateCard(card.id, updates)
+      onSaved()
+      onClose()
+    } catch {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-lg mx-4 overflow-hidden">
+        <div className="px-6 py-5 border-b border-surface-600 flex items-center gap-4">
+          {card.imageUrl && (
+            <img src={card.imageUrl} alt={card.name} className="w-16 h-[90px] object-contain rounded-lg flex-shrink-0" />
+          )}
+          <div className="flex-1 min-w-0">
+            <h2 className="text-lg font-bold text-white truncate">{card.name}</h2>
+            <p className="text-slate-400 text-sm truncate mt-0.5">{card.setName}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl w-8 h-8 flex items-center justify-center flex-shrink-0 self-start">✕</button>
+        </div>
+
+        <div className="p-6 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-slate-300 text-sm font-medium mb-1.5">Purchase Price</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
+                <input
+                  autoFocus
+                  type="number" min="0" step="0.01"
+                  value={purchasePrice}
+                  onChange={(e) => setPurchasePrice(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+                  placeholder="0.00"
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-8 pr-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-slate-300 text-sm font-medium mb-1.5">Sale Price</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={salePrice}
+                  onChange={(e) => setSalePrice(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleSave()}
+                  placeholder="0.00"
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-8 pr-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
+                />
+              </div>
+            </div>
+          </div>
+          {previewPL != null && (
+            <p className={`text-xs -mt-2 ${previewPL >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              P&L: {previewPL >= 0 ? '+' : '−'}${Math.abs(previewPL).toFixed(2)}
+            </p>
+          )}
+
+          <div>
+            <label className="block text-slate-300 text-sm font-medium mb-1.5">Sale Date</label>
+            <input
+              type="date"
+              value={saleDate}
+              onChange={(e) => setSaleDate(e.target.value)}
+              className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
+            />
+          </div>
+
+          {card.soldInfo?.tradeCardsReceived?.length > 0 && (
+            <div>
+              <p className="text-slate-400 text-sm font-medium mb-2">Cards Received</p>
+              <div className="space-y-1.5">
+                {card.soldInfo.tradeCardsReceived.map((tc, i) => (
+                  <div key={i} className="flex items-center gap-3 bg-surface-700 rounded-lg px-3 py-2">
+                    {tc.imageUrl && (
+                      <img src={tc.imageUrl} alt={tc.name} className="w-8 h-11 object-contain rounded flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-slate-300 text-xs font-medium truncate">{tc.name}</p>
+                      <p className="text-slate-600 text-xs truncate">{tc.setName}</p>
+                    </div>
+                    {tc.estimatedValue && (
+                      <span className="text-slate-500 text-xs flex-shrink-0">${parseFloat(tc.estimatedValue).toFixed(2)}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-surface-600 flex gap-3">
+          <button
+            onClick={handleSave}
+            disabled={saving || !canSubmit}
+            className="flex-1 bg-accent hover:bg-accent-hover disabled:opacity-50 text-black font-bold py-2.5 rounded-lg transition-colors"
+          >
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-5 py-2.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ExportModal({ cards, section, setDateMap, onClose }) {
   const SORT_OPTIONS = [
-    { value: 'addedDate',   label: 'Recently Added' },
-    { value: 'name',        label: 'Name (A → Z)' },
-    { value: 'set_asc',     label: 'Set' },
-    { value: 'price',       label: 'Current Price (High → Low)' },
-    { value: 'priceAlert',  label: 'Price Alert' },
-    { value: 'changeDay',   label: '1D % Change' },
-    { value: 'changeWeek',  label: '1W % Change' },
-    { value: 'changeMonth', label: '1M % Change' },
+    { value: 'addedDate',      label: 'Recently Added' },
+    { value: 'name',           label: 'Name (A → Z)' },
+    { value: 'set_asc',        label: 'Set' },
+    { value: 'released_desc',  label: 'Released (Newest First)' },
+    { value: 'released_asc',   label: 'Released (Oldest First)' },
+    { value: 'price',          label: 'Current Price (High → Low)' },
+    { value: 'priceAlert',     label: 'Price Alert' },
+    { value: 'changeDay',      label: '1D % Change' },
+    { value: 'changeWeek',     label: '1W % Change' },
+    { value: 'changeMonth',    label: '1M % Change' },
     ...(section === 'collection' ? [
       { value: 'pnl_best',  label: 'P&L — Best First' },
       { value: 'pnl_worst', label: 'P&L — Worst First' },
@@ -193,7 +446,7 @@ function ExportModal({ cards, section, onClose }) {
 
   async function handleExport() {
     setExporting(true)
-    const sorted = applySort(cards, exportSort)
+    const sorted = applySort(cards, exportSort, setDateMap)
     const rows = buildExportRows(sorted, enabledCols, section)
     await window.api.exportCards({ rows, format, section })
     setExporting(false)
@@ -279,6 +532,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState(location.state?.tab || 'collection')
   const [showSearch, setShowSearch] = useState(null) // null | 'portfolio' | 'watchlist'
   const [refreshKey, setRefreshKey] = useState(0)
+  const [pokedexResetKey, setPokedexResetKey] = useState(0)
   const [sortBy, setSortBy] = useState('addedDate')
   const [bannerSearch, setBannerSearch] = useState('')
   const [globalSearchQuery, setGlobalSearchQuery] = useState(location.state?.searchQuery || '')
@@ -307,6 +561,10 @@ export default function Dashboard() {
   const { activeAlerts, alertCount, readIds, dismissAlert, dismissAll, markAllRead } = useAlerts()
   const [selectedCards, setSelectedCards] = useState(new Set())
   const [showBulkBinderPicker, setShowBulkBinderPicker] = useState(false)
+  const [soldCards, setSoldCards] = useState([])
+  const [soldCollapsed, setSoldCollapsed] = useState(false)
+  const [editingSoldCard, setEditingSoldCard] = useState(null)
+  const [listCollapsed, setListCollapsed] = useState(false)
 
   const cardListRef = useRef(null)
   const scrollTimerRef = useRef(null)
@@ -343,15 +601,24 @@ export default function Dashboard() {
     }
   }, [location.state])
 
+  const [allSets, setAllSets] = useState([])
+  const setDateMap = useMemo(() => new Map(allSets.map((s) => [s.id, s.releaseDate || ''])), [allSets])
+
   const loadCards = useCallback(async () => {
-    const list = await window.api.listCards()
+    const [list, sold] = await Promise.all([
+      window.api.listCards(),
+      window.api.listSoldCards(),
+    ])
     setCards(list)
+    setSoldCards(sold)
     setRefreshKey((k) => k + 1)
   }, [])
 
   useEffect(() => {
     loadCards()
+    window.api.listSets().then(setAllSets).catch(() => {})
     window.api.onPricesRefreshed(() => { loadCards() })
+    window.api.onCardsChanged(() => { loadCards() })
     window.api.getSettings().then((s) => {
       if (s.confirmRemove === false) setConfirmRemove(false)
       if (s.defaultSortBy) setSortBy(s.defaultSortBy)
@@ -361,6 +628,11 @@ export default function Dashboard() {
 
   async function handleRemove(id) {
     await window.api.removeCard(id)
+    loadCards()
+  }
+
+  async function handleUndoSold(id) {
+    await window.api.updateCard(id, { section: 'collection', soldInfo: null })
     loadCards()
   }
 
@@ -417,14 +689,7 @@ export default function Dashboard() {
     setActiveModalCard(localCard)
     if (!localCard.tcgId) { setModalTcgData(null); return }
 
-    // Use cached data or local stored fields if already complete
-    if (tcgCache[localCard.tcgId]) {
-      setModalTcgData(tcgCache[localCard.tcgId])
-      return
-    }
-
-    // Build a rich object from locally-stored fields — avoids a network call for new cards
-    const hasStoredMeta = localCard.artist || localCard.types?.length || localCard.subtypes?.length
+    // Build placeholder from stored fields — shown immediately while fetch runs
     const localFull = {
       id: localCard.tcgId,
       name: localCard.name,
@@ -437,20 +702,28 @@ export default function Dashboard() {
       subtypes: localCard.subtypes?.length ? localCard.subtypes : null,
       tcgplayer: { prices: { normal: { market: localCard.currentPrice } } },
     }
+    setModalTcgData(localFull)
 
-    if (hasStoredMeta) {
-      tcgCache[localCard.tcgId] = localFull
-      setModalTcgData(localFull)
+    // Session cache hit — enrich with current price and return
+    if (tcgCache[localCard.tcgId]) {
+      setModalTcgData({ ...tcgCache[localCard.tcgId], tcgplayer: localFull.tcgplayer })
       return
     }
 
-    // Older card without stored meta — show local data immediately, then enrich from API
-    setModalTcgData(localFull)
+    // Always fetch full card from TCGdex to ensure complete metadata
     const results = await window.api.searchCardsAdvanced(`id:"${localCard.tcgId}"`).catch(() => [])
     const fetched = results?.[0] ?? null
     if (fetched) {
-      tcgCache[localCard.tcgId] = fetched
-      setModalTcgData(fetched)
+      const enriched = { ...fetched, tcgplayer: localFull.tcgplayer }
+      tcgCache[localCard.tcgId] = enriched
+      setModalTcgData(enriched)
+      // Persist any metadata that's missing from the stored card record
+      const metaToSave = {}
+      if (fetched.artist && !localCard.artist)                     metaToSave.artist   = fetched.artist
+      if (fetched.types?.length && !localCard.types?.length)       metaToSave.types    = fetched.types
+      if (fetched.subtypes?.length && !localCard.subtypes?.length) metaToSave.subtypes = fetched.subtypes
+      if (fetched.rarity && !localCard.rarity)                     metaToSave.rarity   = fetched.rarity
+      if (Object.keys(metaToSave).length) window.api.updateCard(localCard.id, metaToSave).catch(() => {})
     }
   }
 
@@ -486,6 +759,7 @@ export default function Dashboard() {
       setAlertFilter('')
       window.api.listBinders(activeTab).then(setAvailableBinders).catch(() => {})
     }
+    setListCollapsed(false)
   }, [activeTab])
 
   const tabCards = cards.filter((c) => (c.section || 'watchlist') === activeTab)
@@ -500,7 +774,7 @@ export default function Dashboard() {
     : alertFilter === 'sell'
     ? binderFiltered.filter((c) => c.targetSellPrice != null && c.currentPrice != null && c.currentPrice >= c.targetSellPrice)
     : binderFiltered
-  const sorted = applySort(filteredCards, sortBy)
+  const sorted = applySort(filteredCards, sortBy, setDateMap)
 
   const activeTabCfg = TABS.find((t) => t.id === activeTab)
 
@@ -526,6 +800,7 @@ export default function Dashboard() {
                   exitBulkMode()
                   navigate('/', { replace: true, state: { tab: tab.id } })
                   if (tab.id !== 'collection' && ['pnl_best','pnl_worst'].includes(sortBy)) setSortBy('addedDate')
+                  if (tab.id === 'pokedex') setPokedexResetKey((k) => k + 1)
                 }}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
                   activeTab === tab.id
@@ -535,7 +810,7 @@ export default function Dashboard() {
               >
                 {TAB_ICONS[tab.id]}
                 {tab.label}
-                {tab.id !== 'search' && tab.id !== 'history' && tab.id !== 'trade' && tab.id !== 'pokedex' && (
+                {tab.id !== 'search' && tab.id !== 'trade' && tab.id !== 'pokedex' && tab.id !== 'cardshows' && (
                   <span className={`text-xs px-1.5 py-0.5 rounded-full ${
                     activeTab === tab.id ? 'bg-surface-600' : 'bg-surface-700'
                   } text-slate-400`}>
@@ -637,7 +912,7 @@ export default function Dashboard() {
       )}
 
       {/* Controls sub-bar — portfolio/watchlist only */}
-      {activeTab !== 'search' && activeTab !== 'history' && activeTab !== 'trade' && activeTab !== 'pokedex' && !showSettings && (
+      {activeTab !== 'search' && activeTab !== 'trade' && activeTab !== 'pokedex' && activeTab !== 'cardshows' && !showSettings && (
         <div className="flex-shrink-0 flex items-center gap-3 px-8 py-3">
           {/* Title */}
           <h2 className="text-white font-bold text-xl whitespace-nowrap">
@@ -797,6 +1072,8 @@ export default function Dashboard() {
             <option value="addedDate">Recently Added</option>
             <option value="name">Name (A→Z)</option>
             <option value="set_asc">Set</option>
+            <option value="released_desc">Released (Newest First)</option>
+            <option value="released_asc">Released (Oldest First)</option>
             <option value="price">Current Price</option>
             <option value="priceAlert">Price Alert</option>
             {activeTab === 'collection' && <option value="pnl_best">P&amp;L — Largest Profit</option>}
@@ -822,15 +1099,8 @@ export default function Dashboard() {
           </button>
         </div>
       )}
-      {activeTab !== 'search' && activeTab !== 'history' && activeTab !== 'trade' && activeTab !== 'pokedex' && !showSettings && (
+      {activeTab !== 'search' && activeTab !== 'trade' && activeTab !== 'pokedex' && activeTab !== 'cardshows' && !showSettings && (
         <div className="flex-shrink-0 border-b border-surface-700 mx-6" />
-      )}
-
-      {/* Historical Prices — own scrolling layout */}
-      {activeTab === 'history' && !showSettings && (
-        <div className="flex-1 min-h-0 overflow-hidden px-4 py-3">
-          <HistoricalPrices />
-        </div>
       )}
 
       {/* Trade Analyzer — own layout */}
@@ -843,12 +1113,19 @@ export default function Dashboard() {
       {/* Pokédex — own layout */}
       {activeTab === 'pokedex' && !showSettings && (
         <div className="flex-1 min-h-0 overflow-hidden">
-          <Pokedex />
+          <Pokedex resetKey={pokedexResetKey} />
+        </div>
+      )}
+
+      {/* Card Shows — own layout */}
+      {activeTab === 'cardshows' && !showSettings && (
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <CardShows />
         </div>
       )}
 
       {/* Card list / Search page / Settings */}
-      {(activeTab !== 'history' && activeTab !== 'trade' && activeTab !== 'pokedex' || showSettings) && (
+      {(activeTab !== 'trade' && activeTab !== 'pokedex' && activeTab !== 'cardshows' || showSettings) && (
         <div ref={cardListRef} onScroll={handleCardListScroll} className="flex-1 [overflow-y:overlay] px-6 py-3 scrollbar-autohide">
           {showSettings ? (
             <Settings onBack={() => setShowSettings(false)} onSortChange={(val) => setSortBy(val)} onCardDataChanged={loadCards} />
@@ -859,34 +1136,91 @@ export default function Dashboard() {
               initialArtist={globalArtistFilter}
               onCardAdded={handleCardAdded}
             />
-          ) : sorted.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 text-slate-600">
-              <p className="text-lg mb-2">No cards in your {activeTabCfg?.label.toLowerCase()} yet</p>
-              <p className="text-sm">
-                Click{' '}
-                <span className={activeTab === 'collection' ? 'text-accent' : 'text-sky-400'}>
-                  {`"+ Add to ${activeTabCfg?.label}"`}
-                </span>{' '}
-                to get started
-              </p>
-            </div>
           ) : (
-            sorted.map((card) => (
-              <CardRow
-                key={card.id}
-                card={card}
-                onRemove={handleRemove}
-                onRefresh={loadCards}
-                confirmRemove={confirmRemove}
-                showPlPct={showPlPct}
-                onTogglePlPct={() => setShowPlPct((v) => !v)}
-                showDollarChanges={showDollarChanges}
-                onToggleDollarChanges={() => setShowDollarChanges((v) => !v)}
-                bulkMode={bulkMode}
-                isSelected={selectedCards.has(card.id)}
-                onToggleSelect={handleToggleSelect}
-              />
-            ))
+            <>
+              {/* Collapsible section header for collection / watchlist */}
+              <button
+                onClick={() => setListCollapsed((v) => !v)}
+                className="w-full flex items-center gap-3 mb-3"
+              >
+                <div className="flex-1 h-px bg-surface-700" />
+                <span className="flex items-center gap-2 text-slate-500 hover:text-slate-300 text-sm font-medium transition-colors whitespace-nowrap">
+                  <svg
+                    className={`w-3.5 h-3.5 transition-transform flex-shrink-0 ${listCollapsed ? '-rotate-90' : ''}`}
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
+                  {activeTab === 'collection' ? 'My Collection' : 'My Watchlist'}
+                  <span className="text-xs px-1.5 py-0.5 bg-surface-700 rounded-full text-slate-400">{sorted.length}</span>
+                </span>
+                <div className="flex-1 h-px bg-surface-700" />
+              </button>
+
+              {!listCollapsed && (sorted.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-24 text-slate-600">
+                  <p className="text-lg mb-2">No cards in your {activeTabCfg?.label.toLowerCase()} yet</p>
+                  <p className="text-sm">
+                    Click{' '}
+                    <span className={activeTab === 'collection' ? 'text-accent' : 'text-sky-400'}>
+                      {`"+ Add to ${activeTabCfg?.label}"`}
+                    </span>{' '}
+                    to get started
+                  </p>
+                </div>
+              ) : (
+                sorted.map((card) => (
+                  <CardRow
+                    key={card.id}
+                    card={card}
+                    onRemove={handleRemove}
+                    onRefresh={loadCards}
+                    confirmRemove={confirmRemove}
+                    showPlPct={showPlPct}
+                    onTogglePlPct={() => setShowPlPct((v) => !v)}
+                    showDollarChanges={showDollarChanges}
+                    onToggleDollarChanges={() => setShowDollarChanges((v) => !v)}
+                    bulkMode={bulkMode}
+                    isSelected={selectedCards.has(card.id)}
+                    onToggleSelect={handleToggleSelect}
+                  />
+                ))
+              ))}
+              {activeTab === 'collection' && (
+                <div className="mt-6 mb-2">
+                  <button
+                    onClick={() => setSoldCollapsed((v) => !v)}
+                    className="w-full flex items-center gap-3 mb-3"
+                  >
+                    <div className="flex-1 h-px bg-surface-700" />
+                    <span className="flex items-center gap-2 text-slate-500 hover:text-slate-300 text-sm font-medium transition-colors whitespace-nowrap">
+                      <svg
+                        className={`w-3.5 h-3.5 transition-transform flex-shrink-0 ${soldCollapsed ? '-rotate-90' : ''}`}
+                        viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                      >
+                        <polyline points="6 9 12 15 18 9" />
+                      </svg>
+                      Traded / Sold
+                      <span className="text-xs px-1.5 py-0.5 bg-surface-700 rounded-full text-slate-400">{soldCards.length}</span>
+                    </span>
+                    <div className="flex-1 h-px bg-surface-700" />
+                  </button>
+                  {!soldCollapsed && soldCards
+                    .slice()
+                    .sort((a, b) => (b.soldInfo?.saleDate || '').localeCompare(a.soldInfo?.saleDate || ''))
+                    .map((card) => (
+                      <SoldCardRow
+                        key={card.id}
+                        card={card}
+                        onRemove={handleRemove}
+                        onUndo={handleUndoSold}
+                        onEdit={setEditingSoldCard}
+                      />
+                    ))
+                  }
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -922,12 +1256,21 @@ export default function Dashboard() {
         <ExportModal
           cards={tabCards}
           section={activeTab}
+          setDateMap={setDateMap}
           onClose={() => setShowExportModal(false)}
         />
       )}
 
       {showAccount && (
         <AccountModal onClose={() => setShowAccount(false)} />
+      )}
+
+      {editingSoldCard && (
+        <SoldEditModal
+          card={editingSoldCard}
+          onClose={() => setEditingSoldCard(null)}
+          onSaved={() => { setEditingSoldCard(null); loadCards() }}
+        />
       )}
 
       {showShareModal && (

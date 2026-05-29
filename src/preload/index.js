@@ -41,23 +41,41 @@ contextBridge.exposeInMainWorld('api', {
 
   getCloudDates: () => ipcRenderer.invoke('prices:cloudDates'),
   backfillCard: (cardId) => ipcRenderer.invoke('prices:backfillCard', cardId),
+  fetchPPTHistory: (cardId) => ipcRenderer.invoke('prices:fetchPPTHistory', cardId),
 
   getAccountStats: () => ipcRenderer.invoke('account:getStats'),
   clearAccountData: (target) => ipcRenderer.invoke('account:clear', target),
   deleteAccount: () => ipcRenderer.invoke('account:delete'),
   getActivity: () => ipcRenderer.invoke('account:getActivity'),
   removeActivity: (id) => ipcRenderer.invoke('account:removeActivity', id),
+  appendActivity: (entry) => ipcRenderer.invoke('account:appendActivity', entry),
 
   getAppVersion: () => ipcRenderer.invoke('app:version'),
   getLocale: () => ipcRenderer.invoke('app:locale'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (s) => ipcRenderer.invoke('settings:set', s),
-  searchPriceCharting: (query) => ipcRenderer.invoke('pc:search', query),
+  searchPriceCharting: (query) => ipcRenderer.invoke('ppt:search', query),
+  searchPPT: (query) => ipcRenderer.invoke('ppt:search', query),
   getAllConditionPrices: (cardId) => ipcRenderer.invoke('prices:allConditions', cardId),
+  fetchMarketPrice: (name, setName) => ipcRenderer.invoke('prices:searchAndFetchRaw', name, setName),
 
   onPricesRefreshing: (cb) => ipcRenderer.on('prices:refreshing', cb),
   onPricesProgress: (cb) => ipcRenderer.on('prices:progress', (_e, data) => cb(data)),
   onPricesRefreshed: (cb) => ipcRenderer.on('prices:refreshed', cb),
+  onCardsChanged: (cb) => ipcRenderer.on('cards:changed', cb),
+
+  getCardShows: (stateCode, stateName) => ipcRenderer.invoke('cardshows:fetch', stateCode, stateName),
+  getGeocodeBatch: (data) => ipcRenderer.invoke('geocode:batch', data),
+  onGeocodeUpdate: (cb) => {
+    const handler = (_e, data) => cb(data)
+    ipcRenderer.on('geocode:update', handler)
+    return () => ipcRenderer.removeListener('geocode:update', handler)
+  },
+  listUpcomingShows: () => ipcRenderer.invoke('upcoming:list'),
+  addUpcomingShow: (show) => ipcRenderer.invoke('upcoming:add', show),
+  removeUpcomingShow: (showId) => ipcRenderer.invoke('upcoming:remove', showId),
+
+  openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
 
   windowMinimize: () => ipcRenderer.send('window:minimize'),
   windowMaximize: () => ipcRenderer.send('window:maximize'),

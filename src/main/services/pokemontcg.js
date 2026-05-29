@@ -1,26 +1,21 @@
 const axios = require('axios')
 
-const BASE = 'https://api.pokemontcg.io/v2'
+const BASE = 'https://api.tcgdex.net/v2/en'
 
 async function searchCards(query) {
-  const params = {}
-  const numMatch = query.match(/^\d+\/\d+$/) || query.match(/^[a-z]{2,6}\d*-\d+$/i)
-
-  if (numMatch) {
-    params.q = `number:"${query}"`
+  const params = { 'pagination:itemsPerPage': 30, 'sort:field': 'releaseDate', 'sort:order': 'DESC' }
+  if (/^\d+\/\d+$/.test(query)) {
+    params['eq:localId'] = query.split('/')[0]
   } else {
-    params.q = `name:"${query}*"`
-    params.orderBy = '-set.releaseDate'
-    params.pageSize = 30
+    params.name = query
   }
-
-  const res = await axios.get(`${BASE}/cards`, { params, timeout: 10000 })
-  return res.data.data || []
+  const res = await axios.get(`${BASE}/cards`, { params, timeout: 15000 })
+  return res.data || []
 }
 
 async function getCard(id) {
   const res = await axios.get(`${BASE}/cards/${id}`, { timeout: 10000 })
-  return res.data.data
+  return res.data
 }
 
 module.exports = { searchCards, getCard }

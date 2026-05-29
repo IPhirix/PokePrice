@@ -52,14 +52,29 @@ const CLEAR_OPTIONS = [
   { key: 'all', label: 'Everything', desc: 'Clear collection, watchlist, trades, and favorites' },
 ]
 
+// Colors match the Dashboard tab accent for each activity's parent section
 const ACTIVITY_DOT = {
-  card_added_collection: 'bg-emerald-500',
-  card_added_watchlist: 'bg-blue-500',
-  binder_created: 'bg-purple-500',
-  card_added_binder: 'bg-indigo-400',
-  alert_set: 'bg-amber-500',
-  trade_logged: 'bg-rose-400',
+  card_added_collection: '#34d399', // emerald-400 — Collection tab
+  card_added_watchlist:  '#38bdf8', // sky-400     — Watchlist tab
+  binder_created:        '#34d399', // emerald-400 — Collection tab (binders live in collection/watchlist)
+  card_added_binder:     '#34d399', // emerald-400 — Collection tab
+  card_sold:             '#34d399', // emerald-400 — Collection tab
+  alert_set:             '#fde047', // yellow-300  — Trade Analyzer tab (buy/sell price alerts)
+  trade_logged:          '#fde047', // yellow-300  — Trade Analyzer tab
+  trade_executed:        '#fde047', // yellow-300  — Trade Analyzer tab
+  trade_undone:          '#fde047', // yellow-300  — Trade Analyzer tab
+  pokemon_favorited:     '#f87171', // red-400     — Pokédex tab
+  pokemon_unfavorited:   '#f87171', // red-400     — Pokédex tab
 }
+
+const CURRENCIES = [
+  { code: 'USD', label: 'USD — US Dollar' },
+  { code: 'EUR', label: 'EUR — Euro' },
+  { code: 'GBP', label: 'GBP — British Pound' },
+  { code: 'JPY', label: 'JPY — Japanese Yen' },
+  { code: 'CAD', label: 'CAD — Canadian Dollar' },
+  { code: 'AUD', label: 'AUD — Australian Dollar' },
+]
 
 const SELECT_CLS = 'w-full px-3 py-1.5 bg-surface-700 border border-surface-500 rounded-lg text-white text-sm focus:outline-none focus:border-accent appearance-none cursor-pointer'
 
@@ -79,7 +94,7 @@ function ProfileField({ label, value }) {
   return (
     <div className="flex flex-col gap-0.5">
       <span className="text-slate-500 text-xs">{label}</span>
-      <span className="text-slate-300 text-xs truncate">{value || '—'}</span>
+      <span className="text-slate-300 text-base truncate">{value || '—'}</span>
     </div>
   )
 }
@@ -87,7 +102,7 @@ function ProfileField({ label, value }) {
 export default function AccountModal({ onClose }) {
   const { format, currency, setCurrency } = useCurrency()
   const navigate = useNavigate()
-  const [profile, setProfile] = useState({ firstName: '', username: '', country: '', state: '', email: '' })
+  const [profile, setProfile] = useState({ firstName: '', username: '', country: '', state: '', email: '', zipCode: '' })
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState({})
   const [stats, setStats] = useState(null)
@@ -108,6 +123,7 @@ export default function AccountModal({ onClose }) {
         country: p.country || p.city || '',
         state: p.state || '',
         email: p.email || '',
+        zipCode: p.zipCode || '',
       })
       setDateJoined(s.dateJoined || null)
     })
@@ -135,7 +151,9 @@ export default function AccountModal({ onClose }) {
   async function saveProfile() {
     await window.api.setSettings({ profile: draft })
     setProfile(draft)
-    if (draft.country) {
+    if (draft.currency) {
+      setCurrency(draft.currency)
+    } else if (draft.country) {
       const detected = COUNTRY_TO_CURRENCY[draft.country.toLowerCase().trim()]
       if (detected && detected !== currency) setCurrency(detected)
     }
@@ -184,7 +202,7 @@ export default function AccountModal({ onClose }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative w-full max-w-lg mx-4 bg-surface-800 border border-surface-600 rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="relative w-full max-w-xl mx-4 bg-surface-800 border border-surface-600 rounded-xl shadow-2xl overflow-hidden flex flex-col h-[85vh]">
 
         {/* Confirmation overlay */}
         {confirmClearTarget && (
@@ -212,8 +230,33 @@ export default function AccountModal({ onClose }) {
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-surface-700 flex-shrink-0">
-          <h2 className="text-white font-semibold text-base">My Account</h2>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-surface-700 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <h2 className="text-white font-semibold text-base">My Account</h2>
+            {!editing ? (
+              <button
+                onClick={() => { setDraft({ ...profile, currency }); setEditing(true) }}
+                className="px-3 py-1 text-xs font-medium bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 hover:text-white rounded-lg transition-colors"
+              >
+                Edit
+              </button>
+            ) : (
+              <div className="flex gap-1.5">
+                <button
+                  onClick={saveProfile}
+                  className="px-3 py-1 text-xs font-medium bg-emerald-900/30 hover:bg-emerald-900/50 border border-emerald-600/50 text-emerald-400 rounded-lg transition-colors"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => setEditing(false)}
+                  className="px-3 py-1 text-xs font-medium bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-400 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={onClose}
             className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-surface-700 transition-colors"
@@ -226,10 +269,31 @@ export default function AccountModal({ onClose }) {
 
         <div className="overflow-y-auto flex-1">
           {/* Profile */}
-          <div className="p-5 border-b border-surface-700">
-            <div className="flex items-start gap-4">
-              <div className="w-16 h-16 rounded-full bg-accent/20 border-2 border-accent/40 flex items-center justify-center flex-shrink-0">
-                <span className="text-accent font-bold text-xl">{initials}</span>
+          <div className="p-5">
+            <div className="flex items-center gap-6">
+              {/* Avatar + Member Since */}
+              <div className="flex flex-col items-center gap-2 flex-shrink-0 w-[120px] bg-surface-700 rounded-xl py-6 px-5">
+                <div className="relative">
+                  <div className="w-20 h-20 rounded-full bg-accent/20 border-2 border-accent/40 flex items-center justify-center">
+                    <span className="text-accent font-bold text-2xl">{initials}</span>
+                  </div>
+                  <button
+                    title="Add profile picture"
+                    className="absolute bottom-0 right-0 w-6 h-6 bg-accent rounded-full flex items-center justify-center border-2 border-surface-800 hover:bg-amber-400 transition-colors"
+                  >
+                    <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                    </svg>
+                  </button>
+                </div>
+                <div className="text-center">
+                  <p className="text-slate-500 text-xs leading-tight">Member since</p>
+                  <p className="text-slate-300 text-sm font-medium leading-tight mt-0.5">
+                    {dateJoined
+                      ? new Date(dateJoined).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+                      : '—'}
+                  </p>
+                </div>
               </div>
 
               <div className="flex-1 min-w-0">
@@ -237,19 +301,10 @@ export default function AccountModal({ onClose }) {
                   <div className="grid grid-cols-2 gap-x-4 gap-y-2">
                     <ProfileField label="Name" value={profile.firstName} />
                     <ProfileField label="Username" value={profile.username ? `@${profile.username}` : ''} />
-                    <div className="col-span-2">
-                      <ProfileField label="Email Address" value={profile.email} />
-                    </div>
+                    <ProfileField label="Email Address" value={profile.email} />
+                    <ProfileField label="Currency" value={currency} />
                     <ProfileField label="Country" value={profile.country} />
-                    <ProfileField label="State / Province" value={profile.state} />
-                    <div className="col-span-2">
-                      <ProfileField
-                        label="Member Since"
-                        value={dateJoined
-                          ? new Date(dateJoined).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })
-                          : ''}
-                      />
-                    </div>
+                    <ProfileField label="State & Zip Code" value={[profile.state, profile.zipCode].filter(Boolean).join(', ')} />
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-2">
@@ -261,13 +316,25 @@ export default function AccountModal({ onClose }) {
                         className="w-full px-3 py-1.5 bg-surface-700 border border-surface-500 rounded-lg text-white text-sm focus:outline-none focus:border-accent"
                       />
                     </div>
-                    <div className="col-span-2">
+                    <div>
                       <label className="block text-xs text-slate-400 mb-1">Email Address</label>
                       <input
                         value={draft.email || ''}
                         onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))}
                         className="w-full px-3 py-1.5 bg-surface-700 border border-surface-500 rounded-lg text-white text-sm focus:outline-none focus:border-accent"
                       />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1">Currency</label>
+                      <select
+                        value={draft.currency || currency}
+                        onChange={(e) => setDraft((d) => ({ ...d, currency: e.target.value }))}
+                        className={SELECT_CLS}
+                      >
+                        {CURRENCIES.map((c) => (
+                          <option key={c.code} value={c.code}>{c.label}</option>
+                        ))}
+                      </select>
                     </div>
                     <div>
                       <label className="block text-xs text-slate-400 mb-1">Country</label>
@@ -283,89 +350,87 @@ export default function AccountModal({ onClose }) {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">State / Province</label>
-                      {stateOptions.length > 0 ? (
-                        <select
-                          value={draft.state || ''}
-                          onChange={(e) => setDraft((d) => ({ ...d, state: e.target.value }))}
-                          className={SELECT_CLS}
-                        >
-                          <option value="">— Select —</option>
-                          {stateOptions.map((s) => (
-                            <option key={s} value={s}>{s}</option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          value={draft.state || ''}
-                          onChange={(e) => setDraft((d) => ({ ...d, state: e.target.value }))}
-                          placeholder="State / Province"
-                          className="w-full px-3 py-1.5 bg-surface-700 border border-surface-500 rounded-lg text-white text-sm focus:outline-none focus:border-accent"
-                        />
-                      )}
+                      <label className="block text-xs text-slate-400 mb-1">State &amp; Zip Code</label>
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          {stateOptions.length > 0 ? (
+                            <select
+                              value={draft.state || ''}
+                              onChange={(e) => setDraft((d) => ({ ...d, state: e.target.value }))}
+                              className={SELECT_CLS}
+                            >
+                              <option value="">— Select —</option>
+                              {stateOptions.map((s) => (
+                                <option key={s} value={s}>{s}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input
+                              value={draft.state || ''}
+                              onChange={(e) => setDraft((d) => ({ ...d, state: e.target.value }))}
+                              placeholder="State / Province"
+                              className="w-full px-3 py-1.5 bg-surface-700 border border-surface-500 rounded-lg text-white text-sm focus:outline-none focus:border-accent"
+                            />
+                          )}
+                        </div>
+                        <div className="w-24 flex-shrink-0">
+                          <input
+                            value={draft.zipCode || ''}
+                            onChange={(e) => setDraft((d) => ({ ...d, zipCode: e.target.value.replace(/\D/g, '').slice(0, 5) }))}
+                            placeholder="Zip"
+                            maxLength={5}
+                            className="w-full px-3 py-1.5 bg-surface-700 border border-surface-500 rounded-lg text-white text-sm focus:outline-none focus:border-accent"
+                          />
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex-shrink-0">
-                {!editing ? (
-                  <button
-                    onClick={() => { setDraft({ ...profile }); setEditing(true) }}
-                    className="px-3 py-1.5 text-xs font-medium bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 hover:text-white rounded-lg transition-colors"
-                  >
-                    Edit
-                  </button>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    <button
-                      onClick={saveProfile}
-                      className="px-3 py-1.5 text-xs font-medium bg-emerald-900/30 hover:bg-emerald-900/50 border border-emerald-600/50 text-emerald-400 rounded-lg transition-colors"
-                    >
-                      Save
-                    </button>
-                    <button
-                      onClick={() => setEditing(false)}
-                      className="px-3 py-1.5 text-xs font-medium bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-400 rounded-lg transition-colors"
-                    >
-                      Cancel
-                    </button>
                   </div>
                 )}
               </div>
             </div>
           </div>
 
+          <div className="h-px bg-surface-700 mx-5 my-2" />
           {/* Account Metrics */}
-          <div className="p-5 border-b border-surface-700">
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Account Metrics</h3>
+          <div className="p-4">
+            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Account Metrics</h3>
             {stats ? (
               <>
                 <div className="grid grid-cols-2 gap-2 mb-2">
-                  <div className="bg-surface-700 rounded-lg px-3 py-3">
-                    <p className="text-xs text-slate-400 mb-1">Collection Value</p>
+                  <button
+                    onClick={() => { navigate('/', { state: { tab: 'collection' } }); onClose() }}
+                    className="bg-surface-700 hover:bg-surface-600 rounded-lg px-3 py-2 text-left transition-colors"
+                  >
+                    <p className="text-xs text-slate-400 mb-0.5">Collection Value</p>
                     <p className="text-accent font-bold text-base">{format(stats.totalValue)}</p>
-                  </div>
-                  <div className="bg-surface-700 rounded-lg px-3 py-3">
-                    <p className="text-xs text-slate-400 mb-1">Total Profit / Loss</p>
+                  </button>
+                  <button
+                    onClick={() => { navigate('/', { state: { tab: 'collection' } }); onClose() }}
+                    className="bg-surface-700 hover:bg-surface-600 rounded-lg px-3 py-2 text-left transition-colors"
+                  >
+                    <p className="text-xs text-slate-400 mb-0.5">Total Profit / Loss</p>
                     <p className={`font-bold text-base ${
                       stats.totalProfit > 0 ? 'text-emerald-400' : stats.totalProfit < 0 ? 'text-red-400' : 'text-white'
                     }`}>
                       {stats.totalProfit != null ? format(stats.totalProfit) : '—'}
                     </p>
-                  </div>
+                  </button>
                 </div>
                 <div className="grid grid-cols-4 gap-2">
                   {[
-                    { label: 'Collection', value: stats.portfolioCount },
-                    { label: 'Watchlist', value: stats.watchlistCount },
-                    { label: 'Sealed', value: stats.sealedCount },
-                    { label: 'Trades', value: stats.tradeCount },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="bg-surface-700 rounded-lg px-2 py-2 text-center">
+                    { label: 'Collection',     value: stats.portfolioCount, tab: 'collection' },
+                    { label: 'Watchlist',      value: stats.watchlistCount, tab: 'watchlist'  },
+                    { label: 'Pokémon Caught', value: stats.pokemonCaught,  tab: 'pokedex'    },
+                    { label: 'Trades',         value: stats.tradeCount,     tab: 'trade'      },
+                  ].map(({ label, value, tab }) => (
+                    <button
+                      key={label}
+                      onClick={() => { navigate('/', { state: { tab } }); onClose() }}
+                      className="bg-surface-700 hover:bg-surface-600 rounded-lg px-2 py-2 text-center transition-colors"
+                    >
                       <p className="text-white font-semibold text-sm">{value}</p>
-                      <p className="text-xs text-slate-500 mt-0.5">{label}</p>
-                    </div>
+                      <p className="text-xs text-slate-500 mt-0.5 leading-tight">{label}</p>
+                    </button>
                   ))}
                 </div>
               </>
@@ -374,18 +439,22 @@ export default function AccountModal({ onClose }) {
             )}
           </div>
 
+          <div className="h-px bg-surface-700 mx-5 my-2" />
           {/* Recent Activity */}
-          <div className="p-5 border-b border-surface-700">
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Recent Activity</h3>
+          <div className="p-4">
+            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Recent Activity</h3>
             {activity.length === 0 ? (
               <p className="text-slate-500 text-sm">No activity yet.</p>
             ) : (
-              <div className="max-h-44 overflow-y-auto -mx-2 px-2 space-y-0.5">
+              <div className="max-h-32 overflow-y-auto -mx-2 px-2 space-y-0.5">
                 {activity.slice(0, 5).map((item) => {
                   const hasCard = !!item.cardId
                   return (
                     <div key={item.id} className="group flex items-start gap-3 py-2 px-2 rounded-lg">
-                      <span className={`w-2 h-2 rounded-full flex-shrink-0 mt-1 ${ACTIVITY_DOT[item.type] || 'bg-slate-500'}`} />
+                      <span
+                        className="w-2 h-2 rounded-full flex-shrink-0 mt-1"
+                        style={{ backgroundColor: ACTIVITY_DOT[item.type] || '#64748b' }}
+                      />
                       <div
                         className={`flex-1 min-w-0 flex items-start gap-3 ${hasCard ? 'hover:bg-surface-700 cursor-pointer rounded-lg -mx-1 px-1 transition-colors' : ''}`}
                         onClick={hasCard ? () => { navigate(`/card/${item.cardId}`); onClose() } : undefined}
@@ -419,9 +488,10 @@ export default function AccountModal({ onClose }) {
             )}
           </div>
 
+          <div className="h-px bg-surface-700 mx-5 my-2" />
           {/* Clear Account Data */}
-          <div className="p-5 border-b border-surface-700">
-            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Clear Account Data</h3>
+          <div className="p-4">
+            <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Clear Account Data</h3>
             <div className="flex items-center gap-2">
               <div className="relative flex-1">
                 <select
@@ -455,9 +525,10 @@ export default function AccountModal({ onClose }) {
             )}
           </div>
 
+          <div className="h-px bg-surface-700 mx-5 my-2" />
           {/* Danger Zone */}
-          <div className="p-5">
-            <h3 className="text-xs font-semibold text-red-400/70 uppercase tracking-wider mb-3">Danger Zone</h3>
+          <div className="p-4">
+            <h3 className="text-xs font-semibold text-red-400/70 uppercase tracking-wider mb-2">Danger Zone</h3>
             {!showDelete ? (
               <button
                 onClick={() => setShowDelete(true)}

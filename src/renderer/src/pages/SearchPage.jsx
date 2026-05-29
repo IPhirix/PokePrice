@@ -4,7 +4,7 @@ import BinderSelector from '../components/BinderSelector'
 import PriceChart from '../components/PriceChart'
 
 const CONDITIONS = [
-  { value: 'raw',   label: 'Raw (Ungraded)' },
+  { value: 'raw',   label: 'Raw' },
   { value: 'psa10', label: 'PSA 10' },
   { value: 'psa9',  label: 'PSA 9' },
   { value: 'psa8',  label: 'PSA 8' },
@@ -14,27 +14,36 @@ const CONDITIONS = [
 
 const RARITIES = [
   { value: '', label: 'All Rarities' },
-  { value: 'Common', label: 'Common' },
-  { value: 'Uncommon', label: 'Uncommon' },
-  { value: 'Rare', label: 'Rare' },
-  { value: 'Rare Holo', label: 'Rare Holo' },
-  { value: 'Double Rare', label: 'Double Rare' },
-  { value: 'Illustration Rare', label: 'Illustration Rare' },
-  { value: 'Special Illustration Rare', label: 'Special Illustration Rare' },
-  { value: 'Hyper Rare', label: 'Hyper Rare' },
   { value: 'ACE SPEC Rare', label: 'ACE SPEC Rare' },
+  { value: 'Amazing Rare', label: 'Amazing Rare' },
+  { value: 'Common', label: 'Common' },
+  { value: 'Double Rare', label: 'Double Rare' },
+  { value: 'Hyper Rare', label: 'Hyper Rare' },
+  { value: 'Illustration Rare', label: 'Illustration Rare' },
   { value: 'Promo', label: 'Promo' },
+  { value: 'Radiant Rare', label: 'Radiant Rare' },
+  { value: 'Rare', label: 'Rare' },
+  { value: 'Rare BREAK', label: 'Rare BREAK' },
+  { value: 'Rare Holo', label: 'Rare Holo' },
+  { value: 'Rare Prism Star', label: 'Rare Prism Star' },
+  { value: 'Rare Secret', label: 'Rare Secret' },
+  { value: 'Rare Ultra', label: 'Rare Ultra' },
   { value: 'Shiny Rare', label: 'Shiny Rare' },
   { value: 'Shiny Ultra Rare', label: 'Shiny Ultra Rare' },
-  { value: 'Radiant Rare', label: 'Radiant Rare' },
-  { value: 'Amazing Rare', label: 'Amazing Rare' },
-  { value: 'Rare BREAK', label: 'Rare BREAK' },
-  { value: 'Rare Prism Star', label: 'Rare Prism Star' },
-  { value: 'Rare Ultra', label: 'Rare Ultra' },
-  { value: 'Rare Secret', label: 'Rare Secret' },
+  { value: 'Special Illustration Rare', label: 'Special Illustration Rare' },
+  { value: 'Ultra Rare', label: 'Ultra Rare' },
+  { value: 'Uncommon', label: 'Uncommon' },
 ]
 
 let popularCache = null
+
+const VARIANT_LABELS = { normal: 'Normal', holo: 'Holo', reverse: 'Reverse Holo', firstEdition: '1st Edition', wPromo: 'Promo' }
+
+function formatVariants(variants) {
+  if (!variants) return '—'
+  const active = Object.entries(variants).filter(([, v]) => v).map(([k]) => VARIANT_LABELS[k] || k)
+  return active.length ? active.join(', ') : '—'
+}
 
 function cardPrice(card) {
   return card.cardmarket?.prices?.averageSellPrice
@@ -43,21 +52,45 @@ function cardPrice(card) {
     ?? null
 }
 
+const pptPriceCache = {}
+
+const FAV_KEY = 'pokeprice-favorites'
+function getFavs() { try { return JSON.parse(localStorage.getItem(FAV_KEY) || '{}') } catch { return {} } }
+function saveFavs(f) { localStorage.setItem(FAV_KEY, JSON.stringify(f)); window.dispatchEvent(new Event('pokeprice-favs')) }
+
 export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, onFilterByArtist }) {
   const { format } = useCurrency()
   const [addingSection, setAddingSection] = useState(null)
+  const [favs, setFavs] = useState(getFavs)
+  useEffect(() => {
+    const update = () => setFavs(getFavs())
+    window.addEventListener('pokeprice-favs', update)
+    return () => window.removeEventListener('pokeprice-favs', update)
+  }, [])
+  const favKey = (card.name || '').toLowerCase().replace(/\s+/g, '-')
+  const isFav = !!favs[favKey]
+  function toggleFav() {
+    const f = getFavs()
+    if (f[favKey]) delete f[favKey]; else f[favKey] = card.name
+    saveFavs(f)
+    window.api.appendActivity({
+      type: isFav ? 'pokemon_unfavorited' : 'pokemon_favorited',
+      message: isFav ? `Unfavorited ${card.name}` : `Favorited ${card.name}`,
+    }).catch(() => {})
+  }
   const [cardTilt, setCardTilt] = useState({ x: 0, y: 0 })
   const [inspecting, setInspecting] = useState(false)
   const [inspectTilt, setInspectTilt] = useState({ x: 0, y: 0 })
   const [priceHistory, setPriceHistory] = useState([])
   const [chartRange, setChartRange] = useState(90)
+  const [pptPrice, setPptPrice] = useState(null)
   const imgRef = useRef(null)
   const inspectImgRef = useRef(null)
 
   const inPortfolio = ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
   const inWatchlist = ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
   const ownedEntry = ownedCards.find((c) => c.tcgId === card.id)
-  const price = cardPrice(card)
+  const price = cardPrice(card) ?? pptPrice ?? (ownedEntry?.currentPrice ?? null)
 
   useEffect(() => {
     if (ownedEntry?.id) {
@@ -66,6 +99,15 @@ export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, on
       setPriceHistory([])
     }
   }, [ownedEntry?.id])
+
+  useEffect(() => {
+    if (!card.name) return
+    const cacheKey = `${card.name}|${card.set?.name || ''}`
+    if (pptPriceCache[cacheKey] !== undefined) { setPptPrice(pptPriceCache[cacheKey]); return }
+    window.api.fetchMarketPrice(card.name, card.set?.name || '')
+      .then((p) => { pptPriceCache[cacheKey] = p ?? null; setPptPrice(p ?? null) })
+      .catch(() => {})
+  }, [card.name, card.set?.name])
 
   function handleMouseMove(e) {
     if (!imgRef.current) return
@@ -114,7 +156,14 @@ export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, on
 
             {/* Header row */}
             <div className="flex items-start justify-between px-6 pt-5 pb-3 flex-shrink-0">
-              <div className="min-w-0 pr-2">
+              <div className="flex items-center gap-2 min-w-0 pr-2">
+                <button
+                  onClick={toggleFav}
+                  title={isFav ? `Unfavorite ${card.name}` : `Favorite ${card.name}`}
+                  className={`flex-shrink-0 flex items-center justify-center text-2xl transition-colors ${isFav ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-600 hover:text-yellow-400'}`}
+                >
+                  {isFav ? '★' : '☆'}
+                </button>
                 <h2 className="text-xl font-bold text-white leading-tight">
                   {card.name}{card.number ? <span className="text-slate-400 font-normal text-base ml-2">#{card.number}</span> : null}
                 </h2>
@@ -129,7 +178,13 @@ export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, on
               <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
                 <div>
                   <p className="text-slate-500 text-xs uppercase tracking-wider mb-0.5">Set</p>
-                  <p className="text-white text-sm">{card.set?.name ?? '—'}</p>
+                  <p className="text-white text-sm">
+                    {card.set
+                      ? (card.set.series && card.set.series !== card.set.name
+                          ? `${card.set.series} - ${card.set.name}`
+                          : card.set.name || '—')
+                      : '—'}
+                  </p>
                 </div>
                 <div>
                   <p className="text-slate-500 text-xs uppercase tracking-wider mb-0.5">Rarity</p>
@@ -140,8 +195,8 @@ export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, on
                   <p className="text-white text-sm">{card.types?.length > 0 ? card.types.join(', ') : '—'}</p>
                 </div>
                 <div>
-                  <p className="text-slate-500 text-xs uppercase tracking-wider mb-0.5">Card Type</p>
-                  <p className="text-white text-sm">{card.subtypes?.length > 0 ? card.subtypes.join(', ') : '—'}</p>
+                  <p className="text-slate-500 text-xs uppercase tracking-wider mb-0.5">Variant</p>
+                  <p className="text-white text-sm">{formatVariants(card.variants)}</p>
                 </div>
                 <div>
                   <p className="text-slate-500 text-xs uppercase tracking-wider mb-0.5">Illustrator</p>
@@ -381,7 +436,7 @@ export function AddModal({ card, section, onAdd, onClose }) {
                 <div>
                   <label className="text-slate-400 text-sm mb-1.5 block">Price Paid (optional)</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
                     <input
                       type="number" min="0.01" step="0.01" value={purchasePrice}
                       onChange={(e) => setPurchasePrice(e.target.value)}
@@ -396,7 +451,7 @@ export function AddModal({ card, section, onAdd, onClose }) {
                 <div className="flex-1">
                   <label className="text-emerald-500 text-sm mb-1.5 block font-medium">Buy Price Alert (optional)</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
                     <input
                       type="number" min="0.01" step="0.01" value={targetBuyPrice}
                       onChange={(e) => setTargetBuyPrice(e.target.value)}
@@ -408,7 +463,7 @@ export function AddModal({ card, section, onAdd, onClose }) {
                 <div className="flex-1">
                   <label className="text-red-400 text-sm mb-1.5 block font-medium">Sell Price Alert (optional)</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
                     <input
                       type="number" min="0.01" step="0.01" value={targetSellPrice}
                       onChange={(e) => setTargetSellPrice(e.target.value)}
@@ -522,7 +577,7 @@ function SealedAddModal({ product, section, onAdd, onClose }) {
                 <div>
                   <label className="text-slate-400 text-sm mb-1.5 block">Price Paid (optional)</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
                     <input
                       type="number" min="0.01" step="0.01" value={purchasePrice}
                       onChange={(e) => setPurchasePrice(e.target.value)}
@@ -537,7 +592,7 @@ function SealedAddModal({ product, section, onAdd, onClose }) {
                 <div className="flex-1">
                   <label className="text-emerald-500 text-sm mb-1.5 block font-medium">Buy Price Alert (optional)</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
                     <input
                       type="number" min="0.01" step="0.01" value={targetBuyPrice}
                       onChange={(e) => setTargetBuyPrice(e.target.value)}
@@ -549,7 +604,7 @@ function SealedAddModal({ product, section, onAdd, onClose }) {
                 <div className="flex-1">
                   <label className="text-red-400 text-sm mb-1.5 block font-medium">Sell Price Alert (optional)</label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">$</span>
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
                     <input
                       type="number" min="0.01" step="0.01" value={targetSellPrice}
                       onChange={(e) => setTargetSellPrice(e.target.value)}
@@ -604,7 +659,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
   const [hasSearched, setHasSearched] = useState(false)
   const [addModal,  setAddModal]    = useState(null)
   const [ownedCards, setOwnedCards] = useState([])
-  const [sortOrder,  setSortOrder]  = useState('name')
+  const [sortOrder,  setSortOrder]  = useState('released_desc')
   const [lightboxCard, setLightboxCard] = useState(null)
   const [binderFilter, setBinderFilter] = useState('')
   const [mode, setMode] = useState('sets') // 'cards' | 'sets' | 'sealed'
@@ -707,6 +762,22 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
   }, [browsedSet])
 
   useEffect(() => {
+    if (!browsedSet) return
+    window.history.pushState({ pokeprice: 'browsedSet' }, '')
+    function handlePopState() { setBrowsedSet(null) }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [browsedSet])
+
+  useEffect(() => {
+    if (!browsedBinder) return
+    window.history.pushState({ pokeprice: 'browsedBinder' }, '')
+    function handlePopState() { setBrowsedBinder(null) }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [browsedBinder])
+
+  useEffect(() => {
     if (!setDropdownOpen) return
     function handleClickOutside(e) {
       if (setDropdownRef.current && !setDropdownRef.current.contains(e.target)) {
@@ -718,23 +789,110 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
   }, [setDropdownOpen])
 
   async function runSearch(name = nameQuery, set = setQuery, rar = rarity, artist = artistFilter) {
-    const parts = []
-    if (name.trim())   parts.push(`name:"${name.trim()}*"`)
-    if (set.trim())    parts.push(`set.name:"${set.trim()}"`)
-    if (rar)           parts.push(`rarity:"${rar}"`)
-    if (artist.trim()) parts.push(`artist:"${artist.trim()}"`)
-    if (!parts.length) return
+    const extraParts = []
+    if (set.trim())    extraParts.push(`set.name:"${set.trim()}"`)
+    if (rar)           extraParts.push(`rarity:"${rar}"`)
+    if (artist.trim()) extraParts.push(`artist:"${artist.trim()}"`)
+
+    const q = name.trim()
+    if (!q && !extraParts.length) return
+
+    // Append active dropdown filters to any query string
+    const searchWith = (queryStr) =>
+      window.api.searchCardsAdvanced([queryStr, ...extraParts].join(' ')).catch(() => [])
 
     setLoading(true)
     setError(null)
     setHasSearched(true)
     try {
-      const cards = await window.api.searchCardsAdvanced(parts.join(' '))
-      setResults(cards)
+      let merged = []
+
+      if (!q) {
+        // Filters only — no name query
+        merged = await window.api.searchCardsAdvanced(extraParts.join(' ')).catch(() => [])
+      } else {
+        const hashMatch = q.match(/^(.*?)\s*#(\w+)\s*$/)
+        if (hashMatch) {
+          const namePart = hashMatch[1].trim()
+          const rawNum = hashMatch[2]
+          const targetNum = parseInt(rawNum, 10)
+          const isNumeric = !isNaN(targetNum)
+          if (namePart) {
+            const allCards = await searchWith(`name:"${namePart}*"`)
+            const matched = []; const rest = []
+            for (const c of allCards) {
+              const cn = String(c.number || '')
+              const hits = isNumeric ? parseInt(cn, 10) === targetNum : cn.toUpperCase() === rawNum.toUpperCase()
+              ;(hits ? matched : rest).push(c)
+            }
+            merged = matched.length > 0 && rest.length > 0
+              ? [...matched, { _divider: true, id: '__divider__' }, ...rest]
+              : [...matched, ...rest]
+          } else {
+            const numVariants = isNumeric
+              ? [...new Set([rawNum, String(targetNum), String(targetNum).padStart(3, '0')])]
+              : [rawNum]
+            const seen = new Set()
+            const batches = await Promise.all(numVariants.map((v) => searchWith(`number:"${v}"`)))
+            for (const batch of batches) for (const c of batch) if (!seen.has(c.id)) { seen.add(c.id); merged.push(c) }
+          }
+        } else {
+          const trailingMatch = q.match(/^(.+?)\s+(\d+)\s*$/)
+          if (trailingMatch) {
+            const namePart = trailingMatch[1].trim()
+            const rawNum = trailingMatch[2]
+            const targetNum = parseInt(rawNum, 10)
+            const hasSetFilter = !!set.trim()
+            // Only try trailing-as-set-name when no set is already selected in the dropdown
+            const [allCards, setCards] = await Promise.all([
+              searchWith(`name:"${namePart}*"`),
+              hasSetFilter ? Promise.resolve([]) : searchWith(`name:"${namePart}*" set.name:"${rawNum}"`)
+            ])
+            const seen = new Set()
+            const matched = []; const rest = []
+            for (const c of allCards) if (parseInt(String(c.number || ''), 10) === targetNum && !seen.has(c.id)) { seen.add(c.id); matched.push(c) }
+            for (const c of setCards) if (!seen.has(c.id)) { seen.add(c.id); rest.push(c) }
+            for (const c of allCards) if (!seen.has(c.id)) { seen.add(c.id); rest.push(c) }
+            merged = matched.length > 0 && rest.length > 0
+              ? [...matched, { _divider: true, id: '__divider__' }, ...rest]
+              : [...matched, ...rest]
+          } else {
+            // Plain text — try name, set.name, and every word-split name+set combo
+            const words = q.split(/\s+/)
+            const hasSetFilter = !!set.trim()
+            const allSearches = [searchWith(`name:"${q}*"`)]
+            if (!hasSetFilter) {
+              allSearches.push(searchWith(`set.name:"${q}"`))
+              for (let i = 1; i < words.length; i++) {
+                const namePart = words.slice(0, i).join(' ')
+                const setPart = words.slice(i).join(' ')
+                allSearches.push(searchWith(`name:"${namePart}*" set.name:"${setPart}"`))
+              }
+            }
+            const seen = new Set()
+            const batches = await Promise.all(allSearches)
+            for (const batch of batches) for (const c of batch) if (!seen.has(c.id)) { seen.add(c.id); merged.push(c) }
+          }
+        }
+      }
+
+      if (rar) merged = merged.filter((c) => c._divider || c.rarity === rar)
+      setResults(merged)
     } catch {
       setError('Search failed. Check your internet connection.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function openCardModal(card) {
+    setLightboxCard(card)
+    if (card.id && !card.rarity && !card.artist && !card.types?.length) {
+      const results = await window.api.searchCardsAdvanced(`id:"${card.id}"`).catch(() => [])
+      const fetched = results?.[0]
+      if (fetched) {
+        setLightboxCard((prev) => (prev?.id === card.id ? fetched : prev))
+      }
     }
   }
 
@@ -807,7 +965,16 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
   }, [ownedCards])
 
   const allSeries = useMemo(() => {
-    const s = new Set(allSets.map((s) => s.series).filter(Boolean))
+    const s = new Set(
+      allSets
+        .map((s) => s.series)
+        .filter((series) => {
+          if (!series) return false
+          const sl = series.toLowerCase()
+          if (sl.includes('mcdonald') || sl.includes('pocket')) return false
+          return true
+        })
+    )
     return Array.from(s).sort()
   }, [allSets])
 
@@ -818,11 +985,17 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     return Array.from(y).sort().reverse()
   }, [allSets])
 
+  const setDateMap = useMemo(() => new Map(allSets.map((s) => [s.id, s.releaseDate || ''])), [allSets])
+
   const setsFiltered = useMemo(() => {
     const q = setsQuery.trim().toLowerCase()
     return [...allSets]
       .filter((s) => {
-        if (q && !s.name.toLowerCase().includes(q)) return false
+        const nameLower = (s.name || '').toLowerCase()
+        const seriesLower = (s.series || '').toLowerCase()
+        if (nameLower.includes("mcdonald") || seriesLower.includes("mcdonald")) return false
+        if (seriesLower.includes("pocket")) return false
+        if (q && !nameLower.includes(q)) return false
         if (seriesFilter && s.series !== seriesFilter) return false
         if (yearFilter) {
           const year = (s.releaseDate || '').split('/')[0].split('-')[0]
@@ -830,7 +1003,11 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
         }
         return true
       })
-      .sort((a, b) => (b.releaseDate || '').localeCompare(a.releaseDate || ''))
+      .sort((a, b) => {
+        const da = a.releaseDate ? new Date(a.releaseDate.replace(/\//g, '-')).getTime() : 0
+        const db = b.releaseDate ? new Date(b.releaseDate.replace(/\//g, '-')).getTime() : 0
+        return db - da
+      })
   }, [allSets, setsQuery, seriesFilter, yearFilter])
 
   const setRarities = useMemo(() => {
@@ -878,7 +1055,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
       .map((c) => ({ id: c.tcgId, name: c.name, images: { small: c.imageUrl }, set: { name: c.setName }, number: c.number, rarity: c.rarity, _owned: c }))
   }, [browsedBinder, ownedCards])
 
-  const sortedResults = [...baseResults].sort((a, b) => {
+  const sortCompareFn = (a, b) => {
     if (sortOrder === 'name')         return a.name.localeCompare(b.name)
     if (sortOrder === 'set_asc') {
       const setCmp = (a.set?.name ?? '').localeCompare(b.set?.name ?? '')
@@ -888,17 +1065,32 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     if (sortOrder === 'number_desc')  return parseCardNum(b.number) - parseCardNum(a.number)
     if (sortOrder === 'price')        return (cardPrice(b) ?? -Infinity) - (cardPrice(a) ?? -Infinity)
     if (sortOrder === 'price_low')    return (cardPrice(a) ?? Infinity)  - (cardPrice(b) ?? Infinity)
+    if (sortOrder === 'released_desc' || sortOrder === 'released_asc') {
+      const da = setDateMap.get(a.set?.id) || ''
+      const db = setDateMap.get(b.set?.id) || ''
+      const cmp = db.localeCompare(da)
+      return sortOrder === 'released_desc' ? cmp : -cmp
+    }
     return 0
-  })
+  }
+  const _divIdx = baseResults.findIndex((c) => c._divider)
+  const sortedResults = _divIdx === -1
+    ? [...baseResults].sort(sortCompareFn)
+    : [
+        ...[...baseResults.slice(0, _divIdx)].sort(sortCompareFn),
+        { _divider: true, id: '__divider__' },
+        ...[...baseResults.slice(_divIdx + 1)].sort(sortCompareFn),
+      ]
 
   const displayResults = useMemo(() => {
     if (!browsedSet) return sortedResults
     return sortedResults.filter((card) => {
+      if (card._divider) return true
       if (setRarityFilter && card.rarity !== setRarityFilter) return false
-      if (setCollectionFilter === 'owned')     return ownedCards.some((c) => c.tcgId === card.id)
+      if (setCollectionFilter === 'owned')      return ownedCards.some((c) => c.tcgId === card.id)
       if (setCollectionFilter === 'collection') return ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
-      if (setCollectionFilter === 'watchlist') return ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
-      if (setCollectionFilter === 'not_owned') return !ownedCards.some((c) => c.tcgId === card.id)
+      if (setCollectionFilter === 'watchlist')  return ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
+      if (setCollectionFilter === 'not_owned')  return !ownedCards.some((c) => c.tcgId === card.id)
       return true
     })
   }, [sortedResults, setRarityFilter, setCollectionFilter, ownedCards, browsedSet])
@@ -975,7 +1167,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                       value={setSearch}
                       onChange={(e) => setSetSearch(e.target.value)}
                       onKeyDown={(e) => { if (e.key === 'Escape') setSetDropdownOpen(false) }}
-                      placeholder="Search sets…"
+                      placeholder="Search by name or code (e.g. SWSH)…"
                       className="w-full bg-surface-800 border border-surface-600 rounded px-2.5 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
                     />
                   </div>
@@ -988,15 +1180,19 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                       Any set
                     </button>
                     {allSets
-                      .filter((s) => s.name.toLowerCase().includes(setSearch.toLowerCase()))
+                      .filter((s) => {
+                        const q = setSearch.toLowerCase()
+                        return s.name.toLowerCase().includes(q) || (s.ptcgoCode || '').toLowerCase().includes(q)
+                      })
                       .map((s) => (
                         <button
                           key={s.id}
                           type="button"
                           onClick={() => { setSetQuery(s.name); setSetDropdownOpen(false) }}
-                          className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-600 transition-colors ${setQuery === s.name ? 'text-accent' : 'text-white'}`}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-600 transition-colors flex items-center justify-between gap-2 ${setQuery === s.name ? 'text-accent' : 'text-white'}`}
                         >
-                          {s.name}
+                          <span className="truncate">{s.name}</span>
+                          {s.ptcgoCode && <span className="text-slate-500 text-xs flex-shrink-0">{s.ptcgoCode}</span>}
                         </button>
                       ))
                     }
@@ -1005,9 +1201,15 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
               )}
             </div>
             <div className="w-52 flex-shrink-0">
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Card Type / Rarity</label>
+              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Rarity</label>
               <select
-                value={rarity} onChange={(e) => setRarity(e.target.value)}
+                value={rarity} onChange={(e) => {
+                  const v = e.target.value
+                  setRarity(v)
+                  if (hasSearched && (nameQuery.trim() || setQuery.trim() || v || artistFilter.trim())) {
+                    runSearch(nameQuery, setQuery, v, artistFilter)
+                  }
+                }}
                 className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
               >
                 {RARITIES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
@@ -1040,6 +1242,8 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                 value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}
                 className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
               >
+                <option value="released_desc">Released (Newest First)</option>
+                <option value="released_asc">Released (Oldest First)</option>
                 <option value="name">Name (A → Z)</option>
                 <option value="set_asc">Set</option>
                 <option value="number_asc">Card Number (Low → High)</option>
@@ -1051,9 +1255,19 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
               <button
                 onClick={() => runSearch()}
                 disabled={loading || !canSearch || !!binderFilter}
-                className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-black font-bold rounded-lg text-sm transition-colors whitespace-nowrap"
+                className="px-4 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-40 text-black font-bold rounded-lg text-sm transition-colors flex items-center gap-1.5 whitespace-nowrap"
               >
-                {loading ? 'Searching…' : 'Search'}
+                {loading ? (
+                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
+                  </svg>
+                )}
+                <span>{loading ? 'Searching…' : 'Search'}</span>
               </button>
               <button
                 onClick={() => {
@@ -1062,7 +1276,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                   setRarity('')
                   setBinderFilter('')
                   setArtistFilter('')
-                  setSortOrder('name')
+                  setSortOrder('released_desc')
                   setError(null)
                   loadPopular()
                 }}
@@ -1234,19 +1448,21 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                           <span className="text-slate-500 text-xs">{releaseDate}</span>
                         </div>
                       )}
-                      {set.images?.logo ? (
+                      <p className="text-white font-bold text-center text-sm">{set.name}</p>
+                      {set.images?.logo && (
                         <img
                           src={set.images.logo}
                           alt={set.name}
-                          className="max-h-full max-w-full object-contain"
+                          className="absolute inset-0 max-h-full max-w-full object-contain m-auto p-4"
                           onError={(e) => (e.target.style.display = 'none')}
                         />
-                      ) : (
-                        <p className="text-white font-bold text-center text-sm">{set.name}</p>
                       )}
                     </div>
                     <div className="p-3">
                       <p className="text-white text-sm font-semibold truncate mb-1.5">
+                        {set.series && set.series !== set.name && (
+                          <span className="text-slate-400 font-normal">{set.series} - </span>
+                        )}
                         {set.name}
                         {set.ptcgoCode && <span className="text-slate-500 font-normal ml-1">({set.ptcgoCode})</span>}
                       </p>
@@ -1423,6 +1639,8 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
               onChange={(e) => setSortOrder(e.target.value)}
               className="bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
             >
+              <option value="released_desc">Released (Newest First)</option>
+              <option value="released_asc">Released (Oldest First)</option>
               <option value="name">Name (A → Z)</option>
               <option value="number_asc">Card Number (Low → High)</option>
               <option value="number_desc">Card Number (High → Low)</option>
@@ -1467,24 +1685,22 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
           {!sealedLoading && sealedResults.length > 0 && (
             <div className="flex flex-col gap-2">
               {sealedResults.map((product) => {
-                const name = product['product-name'] || product.name || 'Unknown'
-                const category = product['console-name'] || 'Sealed Product'
-                const loosePrice = product['loose-price'] ? product['loose-price'] / 100 : null
-                const newPrice = product['new-price'] ? product['new-price'] / 100 : null
-                const displayPrice = loosePrice || newPrice
-                const alreadyOwned = ownedCards.some((c) => c.pricechartingId === product.id)
+                const name = product.name || product['product-name'] || 'Unknown'
+                const category = product.setName || product['console-name'] || 'Sealed Product'
+                const displayPrice = product.prices?.market ?? null
+                const alreadyOwned = ownedCards.some((c) => c.pptId === product.tcgPlayerId)
                 return (
                   <div
-                    key={product.id}
+                    key={product.tcgPlayerId || product.id}
                     className={`bg-surface-800 border rounded-xl px-4 py-3 flex items-center gap-4 ${alreadyOwned ? 'border-emerald-500/50' : 'border-surface-600'}`}
                   >
                     <div className="w-14 h-14 flex-shrink-0 bg-surface-700 rounded-lg overflow-hidden relative flex items-center justify-center">
                       <svg className="w-7 h-7 text-slate-500 absolute" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                       </svg>
-                      {product.image && (
+                      {(product.imageUrl || product.image || product.img || product['image-url'] || product.thumbnail) && (
                         <img
-                          src={product.image}
+                          src={product.imageUrl || product.image || product.img || product['image-url'] || product.thumbnail}
                           alt={name}
                           className="w-full h-full object-contain relative z-10"
                           onError={(e) => e.target.remove()}
@@ -1598,21 +1814,33 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
 
             return (
               <div key={card._owned?.id ?? card.id} className={`relative bg-surface-800 rounded-xl p-3 flex flex-col transition-colors ${inPortfolio || inWatchlist ? 'border-2 border-emerald-500/70 hover:border-emerald-400/80' : 'border border-surface-600 hover:border-surface-500'}`}>
-                {favNames.some((n) => { const cn = (card.name || '').toLowerCase(); const fn = (n || '').toLowerCase(); return cn === fn || cn.startsWith(fn + ' ') || cn.startsWith(fn + '-') }) && (
+                {favNames.some((n) => { const cn = (card.name || '').toLowerCase(); const fn = (n || '').toLowerCase(); return fn && (cn === fn || cn.includes(fn)) }) && (
                   <span className="absolute top-1.5 right-1.5 text-yellow-400 text-sm leading-none pointer-events-none z-10">★</span>
                 )}
                 <div
                   className="flex justify-center h-36 items-center mb-2 cursor-pointer"
-                  onClick={() => setLightboxCard(card)}
+                  onClick={() => openCardModal(card)}
                 >
-                  <img
-                    src={card.images?.small} alt={card.name}
-                    className="max-h-full object-contain rounded hover:opacity-90 transition-opacity"
-                    onError={(e) => (e.target.style.display = 'none')}
-                  />
+                  {card.images?.small ? (
+                    <img
+                      src={card.images.small} alt={card.name}
+                      className="max-h-full object-contain rounded hover:opacity-90 transition-opacity"
+                      onError={(e) => { e.target.style.display = 'none'; e.target.nextElementSibling.style.display = 'flex' }}
+                    />
+                  ) : null}
+                  <div style={{ display: card.images?.small ? 'none' : 'flex' }} className="flex-col items-center justify-center w-full h-full text-slate-600 gap-1">
+                    <svg width="28" height="36" viewBox="0 0 28 36" fill="none">
+                      <rect x="1" y="1" width="26" height="34" rx="3" stroke="currentColor" strokeWidth="1.5"/>
+                      <circle cx="14" cy="15" r="5" stroke="currentColor" strokeWidth="1.5"/>
+                      <path d="M5 28 Q14 22 23 28" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                    <span className="text-xs">No image</span>
+                  </div>
                 </div>
-                <p className="text-white text-sm font-semibold leading-tight mb-0.5 text-center truncate">{card.name}{card.number ? ` #${card.number}` : ''}</p>
-                <p className="text-slate-400 text-xs mb-0.5 text-center truncate">{card.set?.name}{card.rarity ? ` · ${card.rarity}` : ''}</p>
+                <p className="text-white text-sm font-semibold leading-tight mb-0.5 text-center truncate">
+                  {card.name}{card.number ? <span className="text-slate-400 font-normal"> #{card.number}</span> : ''}
+                </p>
+                <p className="text-slate-400 text-xs mb-0.5 text-center truncate">{[card.set?.series, card.set?.name].filter(Boolean).join(' - ')}</p>
                 {price != null && (
                   <span className="self-start text-xs font-semibold px-1.5 py-0.5 rounded-full bg-surface-700 text-slate-300 mt-1">
                     {format(price)} RAW
@@ -1664,65 +1892,54 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
       {!loading && baseResults.length > 0 && (mode === 'cards' || browsedSet) && (
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
           {displayResults.map((card) => {
+            if (card._divider) {
+              return (
+                <div key="__divider__" className="col-span-full flex items-center gap-3 py-2 select-none">
+                  <div className="flex-1 h-px bg-surface-600" />
+                  <span className="text-xs text-slate-500 font-medium">Similar Items</span>
+                  <div className="flex-1 h-px bg-surface-600" />
+                </div>
+              )
+            }
+            const price = cardPrice(card)
             const inPortfolio = ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
             const inWatchlist = ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
-            const price = cardPrice(card)
+            const isFav = favNames.some((n) => { const cn = (card.name || '').toLowerCase(); const fn = (n || '').toLowerCase(); return fn && (cn === fn || cn.includes(fn)) })
             return (
-              <div key={card.id} className={`relative bg-surface-800 rounded-xl p-3 flex flex-col transition-colors ${inPortfolio || inWatchlist ? 'border-2 border-emerald-500/70 hover:border-emerald-400/80' : 'border border-surface-600 hover:border-surface-500'}`}>
-                {favNames.some((n) => { const cn = (card.name || '').toLowerCase(); const fn = (n || '').toLowerCase(); return cn === fn || cn.startsWith(fn + ' ') || cn.startsWith(fn + '-') }) && (
-                  <span className="absolute top-1.5 right-1.5 text-yellow-400 text-sm leading-none pointer-events-none z-10">★</span>
+              <div key={card.id} onClick={() => openCardModal(card)} className="relative border border-surface-600 hover:border-surface-400 rounded-xl p-2 bg-surface-800 transition-colors cursor-pointer">
+                {isFav && (
+                  <span className="absolute top-2 left-2 text-yellow-400 text-xl leading-none pointer-events-none z-10">★</span>
                 )}
-                <div
-                  className="flex justify-center h-36 items-center mb-2 cursor-pointer"
-                  onClick={() => setLightboxCard(card)}
-                >
-                  <img
-                    src={card.images?.small} alt={card.name}
-                    className="max-h-full object-contain rounded hover:opacity-90 transition-opacity"
-                    onError={(e) => (e.target.style.display = 'none')}
-                  />
+                {(inPortfolio || inWatchlist) && (
+                  <div className="absolute top-1.5 right-1.5 flex flex-col gap-0.5 z-10 pointer-events-none">
+                    {inPortfolio && <span className="text-[11px] font-bold px-2 py-1 rounded bg-accent text-black leading-none">Collection</span>}
+                    {inWatchlist && <span className="text-[11px] font-bold px-2 py-1 rounded bg-sky-500 text-white leading-none">Watchlist</span>}
+                  </div>
+                )}
+                <div className="aspect-[5/7] w-full">
+                  {card.images?.small ? (
+                    <img
+                      src={card.images.small} alt={card.name}
+                      className="w-full h-full object-contain rounded-lg"
+                      onError={(e) => { e.target.style.display = 'none'; e.target.nextElementSibling.style.display = 'flex' }}
+                    />
+                  ) : null}
+                  <div style={{ display: card.images?.small ? 'none' : 'flex' }} className="w-full h-full bg-surface-700 rounded-lg flex-col items-center justify-center text-slate-600 gap-1">
+                    <svg width="28" height="36" viewBox="0 0 28 36" fill="none">
+                      <rect x="1" y="1" width="26" height="34" rx="3" stroke="currentColor" strokeWidth="1.5"/>
+                      <circle cx="14" cy="15" r="5" stroke="currentColor" strokeWidth="1.5"/>
+                      <path d="M5 28 Q14 22 23 28" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    </svg>
+                    <span className="text-xs">No image</span>
+                  </div>
                 </div>
-                <p className="text-white text-sm font-semibold leading-tight mb-0.5 text-center truncate">{card.name}{card.number ? ` #${card.number}` : ''}</p>
-                <p className="text-slate-400 text-xs mb-0.5 text-center truncate">{card.set?.name}{card.rarity ? ` · ${card.rarity}` : ''}</p>
-                {price != null && (
-                  <span className="self-start text-xs font-semibold px-1.5 py-0.5 rounded-full bg-surface-700 text-slate-300 mt-1">
-                    {format(price)} RAW
-                  </span>
-                )}
-                <div className="mt-auto flex gap-1.5 pt-2">
-                  {inPortfolio ? (
-                    <div className="flex-1 flex items-center justify-between bg-accent/10 border border-accent/30 rounded-lg px-2.5 py-1.5">
-                      <span className="text-accent text-xs font-bold">✓ Collection</span>
-                      <button
-                        onClick={() => handleRemove(card, 'collection')}
-                        className="text-accent/50 hover:text-red-400 transition-colors text-base leading-none ml-1 flex-shrink-0"
-                        title="Remove from Collection"
-                      >×</button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setAddModal({ card, section: 'collection' })}
-                      className="flex-1 bg-accent hover:bg-accent-hover text-black text-xs font-bold py-1.5 rounded-lg transition-colors"
-                    >
-                      + Collection
-                    </button>
-                  )}
-                  {inWatchlist ? (
-                    <div className="flex-1 flex items-center justify-between bg-sky-500/10 border border-sky-500/30 rounded-lg px-2.5 py-1.5">
-                      <span className="text-sky-400 text-xs font-bold">✓ Watchlist</span>
-                      <button
-                        onClick={() => handleRemove(card, 'watchlist')}
-                        className="text-sky-400/50 hover:text-red-400 transition-colors text-base leading-none ml-1 flex-shrink-0"
-                        title="Remove from Watchlist"
-                      >×</button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setAddModal({ card, section: 'watchlist' })}
-                      className="flex-1 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold py-1.5 rounded-lg transition-colors"
-                    >
-                      + Watchlist
-                    </button>
+                <div className="mt-2 px-0.5">
+                  <p className="text-white text-xs font-semibold leading-tight text-center truncate">
+                    {card.name}{card.number ? <span className="text-slate-400 font-normal"> #{card.number}</span> : ''}
+                  </p>
+                  <p className="text-slate-500 text-xs text-center truncate mt-0.5">{[card.set?.series, card.set?.name].filter(Boolean).join(' - ')}</p>
+                  {price != null && (
+                    <p className="text-slate-300 text-xs font-semibold text-center mt-1">{format(price)}</p>
                   )}
                 </div>
               </div>

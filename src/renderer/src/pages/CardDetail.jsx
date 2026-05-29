@@ -1,6 +1,34 @@
 import { useState, useEffect, useRef } from 'react'
 
 const tcgCache = {} // tcgId → full TCG card object, shared across CardDetail instances
+
+function seriesFromSetId(id) {
+  if (!id) return ''
+  if (id.startsWith('sv'))   return 'Scarlet & Violet'
+  if (id.startsWith('swsh')) return 'Sword & Shield'
+  if (id.startsWith('sm'))   return 'Sun & Moon'
+  if (id.startsWith('xy'))   return 'XY'
+  if (id.startsWith('bw'))   return 'Black & White'
+  if (id.startsWith('hgss')) return 'HeartGold & SoulSilver'
+  if (id.startsWith('dp'))   return 'Diamond & Pearl'
+  if (id.startsWith('ex'))   return 'EX'
+  if (id.startsWith('pop'))  return 'POP'
+  if (id.startsWith('neo'))  return 'Neo'
+  if (id.startsWith('gym'))  return 'Gym'
+  if (id.startsWith('base')) return 'Base'
+  return ''
+}
+
+function PriceSpinner({ size = 'md' }) {
+  const cls = size === 'sm' ? 'w-4 h-4' : 'w-6 h-6'
+  return (
+    <svg className={`${cls} animate-spin text-slate-500`} viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  )
+}
+
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import PriceChart from '../components/PriceChart'
 import PriceChangeIndicator from '../components/PriceChangeIndicator'
@@ -13,11 +41,11 @@ import NotificationPanel from '../components/NotificationPanel'
 import { useAlerts } from '../context/AlertsContext'
 
 const CONDITION_LABEL = {
-  raw: 'Raw (Ungraded)', psa10: 'PSA 10', psa9: 'PSA 9',
+  raw: 'Raw', psa10: 'PSA 10', psa9: 'PSA 9',
   psa8: 'PSA 8', cgc10: 'CGC 10', cgc9: 'CGC 9'
 }
 const CONDITIONS = [
-  { value: 'raw',   label: 'Raw (Ungraded)' },
+  { value: 'raw',   label: 'Raw' },
   { value: 'psa10', label: 'PSA 10' },
   { value: 'psa9',  label: 'PSA 9' },
   { value: 'psa8',  label: 'PSA 8' },
@@ -35,10 +63,10 @@ const CHART_RANGES = [
 ]
 
 const GRADE_SLOTS = [
-  { display: 'Ungraded', keys: ['Ungraded'],          condKey: 'raw' },
-  { display: 'PSA 8',    keys: ['Grade 8'],            condKey: 'psa8' },
-  { display: 'PSA 9',    keys: ['Grade 9'],            condKey: 'psa9' },
-  { display: 'PSA 10',   keys: ['Grade 10 / PSA 10'], condKey: 'psa10' },
+  { display: 'Ungraded', keys: ['Ungraded'], condKey: 'raw' },
+  { display: 'PSA 8',    keys: ['PSA 8'],    condKey: 'psa8' },
+  { display: 'PSA 9',    keys: ['PSA 9'],    condKey: 'psa9' },
+  { display: 'PSA 10',   keys: ['PSA 10'],   condKey: 'psa10' },
 ]
 
 const COND_TO_GRADE = { raw: 'Ungraded', psa10: 'PSA 10', psa9: 'PSA 9', psa8: 'PSA 8' }
@@ -111,7 +139,7 @@ const CONDITION_COLOR = {
   cgc9:  'bg-zinc-500/50 text-zinc-100',
 }
 
-function PricesByGrade({ cardId, dayChangeMap = {}, fillHeight = false }) {
+function PricesByGrade({ cardId, dayChangeMap = {}, fillHeight = false, onPricesLoaded }) {
   const [prices, setPrices] = useState(null)
   const [loading, setLoading] = useState(true)
   const { format } = useCurrency()
@@ -119,7 +147,7 @@ function PricesByGrade({ cardId, dayChangeMap = {}, fillHeight = false }) {
   useEffect(() => {
     setLoading(true)
     window.api.getAllConditionPrices(cardId)
-      .then(setPrices)
+      .then(data => { setPrices(data); onPricesLoaded?.() })
       .finally(() => setLoading(false))
   }, [cardId])
 
@@ -141,7 +169,7 @@ function PricesByGrade({ cardId, dayChangeMap = {}, fillHeight = false }) {
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-medium text-slate-300">Current Prices by Grade</h3>
         <span className="text-slate-600 text-xs">
-          {loading ? 'Loading...' : 'PriceCharting.com'}
+          {loading ? 'Loading...' : 'pokemonpricetracker.com'}
         </span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -154,18 +182,26 @@ function PricesByGrade({ cardId, dayChangeMap = {}, fillHeight = false }) {
           return (
             <div key={label} className="bg-surface-900 rounded-lg p-3">
               <span className={`text-xs px-2 py-0.5 rounded-full font-semibold mb-2 inline-block ${CONDITION_COLOR[condKey] || 'bg-slate-700 text-slate-300'}`}>{label}</span>
-              <div className="flex items-center gap-2">
-                <p className={`font-bold text-3xl leading-tight ${price != null ? 'text-white' : 'text-slate-600'}`}>
-                  {price != null ? format(price) : '—'}
-                </p>
-                <div className="flex flex-col leading-tight">
-                  <span className={`text-xs font-medium ${isDollarPos ? 'text-emerald-500' : 'text-red-400'}`}>
-                    {isDollarPos ? '+' : '−'}{format(Math.abs(dollar))}
-                  </span>
-                  <span className={`text-xs font-semibold ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {isPos ? '+' : ''}{pct.toFixed(1)}%
-                  </span>
-                </div>
+              <div className="flex items-center gap-2 min-h-[2.25rem]">
+                {loading ? (
+                  <PriceSpinner />
+                ) : (
+                  <>
+                    <p className={`font-bold text-3xl leading-tight ${price != null ? 'text-white' : 'text-slate-600'}`}>
+                      {price != null ? format(price) : '—'}
+                    </p>
+                    {price != null && (
+                      <div className="flex flex-col leading-tight">
+                        <span className={`text-xs font-medium ${isDollarPos ? 'text-emerald-500' : 'text-red-400'}`}>
+                          {isDollarPos ? '+' : '−'}{format(Math.abs(dollar))}
+                        </span>
+                        <span className={`text-xs font-semibold ${isPos ? 'text-emerald-600' : 'text-red-600'}`}>
+                          {isPos ? '+' : ''}{pct.toFixed(1)}%
+                        </span>
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             </div>
           )
@@ -175,7 +211,7 @@ function PricesByGrade({ cardId, dayChangeMap = {}, fillHeight = false }) {
   )
 }
 
-function PriceChartingLinker({ card, onLinked }) {
+function PPTLinker({ card, onLinked }) {
   const [editing, setEditing] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
@@ -188,7 +224,7 @@ function PriceChartingLinker({ card, onLinked }) {
     setSearching(true)
     setResults([])
     try {
-      const r = await window.api.searchPriceCharting(query.trim())
+      const r = await window.api.searchPPT(query.trim())
       setResults(r)
     } finally {
       setSearching(false)
@@ -198,8 +234,8 @@ function PriceChartingLinker({ card, onLinked }) {
   async function handleSelect(product) {
     setSaving(true)
     await window.api.updateCard(card.id, {
-      pricechartingId: product.id,
-      pricechartingName: product['product-name']
+      pptId: product.tcgPlayerId,
+      pptName: product.name
     })
     onLinked()
     setEditing(false)
@@ -212,17 +248,17 @@ function PriceChartingLinker({ card, onLinked }) {
         <label className="text-slate-500 text-xs block mb-1">Pokémon Card</label>
         <div className="flex items-center gap-1.5">
           <div className="flex-1 bg-surface-700 border border-surface-500 rounded px-2 py-1.5 text-sm min-w-0">
-            {card.pricechartingId ? (
-              <span className="text-slate-300 truncate block">{card.pricechartingName || card.pricechartingId}</span>
+            {card.pptId ? (
+              <span className="text-slate-300 truncate block">{card.pptName || card.pptId}</span>
             ) : (
               <span className="text-slate-600 italic">Not linked</span>
             )}
           </div>
           <button
-            onClick={() => { setEditing(true); setQuery(card.pricechartingName || card.name || '') }}
+            onClick={() => { setEditing(true); setQuery(card.pptName || card.name || '') }}
             className="text-sm py-1.5 rounded bg-accent hover:bg-accent-hover text-black font-semibold transition-colors flex-shrink-0 w-20 text-center"
           >
-            {card.pricechartingId ? 'Change' : 'Link'}
+            {card.pptId ? 'Change' : 'Link'}
           </button>
         </div>
       </div>
@@ -232,7 +268,7 @@ function PriceChartingLinker({ card, onLinked }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
-        <label className="text-slate-500 text-xs">Search PriceCharting</label>
+        <label className="text-slate-500 text-xs">Search Pokemon Price Tracker</label>
         <button onClick={() => setEditing(false)} className="text-xs text-slate-500 hover:text-white">Cancel</button>
       </div>
       <form onSubmit={handleSearch} className="flex gap-1 mb-2">
@@ -251,10 +287,10 @@ function PriceChartingLinker({ card, onLinked }) {
       {results.length > 0 && (
         <div className="max-h-36 overflow-y-auto border border-surface-600 rounded bg-surface-900">
           {results.map((p) => (
-            <button key={p.id} onClick={() => handleSelect(p)} disabled={saving}
+            <button key={p.tcgPlayerId || p.id} onClick={() => handleSelect(p)} disabled={saving}
               className="w-full text-left px-2 py-1.5 hover:bg-surface-700 transition-colors disabled:opacity-50">
-              <p className="text-white text-xs">{p['product-name']}</p>
-              <p className="text-slate-500 text-xs">{p['console-name']}</p>
+              <p className="text-white text-xs">{p.name}</p>
+              <p className="text-slate-500 text-xs">{p.setName}</p>
             </button>
           ))}
         </div>
@@ -271,7 +307,8 @@ export default function CardDetail() {
   const { format } = useCurrency()
   const [card, setCard] = useState(null)
   const [history, setHistory] = useState([])
-  const [range, setRange] = useState(90)
+  const [priceLoading, setPriceLoading] = useState(true)
+  const [range, setRange] = useState(30)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [addedDateInput, setAddedDateInput] = useState('')
   const [purchasePriceInput, setPurchasePriceInput] = useState('')
@@ -299,6 +336,7 @@ export default function CardDetail() {
   useEffect(() => { load() }, [id])
 
   async function load() {
+    setPriceLoading(true)
     const cards = await window.api.listCards()
     setAllCards(cards)
     const found = cards.find((c) => c.id === id)
@@ -309,7 +347,7 @@ export default function CardDetail() {
     if ((found.section || 'watchlist') === 'watchlist') {
       const sibling = cards.find((c) =>
         c.section === 'collection' &&
-        ((found.pricechartingId && c.pricechartingId === found.pricechartingId) ||
+        ((found.pptId && c.pptId === found.pptId) ||
          (found.tcgId && c.tcgId === found.tcgId))
       ) || null
       setPortfolioSibling(sibling)
@@ -324,11 +362,12 @@ export default function CardDetail() {
     setTargetSellPct(found.targetSellPct != null ? String(found.targetSellPct) : '')
     const h = await window.api.getPriceHistory(id)
     setHistory(h)
+    setPriceLoading(false)
     setHistoryCondition(found.condition)
     const sibMap = {}
-    if (found.pricechartingId) {
+    if (found.pptId) {
       cards.forEach((c) => {
-        if (c.pricechartingId === found.pricechartingId) sibMap[c.condition] = c.id
+        if (c.pptId === found.pptId) sibMap[c.condition] = c.id
       })
     } else {
       sibMap[found.condition] = found.id
@@ -344,6 +383,16 @@ export default function CardDetail() {
         })
     )
     setHistoryCache(newCache)
+
+    // For raw cards: fetch 6-month PPT history in the background and update the chart
+    if (found.condition === 'raw' && found.pptId) {
+      window.api.fetchPPTHistory(found.id).then((enriched) => {
+        if (enriched && enriched.length > h.length) {
+          setHistory(enriched)
+          setHistoryCache((prev) => ({ ...prev, [found.condition]: enriched }))
+        }
+      }).catch(() => {})
+    }
   }
 
   async function handleSwitchHistoryCondition(cond) {
@@ -375,6 +424,8 @@ export default function CardDetail() {
     setCard((c) => ({ ...c, purchasePrice: updated.purchasePrice }))
     setPriceSaved(true)
     setTimeout(() => setPriceSaved(false), 2000)
+    // No current price yet — auto-fetch so P/L can compute immediately
+    if (newPrice != null && !history.length) handleRefresh()
   }
 
   async function handleUpdateAddedDate() {
@@ -423,7 +474,7 @@ export default function CardDetail() {
       name: card.name,
       number: card.number,
       images: { large: card.imageUrlLarge, small: card.imageUrl },
-      set: { name: card.setName, id: card.setId },
+      set: { name: card.setName, id: card.setId, series: card.setSeries || seriesFromSetId(card.setId) },
       rarity: card.rarity,
       artist: card.artist || null,
       types: card.types?.length ? card.types : null,
@@ -638,7 +689,16 @@ export default function CardDetail() {
                   </span>
                 </div>
                 {card.rarity && <p className="text-slate-500 text-xs text-center mt-0.5 flex-shrink-0">{card.rarity}</p>}
-                <p className="text-slate-400 text-xs text-center flex-shrink-0">{card.setName}</p>
+                {(() => {
+                  const series = card.setSeries || seriesFromSetId(card.setId)
+                  const showSeries = series && series !== card.setName
+                  return (
+                    <div className="text-center flex-shrink-0 leading-tight mt-0.5">
+                      {showSeries && <p className="text-slate-500 text-[10px]">{series}</p>}
+                      {card.setName && <p className="text-slate-400 text-xs">{card.setName}</p>}
+                    </div>
+                  )
+                })()}
               </div>
             </div>
           </div>
@@ -675,7 +735,9 @@ export default function CardDetail() {
                       </div>
                       <div className="bg-surface-900 rounded-lg p-2.5">
                         <p className="text-slate-500 text-xs mb-1.5">Current Price · {CONDITION_LABEL[card.condition] || card.condition}</p>
-                        {currentValue != null ? (
+                        {priceLoading ? (
+                          <div className="h-9 flex items-center"><PriceSpinner /></div>
+                        ) : currentValue != null ? (
                           <p className="text-accent font-bold text-3xl leading-tight">{format(currentValue)}</p>
                         ) : (
                           <p className="text-slate-600 text-3xl font-bold">—</p>
@@ -683,7 +745,9 @@ export default function CardDetail() {
                       </div>
                       <div className="bg-surface-900 rounded-lg p-2.5">
                         <p className="text-slate-500 text-xs mb-1.5">Profit / Loss</p>
-                        {profit != null ? (
+                        {priceLoading ? (
+                          <div className="mt-1"><PriceSpinner /></div>
+                        ) : profit != null ? (
                           <div className="flex items-baseline gap-2">
                             <p className={`font-bold text-3xl leading-tight ${isPos ? 'text-emerald-400' : 'text-red-400'}`}>
                               {isPos ? '+' : '−'}{format(Math.abs(profit))}
@@ -704,14 +768,24 @@ export default function CardDetail() {
             </div>
 
             {/* Current Prices by Grade */}
-            <PricesByGrade cardId={id} dayChangeMap={dayChangeMap} />
+            <PricesByGrade
+              cardId={id}
+              dayChangeMap={dayChangeMap}
+              onPricesLoaded={async () => {
+                const h = await window.api.getPriceHistory(id)
+                if (h.length > 0) {
+                  setHistory(h)
+                  setPriceLoading(false)
+                  setHistoryCache(prev => ({ ...prev, [card?.condition]: h }))
+                }
+              }}
+            />
 
           </div>
 
           {/* Card Details — row 2, left */}
           <div className="min-h-0 overflow-y-auto bg-surface-800 border border-surface-600 rounded-xl p-3 flex flex-col space-y-3">
             <h3 className="text-sm font-medium text-slate-300">Card Details</h3>
-            <PriceChartingLinker card={card} onLinked={load} />
             <div>
               <label className="text-slate-500 text-xs block mb-1">Condition</label>
               <select value={card.condition} onChange={(e) => handleUpdateCondition(e.target.value)}
@@ -859,6 +933,7 @@ export default function CardDetail() {
                 </div>
               </div>
             </div>
+            <PPTLinker card={card} onLinked={() => load()} />
             <div className="flex-1" />
             <div className="pt-2 border-t border-surface-600">
               <button onClick={handleRemove}
@@ -945,7 +1020,7 @@ export default function CardDetail() {
           name: card.name,
           number: card.number,
           images: { large: card.imageUrlLarge, small: card.imageUrl },
-          set: { name: card.setName, id: card.setId },
+          set: { name: card.setName, id: card.setId, series: card.setSeries || seriesFromSetId(card.setId) },
           rarity: card.rarity,
           tcgplayer: { prices: { normal: { market: card.currentPrice } } },
         }}

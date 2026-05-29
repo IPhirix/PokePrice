@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '../context/CurrencyContext'
 
 const CONDITIONS = [
-  { value: 'raw',   label: 'Raw (Ungraded)' },
+  { value: 'raw',   label: 'Raw' },
   { value: 'psa10', label: 'PSA 10' },
   { value: 'psa9',  label: 'PSA 9' },
   { value: 'psa8',  label: 'PSA 8' },
@@ -84,6 +85,7 @@ function TiltCard({ src, alt, onClick, imgClassName = 'w-28 h-[156px]' }) {
 // ── Card search + price-picker modal ──────────────────────────────────────────
 function TradeCardSearch({ side, onAdd, onClose }) {
   const { format } = useCurrency()
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
@@ -94,6 +96,9 @@ function TradeCardSearch({ side, onAdd, onClose }) {
   const [inspecting, setInspecting] = useState(false)
   const [collectionCards, setCollectionCards] = useState([])
   const [collectionLoading, setCollectionLoading] = useState(true)
+  const [displayCount, setDisplayCount] = useState(24)
+
+  useEffect(() => { setDisplayCount(24) }, [results])
 
   useEffect(() => {
     window.api.listCards()
@@ -107,10 +112,88 @@ function TradeCardSearch({ side, onAdd, onClose }) {
     setLoading(true)
     setResults([])
     try {
-      const cards = await window.api.searchCardsAdvanced(`name:"${query.trim()}*"`)
-      setResults(cards.slice(0, 24))
+      const q = query.trim()
+      // "Charizard #4" or "Charizard #04" — explicit card number
+      const hashMatch = q.match(/^(.*?)\s*#(\w+)\s*$/)
+      if (hashMatch) {
+        const name = hashMatch[1].trim()
+        const rawNum = hashMatch[2]
+        const targetNum = parseInt(rawNum, 10)
+        const isNumeric = !isNaN(targetNum)
+        if (name) {
+          // Search by name, sort matching number to the top client-side
+          const allCards = await window.api.searchCardsAdvanced(`name:"${name}*"`).catch(() => [])
+          const matched = []; const rest = []
+          for (const c of allCards) {
+            const cn = String(c.number || '')
+            const hits = isNumeric ? parseInt(cn, 10) === targetNum : cn.toUpperCase() === rawNum.toUpperCase()
+            if (hits) matched.push(c); else rest.push(c)
+          }
+          const withDivider = matched.length > 0 && rest.length > 0
+            ? [...matched, { _divider: true, id: '__divider__' }, ...rest]
+            : [...matched, ...rest]
+          setResults(withDivider)
+        } else {
+          // Number-only: try zero-padded variants via eq:localId
+          const numVariants = isNumeric
+            ? [...new Set([rawNum, String(targetNum), String(targetNum).padStart(3, '0')])]
+            : [rawNum]
+          const batches = await Promise.all(numVariants.map((v) =>
+            window.api.searchCardsAdvanced(`number:"${v}"`).catch(() => [])
+          ))
+          const seen = new Set(); const merged = []
+          for (const batch of batches) for (const c of batch) if (!seen.has(c.id)) { seen.add(c.id); merged.push(c) }
+          setResults(merged)
+        }
+        return
+      }
+      // "Charizard 4" — trailing number may be card number or set identifier
+      const trailingMatch = q.match(/^(.+?)\s+(\d+)\s*$/)
+      if (trailingMatch) {
+        const name = trailingMatch[1].trim()
+        const rawNum = trailingMatch[2]
+        const targetNum = parseInt(rawNum, 10)
+        const [allCards, setCards] = await Promise.all([
+          window.api.searchCardsAdvanced(`name:"${name}*"`).catch(() => []),
+          window.api.searchCardsAdvanced(`name:"${name}*" set.name:"${rawNum}"`).catch(() => [])
+        ])
+        const seen = new Set(); const matched = []; const rest = []
+        for (const c of allCards) if (parseInt(String(c.number || ''), 10) === targetNum && !seen.has(c.id)) { seen.add(c.id); matched.push(c) }
+        for (const c of setCards) if (!seen.has(c.id)) { seen.add(c.id); rest.push(c) }
+        for (const c of allCards) if (!seen.has(c.id)) { seen.add(c.id); rest.push(c) }
+        const withDivider = matched.length > 0 && rest.length > 0
+          ? [...matched, { _divider: true, id: '__divider__' }, ...rest]
+          : [...matched, ...rest]
+        setResults(withDivider)
+        return
+      }
+      // Plain text: search by card name, set name, and every word-split name+set combo in parallel
+      const words = q.split(/\s+/)
+      const allSearches = [
+        window.api.searchCardsAdvanced(`name:"${q}*"`).catch(() => []),
+        window.api.searchCardsAdvanced(`set.name:"${q}"`).catch(() => []),
+      ]
+      for (let i = 1; i < words.length; i++) {
+        const namePart = words.slice(0, i).join(' ')
+        const setPart = words.slice(i).join(' ')
+        allSearches.push(window.api.searchCardsAdvanced(`name:"${namePart}*" set.name:"${setPart}"`).catch(() => []))
+      }
+      const allBatches = await Promise.all(allSearches)
+      const seen = new Set()
+      const merged = []
+      for (const batch of allBatches) {
+        for (const card of batch) {
+          if (!seen.has(card.id)) { seen.add(card.id); merged.push(card) }
+        }
+      }
+      setResults(merged)
     } catch {}
     finally { setLoading(false); setHasSearched(true) }
+  }
+
+  function goToAdvancedSearch() {
+    onClose()
+    navigate('/', { state: { tab: 'search' } })
   }
 
   function clearSearch() {
@@ -127,6 +210,7 @@ function TradeCardSearch({ side, onAdd, onClose }) {
       set: { name: collCard.setName },
       images: { small: collCard.imageUrl, large: collCard.imageUrlLarge || collCard.imageUrl },
       _suggestedPrice: collCard.currentPrice,
+      _purchasePrice: collCard.purchasePrice,
       _collectionId: collCard.id,
     }
     setSelected(normalized)
@@ -202,6 +286,7 @@ function TradeCardSearch({ side, onAdd, onClose }) {
               <label className="text-slate-400 text-sm block mb-1.5">
                 Price
                 {suggested != null && <span className="text-slate-500 ml-2 text-xs">Market: {format(suggested)}</span>}
+                {selected._purchasePrice != null && <span className="text-slate-500 ml-2 text-xs">· Paid: {format(selected._purchasePrice)}</span>}
               </label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
@@ -247,24 +332,32 @@ function TradeCardSearch({ side, onAdd, onClose }) {
           <button onClick={onClose} className="text-slate-400 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
         </div>
         <div className="px-5 py-3 flex-shrink-0">
-          <div className="flex gap-2">
+          <div className="flex gap-1.5">
             <input autoFocus value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && search()}
-              placeholder="Search TCG database…"
+              placeholder="Search by name, set, or card # (e.g. Charizard #4)…"
               className={`flex-1 bg-surface-700 border rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none transition-colors ${loading ? 'border-yellow-400/60' : 'border-surface-500 focus:border-yellow-400'}`}
             />
-            <button onClick={search} disabled={loading || !query.trim()}
-              className="px-4 py-2 bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-black font-semibold text-sm rounded-lg transition-colors flex items-center gap-2 min-w-[90px] justify-center">
+            <button onClick={search} disabled={loading || !query.trim()} title="Search"
+              className="px-3 py-2 bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-black font-semibold text-sm rounded-lg transition-colors flex items-center gap-1.5 flex-shrink-0">
               {loading ? (
-                <>
-                  <svg className="animate-spin w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Searching
-                </>
-              ) : 'Search'}
+                <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
+                </svg>
+              )}
+              <span className="text-sm font-bold">{loading ? 'Searching' : 'Search'}</span>
+            </button>
+            <button onClick={goToAdvancedSearch} title="Advanced search — open full search page"
+              className="px-2.5 py-2 bg-surface-700 hover:bg-surface-600 border border-surface-500 hover:border-surface-400 text-slate-400 hover:text-white text-sm rounded-lg transition-colors flex items-center flex-shrink-0">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+              </svg>
             </button>
           </div>
           {loading && (
@@ -274,7 +367,14 @@ function TradeCardSearch({ side, onAdd, onClose }) {
             </div>
           )}
         </div>
-        <div className="flex-1 overflow-y-auto px-5 pb-4 min-h-0">
+        <div className="flex-1 overflow-y-auto px-5 pb-4 min-h-0"
+          onScroll={(e) => {
+            const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
+            if (scrollHeight - scrollTop - clientHeight < 150 && displayCount < results.length) {
+              setDisplayCount((prev) => Math.min(prev + 24, results.length))
+            }
+          }}
+        >
           {/* TCG search results */}
           {hasSearched && (
             <>
@@ -312,19 +412,41 @@ function TradeCardSearch({ side, onAdd, onClose }) {
                   <p className="text-xs mt-1 text-slate-700">Try a different name or spelling</p>
                 </div>
               )}
-              {!loading && results.map((card) => {
+              {!loading && results.slice(0, displayCount).map((card) => {
+                if (card._divider) {
+                  return (
+                    <div key="__divider__" className="flex items-center gap-3 px-3 py-2 select-none">
+                      <div className="flex-1 h-px bg-surface-600" />
+                      <span className="text-xs text-slate-500 font-medium">Similar Items</span>
+                      <div className="flex-1 h-px bg-surface-600" />
+                    </div>
+                  )
+                }
                 const price = tcgPrice(card)
                 return (
                   <button key={card.id} onClick={() => handleSelect(card)}
                     className="w-full flex items-center gap-4 px-3 py-3 rounded-lg hover:bg-surface-700 transition-colors text-left mb-1">
-                    {card.images?.small && (
-                      <img src={card.images.small} alt={card.name}
-                        className="w-16 h-[90px] object-contain rounded flex-shrink-0" />
-                    )}
+                    <div className="w-16 h-[90px] flex-shrink-0">
+                      {card.images?.small ? (
+                        <img src={card.images.small} alt={card.name}
+                          className="w-full h-full object-contain rounded" />
+                      ) : (
+                        <div className="w-full h-full bg-surface-700 rounded flex flex-col items-center justify-center text-slate-600 gap-0.5">
+                          <svg className="w-8 h-10" viewBox="0 0 28 36" fill="none">
+                            <rect x="1" y="1" width="26" height="34" rx="3" stroke="currentColor" strokeWidth="1.5"/>
+                            <circle cx="14" cy="15" r="5" stroke="currentColor" strokeWidth="1.5"/>
+                            <path d="M5 28 Q14 22 23 28" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                          </svg>
+                          <span className="text-[9px]">No image</span>
+                        </div>
+                      )}
+                    </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-white text-base font-semibold truncate">{card.name}</p>
+                      <p className="text-white text-base font-semibold truncate">
+                        {card.name}{card.number ? <span className="text-slate-400 font-normal"> #{card.number}</span> : ''}
+                      </p>
                       <p className="text-slate-400 text-sm truncate mt-0.5">
-                        {card.set?.name}{card.number ? ` · #${card.number}` : ''}{card.rarity ? ` · ${card.rarity}` : ''}
+                        {[card.set?.series, card.set?.name].filter(Boolean).join(' - ')}{card.rarity ? ` · ${card.rarity}` : ''}
                       </p>
                     </div>
                     {price != null
@@ -334,6 +456,9 @@ function TradeCardSearch({ side, onAdd, onClose }) {
                   </button>
                 )
               })}
+              {!loading && results.length > displayCount && (
+                <p className="text-center text-slate-600 text-xs py-3">Showing {displayCount} of {results.length} — scroll for more</p>
+              )}
             </>
           )}
 
@@ -384,10 +509,15 @@ function TradeCardSearch({ side, onAdd, onClose }) {
                       {COND_SHORT[card.condition] || card.condition}
                     </span>
                   </div>
-                  {card.currentPrice != null
-                    ? <span className="text-yellow-300 text-base font-semibold flex-shrink-0">{format(card.currentPrice)}</span>
-                    : <span className="text-slate-600 text-base flex-shrink-0">—</span>
-                  }
+                  <div className="text-right flex-shrink-0">
+                    {card.currentPrice != null
+                      ? <p className="text-yellow-300 text-base font-semibold">{format(card.currentPrice)}</p>
+                      : <p className="text-slate-600 text-base">—</p>
+                    }
+                    {card.purchasePrice != null && (
+                      <p className="text-slate-500 text-xs mt-0.5">Paid {format(card.purchasePrice)}</p>
+                    )}
+                  </div>
                 </button>
               ))}
             </>
@@ -464,9 +594,9 @@ function SidePanel({ side, label, onRename, cards, cash, total, onAddCard, onAdd
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-surface-800 border border-yellow-400/50 rounded-xl min-h-0 overflow-hidden">
+    <div className="flex-1 flex flex-col bg-surface-800 border border-surface-700 rounded-xl min-h-0 overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 px-5 py-4 border-b border-yellow-400/20">
+      <div className="flex-shrink-0 px-5 py-4 border-b border-surface-700">
         <div className="flex items-center justify-between">
           {!isYou && editing ? (
             <input
@@ -534,7 +664,7 @@ function SidePanel({ side, label, onRename, cards, cash, total, onAddCard, onAdd
                   {card.setName && <p className="text-slate-500 text-sm truncate">{card.setName}</p>}
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <p className="text-yellow-300 text-base font-bold">{format(card.price)}</p>
+                  <p className="text-white text-base font-bold">{format(card.price)}</p>
                 </div>
                 <button onClick={() => onRemoveCard(card.uid)}
                   className="text-slate-600 hover:text-red-400 text-lg leading-none flex-shrink-0 opacity-0 group-hover:opacity-100 transition-all ml-0.5">
@@ -567,7 +697,7 @@ function SidePanel({ side, label, onRename, cards, cash, total, onAddCard, onAdd
       <div className="flex-shrink-0 px-4 pb-4 pt-2 flex gap-2 border-t border-surface-700">
         <button onClick={onAddCard}
           className="flex-1 bg-yellow-400/10 hover:bg-yellow-400/20 border border-yellow-400/30 text-yellow-300 hover:text-yellow-200 text-sm font-medium py-2.5 rounded-lg transition-colors">
-          + Add Cards
+          + Add Items
         </button>
         <button onClick={onAddCash}
           className="flex-1 bg-emerald-600/15 hover:bg-emerald-600/25 border border-emerald-600/40 text-emerald-400 hover:text-emerald-300 text-sm font-medium py-2.5 rounded-lg transition-colors">
@@ -671,9 +801,10 @@ function UndoTradeModal({ trade, onConfirm, onClose }) {
   const [undoing, setUndoing] = useState(false)
   const [error, setError] = useState(null)
 
-  const cardsToRestore = (trade.youCards || []).filter((c) => c.collectionId)
+  const restoreCount = trade.removedCardsData?.length ?? (trade.youCards || []).filter((c) => c.collectionId).length
   const receivedCount = trade.addedCardIds?.length ?? trade.themCards?.length ?? 0
   const hasTrackedIds = Array.isArray(trade.addedCardIds)
+  const hasFullSnapshot = Array.isArray(trade.removedCardsData)
 
   async function handleConfirm() {
     setUndoing(true)
@@ -700,11 +831,14 @@ function UndoTradeModal({ trade, onConfirm, onClose }) {
             {trade.themName ? <> with <span className="text-white font-medium">{trade.themName}</span></> : ''}:
           </p>
           <div className="bg-surface-700/60 rounded-xl px-4 py-3 space-y-2">
-            {cardsToRestore.length > 0 && (
-              <div className="flex items-center gap-2 text-sm">
-                <span className="text-emerald-400 font-bold w-4 text-center">+</span>
+            {restoreCount > 0 && (
+              <div className="flex items-start gap-2 text-sm">
+                <span className="text-emerald-400 font-bold w-4 text-center flex-shrink-0">+</span>
                 <span className="text-slate-300">
-                  {cardsToRestore.length} card{cardsToRestore.length !== 1 ? 's' : ''} restored to your collection
+                  {restoreCount} card{restoreCount !== 1 ? 's' : ''} restored to your collection
+                  {hasFullSnapshot && (
+                    <span className="block text-xs text-slate-500 mt-0.5">Purchase price, binder, alerts &amp; price history included</span>
+                  )}
                 </span>
               </div>
             )}
@@ -721,9 +855,11 @@ function UndoTradeModal({ trade, onConfirm, onClose }) {
               <span className="text-slate-300">Trade reverted to draft — no longer counted in P&amp;L</span>
             </div>
           </div>
-          {!hasTrackedIds && receivedCount > 0 && (
+          {(!hasTrackedIds || !hasFullSnapshot) && (restoreCount > 0 || receivedCount > 0) && (
             <p className="text-xs text-slate-500 bg-surface-700 rounded-lg px-3 py-2">
-              Note: This trade was executed before automatic card tracking was added. Received cards will need to be removed from your collection manually.
+              {!hasTrackedIds
+                ? 'This trade was executed before automatic card tracking was added. Received cards may need to be removed from your collection manually.'
+                : 'This trade was executed before full data snapshots were added. Restored cards may be missing purchase price, binder, alerts, and price history.'}
             </p>
           )}
           {error && (
@@ -962,7 +1098,7 @@ function groupTradesByYearMonth(trades) {
 }
 
 // ── Trade history panel ────────────────────────────────────────────────────────
-function HistoryPanel({ trades, onLoad, onDelete, onUndo }) {
+function HistoryPanel({ trades, onLoad, onDelete, onUndo, loadedTradeId, activeThemName }) {
   const { format } = useCurrency()
   const [historyFilter, setHistoryFilter] = useState('all')
 
@@ -985,6 +1121,8 @@ function HistoryPanel({ trades, onLoad, onDelete, onUndo }) {
     return new Set([key])
   })
 
+  const [expandedTrades, setExpandedTrades] = useState(new Set())
+
   function toggleYear(year) {
     setOpenYears((prev) => {
       const next = new Set(prev)
@@ -997,6 +1135,14 @@ function HistoryPanel({ trades, onLoad, onDelete, onUndo }) {
     setOpenMonths((prev) => {
       const next = new Set(prev)
       if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
+  }
+
+  function toggleExpanded(id) {
+    setExpandedTrades((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
       return next
     })
   }
@@ -1082,56 +1228,74 @@ function HistoryPanel({ trades, onLoad, onDelete, onUndo }) {
                         </button>
 
                         {monthOpen && (
-                          <div className="px-2 pb-1 space-y-1">
+                          <div className="pb-1">
                             {monthTrades.map((trade) => {
                               const date = new Date(trade.savedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                              const isExpanded = expandedTrades.has(trade.id)
+                              const diff = (trade.themTotal ?? 0) - (trade.youTotal ?? 0)
+                              const isFair = Math.abs(diff) < 0.005
+                              const diffColor = isFair ? 'text-slate-500' : diff > 0 ? 'text-sky-400' : 'text-orange-400'
+                              const diffLabel = isFair ? 'Fair trade' : diff > 0 ? `You +${format(diff)}` : `Them +${format(Math.abs(diff))}`
                               return (
-                                <div key={trade.id}
-                                  className="bg-surface-700/50 hover:bg-surface-700 rounded-lg p-3 cursor-pointer group transition-colors"
-                                  onClick={() => onLoad(trade)}>
-                                  <div className="flex items-start justify-between gap-1 mb-1.5">
-                                    <div className="flex items-center gap-1.5 min-w-0">
-                                      <p className="text-slate-500 text-xs flex-shrink-0">{date}</p>
-                                      {trade.executed
-                                        ? <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex-shrink-0">Executed</span>
-                                        : <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-yellow-400/10 text-yellow-400 border border-yellow-400/25 flex-shrink-0">Saved</span>
-                                      }
-                                    </div>
-                                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                                <div key={trade.id} className="border-b border-surface-700/40 last:border-0">
+                                  {/* Compact row */}
+                                  <div
+                                    className="flex items-center gap-1.5 pl-6 pr-2 py-1.5 hover:bg-surface-700/50 cursor-pointer group transition-colors"
+                                    onClick={() => toggleExpanded(trade.id)}>
+                                    <svg
+                                      className={`w-2.5 h-2.5 text-slate-600 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                                      fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                                    </svg>
+                                    <span className="text-slate-500 text-[11px] flex-shrink-0 w-9 leading-none">{date}</span>
+                                    <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${trade.executed ? 'bg-emerald-400' : 'bg-yellow-400'}`} title={trade.executed ? 'Executed' : 'Saved'} />
+                                    <span className="text-white text-xs flex-1 truncate min-w-0 font-medium">{(loadedTradeId === trade.id && activeThemName) ? activeThemName : (trade.themName || 'Them')}</span>
+                                    <span className={`text-[11px] font-semibold flex-shrink-0 ${diffColor}`}>{diffLabel}</span>
+                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0 ml-0.5">
                                       {trade.executed && (
-                                        <button
-                                          onClick={(e) => { e.stopPropagation(); onUndo(trade.id) }}
-                                          title="Undo trade"
-                                          className="text-slate-700 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
-                                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <button onClick={(e) => { e.stopPropagation(); onUndo(trade.id) }} title="Undo trade"
+                                          className="text-slate-600 hover:text-red-400 transition-colors">
+                                          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
                                           </svg>
                                         </button>
                                       )}
-                                      <button
-                                        onClick={(e) => { e.stopPropagation(); onDelete(trade.id) }}
-                                        className="text-slate-700 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition-all flex-shrink-0">
-                                        ✕
-                                      </button>
+                                      <button onClick={(e) => { e.stopPropagation(); onDelete(trade.id) }}
+                                        className="text-slate-600 hover:text-red-400 text-xs leading-none transition-colors">✕</button>
                                     </div>
                                   </div>
-                                  <div className="space-y-1 mb-2">
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-yellow-300/70 text-xs font-medium">You</span>
-                                      <span className="text-yellow-300 text-xs font-bold">{format(trade.youTotal)}</span>
+                                  {/* Expanded detail */}
+                                  {isExpanded && (
+                                    <div className="mx-2 mb-1.5 mt-0.5 bg-surface-700/50 hover:bg-surface-700 rounded-lg p-3 cursor-pointer transition-colors"
+                                      onClick={() => onLoad(trade)}>
+                                      <div className="flex items-center justify-between gap-1 mb-2">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                          {trade.executed
+                                            ? <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex-shrink-0">Executed</span>
+                                            : <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-yellow-400/10 text-yellow-400 border border-yellow-400/25 flex-shrink-0">Saved</span>
+                                          }
+                                        </div>
+                                        <span className="text-slate-600 text-[10px] flex-shrink-0">click to load</span>
+                                      </div>
+                                      <div className="space-y-1 mb-2">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-yellow-300/70 text-xs font-medium">You</span>
+                                          <span className="text-white text-xs font-bold">{format(trade.youTotal)}</span>
+                                        </div>
+                                        <p className="text-slate-500 text-xs truncate leading-tight">
+                                          {sideSummary(trade.youCards, trade.youCash) || '—'}
+                                        </p>
+                                        <div className="flex items-center justify-between mt-1">
+                                          <span className="text-slate-400 text-xs font-medium">{trade.themName || 'Them'}</span>
+                                          <span className="text-slate-300 text-xs font-bold">{format(trade.themTotal)}</span>
+                                        </div>
+                                        <p className="text-slate-500 text-xs truncate leading-tight">
+                                          {sideSummary(trade.themCards, trade.themCash) || '—'}
+                                        </p>
+                                      </div>
+                                      <TradeVerdict youTotal={trade.youTotal} themTotal={trade.themTotal} small />
                                     </div>
-                                    <p className="text-slate-500 text-xs truncate leading-tight">
-                                      {sideSummary(trade.youCards, trade.youCash) || '—'}
-                                    </p>
-                                    <div className="flex items-center justify-between mt-1">
-                                      <span className="text-slate-400 text-xs font-medium">{trade.themName || 'Them'}</span>
-                                      <span className="text-slate-300 text-xs font-bold">{format(trade.themTotal)}</span>
-                                    </div>
-                                    <p className="text-slate-500 text-xs truncate leading-tight">
-                                      {sideSummary(trade.themCards, trade.themCash) || '—'}
-                                    </p>
-                                  </div>
-                                  <TradeVerdict youTotal={trade.youTotal} themTotal={trade.themTotal} small />
+                                  )}
                                 </div>
                               )
                             })}
@@ -1256,6 +1420,7 @@ export default function TradeAnalyzer() {
       youCollectionIds,
       receivedCards,
       tradePayload: tradePayload(),
+      existingTradeId: loadedTradeId || null,
     }
     try {
       await window.api.executeTrade(payload)
@@ -1303,7 +1468,7 @@ export default function TradeAnalyzer() {
     <div className="h-full flex gap-4 px-6 py-4 min-h-0">
 
       {/* Left: saved trades history */}
-      <HistoryPanel trades={trades} onLoad={handleLoadTrade} onDelete={handleDeleteTrade} onUndo={(id) => setShowUndoModal(id)} />
+      <HistoryPanel trades={trades} onLoad={handleLoadTrade} onDelete={handleDeleteTrade} onUndo={(id) => setShowUndoModal(id)} loadedTradeId={loadedTradeId} activeThemName={themName} />
 
       {/* Right: active trade */}
       <div className="flex-1 flex flex-col gap-4 min-h-0">

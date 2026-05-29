@@ -13,21 +13,32 @@ function fmtDate(dateStr) {
   return `${parseInt(parts[1], 10)}/${parseInt(parts[2], 10)}`
 }
 
-function WidgetTooltip({ active, payload, labelKey = 'date', formatter }) {
+function WidgetTooltip({ active, payload, labelKey = 'date', formatter, addedDates }) {
   if (!active || !payload?.length) return null
   const p = payload[0].payload
   const rawLabel = p[labelKey]
   const displayLabel = labelKey === 'date' && rawLabel ? fmtDate(rawLabel) : rawLabel
   const val = payload[0].value
+  const addedCards = addedDates && rawLabel ? addedDates[rawLabel] : null
   return (
-    <div className="bg-surface-700 border border-surface-500 rounded px-2 py-1 text-xs pointer-events-none">
+    <div className="bg-surface-700 border border-surface-500 rounded px-2 py-1 text-xs pointer-events-none max-w-48">
       {displayLabel && <p className="text-slate-400 mb-0.5">{displayLabel}</p>}
       <span className="text-white font-medium">{formatter ? formatter(val) : val}</span>
+      {addedCards?.length > 0 && (
+        <div className="mt-1 pt-1 border-t border-surface-600">
+          {addedCards.slice(0, 3).map((name, i) => (
+            <p key={i} className="text-slate-300 text-[10px] leading-tight truncate">{name}</p>
+          ))}
+          {addedCards.length > 3 && (
+            <p className="text-slate-500 text-[10px]">+{addedCards.length - 3} more</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
 
-function WidgetSparkline({ data, dataKey = 'value', color, gradId, type = 'area', formatter, expanded = false, zeroLine = false }) {
+function WidgetSparkline({ data, dataKey = 'value', color, gradId, type = 'area', formatter, expanded = false, zeroLine = false, addedDates = null }) {
   if (!data || data.length < 2) {
     return (
       <ResponsiveContainer width="100%" height="100%">
@@ -154,14 +165,27 @@ function WidgetSparkline({ data, dataKey = 'value', color, gradId, type = 'area'
         />
         <YAxis domain={yDomain} hide />
         {refLine}
-        <Tooltip content={<WidgetTooltip labelKey="date" formatter={formatter} />} />
+        <Tooltip content={(props) => <WidgetTooltip {...props} labelKey="date" formatter={formatter} addedDates={addedDates} />} />
         <Area
           type="monotone"
           dataKey={dataKey}
           stroke={strokeColor}
           strokeWidth={expanded ? 2.5 : 2}
           fill={`url(#${gradId})`}
-          dot={false}
+          dot={addedDates ? (dotProps) => {
+            const { cx, cy, payload } = dotProps
+            if (!payload?.date || !addedDates[payload.date]) return null
+            return (
+              <circle
+                cx={cx}
+                cy={cy}
+                r={expanded ? 3 : 2}
+                fill="#ffffff"
+                stroke={activeDotColor}
+                strokeWidth={expanded ? 1.5 : 1}
+              />
+            )
+          } : false}
           activeDot={{ r: expanded ? 4 : 3, fill: activeDotColor }}
           isAnimationActive={false}
         />
@@ -212,6 +236,7 @@ function ExpandedModal({ tile, onClose }) {
             formatter={tile.formatter}
             zeroLine={tile.zeroLine || false}
             expanded={true}
+            addedDates={tile.addedDates || null}
           />
         </div>
       </div>
@@ -219,7 +244,7 @@ function ExpandedModal({ tile, onClose }) {
   )
 }
 
-function Widget({ label, chart, gradId, color, chartType = 'area', dataKey = 'value', formatter, zeroLine = false, onExpand, children }) {
+function Widget({ label, chart, gradId, color, chartType = 'area', dataKey = 'value', formatter, zeroLine = false, onExpand, addedDates = null, children }) {
   return (
     <div className={`relative bg-surface-800 border border-surface-600 rounded-xl p-2 flex gap-3 overflow-hidden ${onExpand ? 'cursor-pointer hover:border-surface-500 transition-colors' : ''}`} onClick={onExpand}>
       <div className="w-32 flex-shrink-0 flex flex-col justify-center overflow-hidden">
@@ -227,7 +252,7 @@ function Widget({ label, chart, gradId, color, chartType = 'area', dataKey = 'va
         {children}
       </div>
       <div className="flex-1 min-h-0 opacity-80">
-        <WidgetSparkline data={chart} dataKey={dataKey} color={color} gradId={gradId} type={chartType} formatter={formatter} zeroLine={zeroLine} />
+        <WidgetSparkline data={chart} dataKey={dataKey} color={color} gradId={gradId} type={chartType} formatter={formatter} zeroLine={zeroLine} addedDates={addedDates} />
       </div>
     </div>
   )
@@ -263,6 +288,8 @@ export default function PortfolioSummary({ refreshKey, binderFilter, hideValues,
   const roiColor = data.totalROI == null ? 'text-slate-400' : data.totalROI >= 0 ? 'text-emerald-400' : 'text-red-400'
 
   const vh = data.valueHistory || []
+  const collectionAddedDates = data.cardAddedDates || null
+  const investedAddedDates = data.investedAddedCards || null
 
   const plHistory = data.totalInvested != null && vh.length > 1
     ? vh.map((p) => ({ date: p.date, value: Math.round((p.value - data.totalInvested + (data.realizedPnL ?? 0)) * 100) / 100 }))
@@ -290,10 +317,12 @@ export default function PortfolioSummary({ refreshKey, binderFilter, hideValues,
         <Widget
           label="Collection Value" chart={vh} gradId="pw-val" color="#f59e0b"
           formatter={(v) => format(v)}
+          addedDates={collectionAddedDates}
           onExpand={() => expand({
             label: 'Collection Value', chart: vh, color: '#f59e0b', gradId: 'pw-val',
             currentValue: fmt(data.totalValue), subtitle: `${data.cardsWithPrice} cards with price data`,
             valueColor: 'text-white', formatter: (v) => format(v),
+            addedDates: collectionAddedDates,
           })}
         >
           <p className="text-2xl font-bold text-white">{fmt(data.totalValue)}</p>
@@ -355,11 +384,13 @@ export default function PortfolioSummary({ refreshKey, binderFilter, hideValues,
         <Widget
           label="Total Invested" chart={data.investedHistory || []} gradId="pw-inv" color="#64748b"
           formatter={(v) => format(v)}
+          addedDates={investedAddedDates}
           onExpand={(data.investedHistory?.length > 1) ? () => expand({
             label: 'Total Invested', chart: data.investedHistory, color: '#64748b', gradId: 'pw-inv',
             currentValue: hideValues ? '——' : data.totalInvested != null ? format(data.totalInvested) : '—',
             subtitle: `${data.cardsWithCost} of ${data.portfolioCount} cards with cost`,
             valueColor: 'text-white', formatter: (v) => format(v),
+            addedDates: investedAddedDates,
           }) : null}
         >
           <p className="text-2xl font-bold text-white">

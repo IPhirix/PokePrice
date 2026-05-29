@@ -5,17 +5,19 @@ import { useCurrency, CURRENCIES } from '../context/CurrencyContext'
 const PCT_OPTIONS = Array.from({ length: 20 }, (_, i) => (i < 10 ? -(10 - i) * 5 : (i - 9) * 5))
 
 const SORT_OPTIONS = [
-  { value: 'addedDate',   label: 'Recently Added' },
-  { value: 'name',        label: 'Name (A → Z)' },
-  { value: 'set_asc',     label: 'Set' },
-  { value: 'price',       label: 'Current Price' },
-  { value: 'changeDay',   label: '1D % Change' },
-  { value: 'changeWeek',  label: '1W % Change' },
-  { value: 'changeMonth', label: '1M % Change' },
+  { value: 'addedDate',      label: 'Recently Added' },
+  { value: 'name',           label: 'Name (A → Z)' },
+  { value: 'set_asc',        label: 'Set' },
+  { value: 'released_desc',  label: 'Released (Newest First)' },
+  { value: 'released_asc',   label: 'Released (Oldest First)' },
+  { value: 'price',          label: 'Current Price' },
+  { value: 'changeDay',      label: '1D % Change' },
+  { value: 'changeWeek',     label: '1W % Change' },
+  { value: 'changeMonth',    label: '1M % Change' },
 ]
 
 const CONDITIONS = [
-  { value: 'raw',   label: 'Raw (Ungraded)' },
+  { value: 'raw',   label: 'Raw' },
   { value: 'psa10', label: 'PSA 10' },
   { value: 'psa9',  label: 'PSA 9' },
   { value: 'psa8',  label: 'PSA 8' },
@@ -26,21 +28,20 @@ const CONDITIONS = [
 // Keywords for each settings section — used by the search filter
 const SECTION_KEYWORDS = {
   startpage:  ['start', 'page', 'startup', 'landing', 'initial', 'load', 'home', 'collection', 'watchlist', 'pokedex', 'search', 'trade', 'history', 'default page'],
-  api:        ['api', 'token', 'pricecharting', 'pricing data', 'key', 'authentication', 'source', 'pricecharting api', 'firebase', 'storage', 'bucket', 'cloud', 'historical'],
+  api:        ['api', 'token', 'pokemon price tracker', 'ppt', 'pricing data', 'key', 'authentication', 'source', 'firebase', 'storage', 'bucket', 'cloud', 'historical'],
   currency:   ['currency', 'exchange', 'rate', 'usd', 'cad', 'eur', 'gbp', 'format', 'dollar', 'money'],
   sort:       ['sort', 'order', 'default sort', 'recently added', 'name', 'set', 'portfolio', 'watchlist'],
   condition:  ['condition', 'grade', 'psa', 'cgc', 'raw', 'ungraded', 'default condition', 'graded', 'adding'],
   targets:    ['target', 'buy', 'sell', 'price', 'percentage', 'pct', 'alert', 'default target', 'auto'],
   alerts:     ['alert', 'notification', 'notify', 'buy alert', 'sell alert', 'price alert', 'enable', 'disable'],
   management: ['remove', 'confirm', 'delete', 'management', 'card management', 'portfolio', 'watchlist'],
-  refresh:    ['refresh', 'update', 'fetch', 'prices', 'pricecharting', 'data', 'refresh card'],
+  refresh:    ['refresh', 'update', 'fetch', 'prices', 'ppt', 'data', 'refresh card'],
   history:    ['history', 'clear', 'reset', 'data', 'historical', 'price history', 'delete history'],
 }
 
 const START_PAGE_OPTIONS = [
   { value: 'collection', label: 'Collection' },
   { value: 'watchlist',  label: 'Watchlist' },
-  { value: 'history',    label: 'Historical Prices' },
   { value: 'trade',      label: 'Trade Analyzer' },
   { value: 'pokedex',    label: 'Pokédex' },
   { value: 'search',     label: 'Search' },
@@ -49,7 +50,7 @@ const START_PAGE_OPTIONS = [
 export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   const navigate = useNavigate()
   const { currency, setCurrency } = useCurrency()
-  const [token, setToken] = useState('')
+  const [pptToken, setPptToken] = useState('')
   const [firebaseBucket, setFirebaseBucket] = useState('')
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -80,7 +81,7 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
 
   useEffect(() => {
     window.api.getSettings().then((s) => {
-      setToken(s.pricechartingToken || '')
+      setPptToken(s.pptToken || '')
       setFirebaseBucket(s.firebaseStorageBucket || '')
       if (s.confirmRemove !== undefined) setConfirmRemove(s.confirmRemove)
       setDefaultBuyPct(s.defaultTargetBuyPct != null ? String(s.defaultTargetBuyPct) : '')
@@ -132,7 +133,7 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   async function handleSave(e) {
     e.preventDefault()
     await window.api.setSettings({
-      pricechartingToken: token.trim(),
+      pptToken: pptToken.trim(),
       firebaseStorageBucket: firebaseBucket.trim()
     })
     setSaved(true)
@@ -171,12 +172,14 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
     const { cleared } = await window.api.clearAllTargets('targetBuyPrice')
     setClearBuyMsg(`Cleared target buy price for ${cleared} card${cleared !== 1 ? 's' : ''}.`)
     setTimeout(() => setClearBuyMsg(''), 4000)
+    if (cleared > 0) onCardDataChanged?.()
   }
 
   async function handleClearAllSell() {
     const { cleared } = await window.api.clearAllTargets('targetSellPrice')
     setClearSellMsg(`Cleared target sell price for ${cleared} card${cleared !== 1 ? 's' : ''}.`)
     setTimeout(() => setClearSellMsg(''), 4000)
+    if (cleared > 0) onCardDataChanged?.()
   }
 
   async function handleToggleAlertBuy() {
@@ -285,22 +288,22 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
           </div>
         )}
 
-        {/* PriceCharting API */}
+        {/* Pokemon Price Tracker API */}
         {shows('api') && (
           <form onSubmit={handleSave} className="mb-4">
             <div className="bg-surface-800 border border-surface-600 rounded-xl p-5 space-y-4">
               <div>
-                <h2 className="text-white font-semibold text-sm mb-1">PriceCharting API</h2>
+                <h2 className="text-white font-semibold text-sm mb-1">Pokemon Price Tracker API</h2>
                 <p className="text-slate-500 text-xs mb-3">
-                  All pricing data is sourced from PriceCharting.com. Enter your API token below.
-                  You can generate one from your PriceCharting account settings.
+                  All pricing data is sourced from pokemonpricetracker.com. Enter your API token below.
+                  You can find your token in your Pokemon Price Tracker account settings.
                 </p>
                 <label className="text-slate-400 text-xs block mb-1.5">API Token</label>
                 <input
                   type="text"
-                  value={token}
-                  onChange={(e) => setToken(e.target.value)}
-                  placeholder="Your 40-character API token"
+                  value={pptToken}
+                  onChange={(e) => setPptToken(e.target.value)}
+                  placeholder="Your Pokemon Price Tracker Bearer token"
                   className="w-full bg-surface-700 border border-surface-500 rounded px-3 py-2 text-sm text-white font-mono placeholder-slate-600 focus:outline-none focus:border-accent"
                   spellCheck={false}
                 />
@@ -512,7 +515,7 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
           <div className="mb-4 bg-surface-800 border border-surface-600 rounded-xl p-5">
             <h2 className="text-white font-semibold text-sm mb-1">Refresh Card Data</h2>
             <p className="text-slate-500 text-xs mb-4">
-              Fetch the latest prices from PriceCharting for your cards. Choose which section to refresh, or refresh all cards at once.
+              Fetch the latest prices from Pokemon Price Tracker for your cards. Choose which section to refresh, or refresh all cards at once.
             </p>
             {refreshResult && <p className="text-emerald-400 text-sm mb-3">{refreshResult}</p>}
             <div className="flex items-center gap-3 flex-wrap">

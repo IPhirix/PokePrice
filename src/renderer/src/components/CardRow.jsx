@@ -1,5 +1,31 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+
+function seriesFromSetId(id) {
+  if (!id) return ''
+  if (id.startsWith('sv'))   return 'Scarlet & Violet'
+  if (id.startsWith('swsh')) return 'Sword & Shield'
+  if (id.startsWith('sm'))   return 'Sun & Moon'
+  if (id.startsWith('xy'))   return 'XY'
+  if (id.startsWith('bw'))   return 'Black & White'
+  if (id.startsWith('hgss')) return 'HeartGold & SoulSilver'
+  if (id.startsWith('dp'))   return 'Diamond & Pearl'
+  if (id.startsWith('ex'))   return 'EX'
+  if (id.startsWith('pop'))  return 'POP'
+  if (id.startsWith('neo'))  return 'Neo'
+  if (id.startsWith('gym'))  return 'Gym'
+  if (id.startsWith('base')) return 'Base'
+  return ''
+}
+
+function PriceSpinner() {
+  return (
+    <svg className="w-3 h-3 animate-spin text-slate-500" viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+    </svg>
+  )
+}
 import PriceChangeIndicator from './PriceChangeIndicator'
 import Sparkline from './Sparkline'
 import { useCurrency } from '../context/CurrencyContext'
@@ -280,25 +306,200 @@ function Divider() {
 
 const TRADE_CONDITION_LABELS = { raw: 'Raw', psa10: 'PSA 10', psa9: 'PSA 9', psa8: 'PSA 8', cgc10: 'CGC 10', cgc9: 'CGC 9' }
 
-function SellModal({ card, onClose, onSold }) {
+function getPptPrice(product, condition) {
+  if (!product) return null
+  if (condition === 'raw') {
+    const p = product.prices?.market
+    return p != null && p > 0 ? p : null
+  }
+  const grade = product.ebay?.salesByGrade?.[condition]
+  if (!grade) return null
+  const price = grade.smartMarketPrice?.price ?? grade.marketPrice7Day ?? grade.averagePrice ?? null
+  return price != null && price > 0 ? price : null
+}
+
+const ALL_CONDITIONS_ORDERED = [
+  { key: 'raw',   label: 'Raw' },
+  { key: 'psa8',  label: 'PSA 8' },
+  { key: 'psa9',  label: 'PSA 9' },
+  { key: 'psa10', label: 'PSA 10' },
+  { key: 'cgc9',  label: 'CGC 9' },
+  { key: 'cgc10', label: 'CGC 10' },
+]
+
+function TradeCardSearch({ onAdd, onCancel }) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState([])
+  const [searching, setSearching] = useState(false)
+  const [searchDone, setSearchDone] = useState(false)
+  const [selected, setSelected] = useState(null)
+  const [pcProduct, setPcProduct] = useState(null)
+  const [fetchingPrice, setFetchingPrice] = useState(false)
+  const inputRef = useRef(null)
+
+  useEffect(() => {
+    setTimeout(() => inputRef.current?.focus(), 0)
+  }, [])
+
+  async function runSearch() {
+    const q = query.trim()
+    if (!q) return
+    setSearching(true)
+    setSearchDone(false)
+    setSelected(null)
+    setPcProduct(null)
+    try {
+      const cards = await window.api.searchCards(q)
+      setResults(cards.slice(0, 10))
+      setSearchDone(true)
+    } catch {
+      setResults([])
+      setSearchDone(true)
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  async function selectCard(card) {
+    setSelected(card)
+    setFetchingPrice(true)
+    setPcProduct(null)
+    try {
+      const products = await window.api.searchPPT(`${card.name} ${card.set?.name || ''}`)
+      if (products.length > 0) setPcProduct(products[0])
+    } catch {}
+    setFetchingPrice(false)
+  }
+
+  return (
+    <div className="border border-surface-500 rounded-lg bg-surface-900 mt-2 overflow-hidden">
+      <div className="flex gap-2 p-2.5 border-b border-surface-700">
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setSearchDone(false) }}
+          onKeyDown={(e) => e.key === 'Enter' && runSearch()}
+          placeholder="Search by card name..."
+          className="flex-1 bg-surface-700 border border-surface-600 rounded px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+        />
+        <button
+          onClick={runSearch}
+          disabled={searching || !query.trim()}
+          className="px-2.5 py-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-black text-xs font-bold rounded transition-colors"
+        >
+          {searching ? '…' : 'Search'}
+        </button>
+        <button onClick={onCancel} className="text-slate-500 hover:text-white text-sm px-1">✕</button>
+      </div>
+
+      {!selected && searchDone && (
+        <div className="max-h-64 overflow-y-auto">
+          {results.length === 0 ? (
+            <p className="text-slate-600 text-xs text-center py-4">No cards found</p>
+          ) : results.map((card) => (
+            <button
+              key={card.id}
+              onClick={() => selectCard(card)}
+              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-700 text-left border-b border-surface-700 last:border-0 transition-colors"
+            >
+              {card.images?.small ? (
+                <img src={card.images.small} alt={card.name} className="w-14 h-20 object-contain rounded flex-shrink-0" />
+              ) : (
+                <div className="w-14 h-20 bg-surface-700 rounded flex-shrink-0" />
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-semibold truncate">{card.name}</p>
+                <p className="text-slate-400 text-xs truncate mt-0.5">{card.set?.name}{card.number ? ` · #${card.number}` : ''}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selected && (
+        <div>
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-700">
+            <button
+              onClick={() => { setSelected(null); setPcProduct(null) }}
+              className="text-slate-400 hover:text-white text-xs flex-shrink-0"
+            >
+              ‹ Back
+            </button>
+            {selected.images?.small && (
+              <img src={selected.images.small} alt={selected.name} className="w-12 h-[66px] object-contain rounded flex-shrink-0" />
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-white text-sm font-semibold truncate">{selected.name}</p>
+              <p className="text-slate-400 text-xs truncate mt-0.5">{selected.set?.name}{selected.number ? ` · #${selected.number}` : ''}</p>
+            </div>
+            {fetchingPrice && <span className="text-slate-600 text-xs flex-shrink-0">loading…</span>}
+          </div>
+          <div className="divide-y divide-surface-700">
+            {ALL_CONDITIONS_ORDERED.map(({ key, label }) => {
+              const price = fetchingPrice ? null : getPptPrice(pcProduct, key)
+              return (
+                <button
+                  key={key}
+                  onClick={() => onAdd({
+                    name: selected.name,
+                    tcgId: selected.id,
+                    setName: selected.set?.name || '',
+                    setId: selected.set?.id || '',
+                    number: selected.number || '',
+                    rarity: selected.rarity || '',
+                    imageUrl: selected.images?.small || '',
+                    imageUrlLarge: selected.images?.large || '',
+                    condition: key,
+                    estimatedValue: price != null ? String(price) : '',
+                  })}
+                  className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-surface-700 text-left transition-colors"
+                >
+                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${CONDITION_COLOR[key] || 'bg-slate-700 text-slate-300'}`}>
+                    {label}
+                  </span>
+                  <span className="text-xs flex items-center">
+                    {fetchingPrice ? (
+                      <PriceSpinner />
+                    ) : price != null ? (
+                      <span className="text-accent font-semibold">${price.toFixed(2)}</span>
+                    ) : (
+                      <span className="text-slate-600">—</span>
+                    )}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SellModal({ card, onClose, onSold, defaultIsTrade = false }) {
   const { format } = useCurrency()
   const [salePrice, setSalePrice] = useState('')
   const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0])
-  const [isTrade, setIsTrade] = useState(false)
+  const [isTrade, setIsTrade] = useState(defaultIsTrade)
   const [tradeCards, setTradeCards] = useState([])
+  const [showTradeSearch, setShowTradeSearch] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const purchasePrice = card.purchasePrice ?? null
   const salePriceNum = parseFloat(salePrice)
-  const previewPL = !isNaN(salePriceNum) && salePriceNum > 0 && purchasePrice != null
-    ? salePriceNum - purchasePrice : null
+  const effectivePrice = isTrade && !salePrice ? 0 : salePriceNum
+  const previewPL = !isNaN(effectivePrice) && salePrice !== '' && purchasePrice != null
+    ? effectivePrice - purchasePrice : null
+  const canSubmit = isTrade
+    ? !salePrice || (!isNaN(salePriceNum) && salePriceNum >= 0)
+    : !isNaN(salePriceNum) && salePriceNum > 0
 
   async function handleSell() {
-    if (isNaN(salePriceNum) || salePriceNum <= 0) return
+    if (!canSubmit) return
     setSaving(true)
     try {
       await window.api.sellCard(card.id, {
-        salePrice: Math.round(salePriceNum * 100) / 100,
+        salePrice: Math.round(effectivePrice * 100) / 100,
         saleDate,
         isTrade,
         tradeCardsReceived: isTrade ? tradeCards.filter((c) => c.name.trim()) : []
@@ -316,19 +517,24 @@ function SellModal({ card, onClose, onSold }) {
       className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
       onClick={(e) => { e.stopPropagation(); if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
-        <div className="px-5 py-4 border-b border-surface-600 flex items-center gap-3">
+      <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-2xl mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="px-6 py-5 border-b border-surface-600 flex items-center gap-5">
           {card.imageUrl && (
-            <img src={card.imageUrl} alt={card.name} className="w-8 h-11 object-contain rounded flex-shrink-0" />
+            <img src={card.imageUrl} alt={card.name} className="w-24 h-[136px] object-contain rounded-lg flex-shrink-0" />
           )}
           <div className="flex-1 min-w-0">
-            <h2 className="text-base font-semibold text-white truncate">{card.name}</h2>
-            <p className="text-slate-500 text-xs truncate">{card.setName}</p>
+            <h2 className="text-xl font-bold text-white truncate">{card.name}</h2>
+            <p className="text-slate-400 text-sm truncate mt-1">
+              {(() => {
+                const series = card.setSeries || seriesFromSetId(card.setId)
+                return series && series !== card.setName ? `${series} - ${card.setName}` : card.setName
+              })()}
+            </p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl w-8 h-8 flex items-center justify-center flex-shrink-0">✕</button>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl w-8 h-8 flex items-center justify-center flex-shrink-0 self-start">✕</button>
         </div>
 
-        <div className="p-5 space-y-4 max-h-[65vh] overflow-y-auto">
+        <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
           <div>
             <label className="block text-slate-300 text-sm font-medium mb-1.5">Sale Price</label>
             <div className="relative">
@@ -377,52 +583,58 @@ function SellModal({ card, onClose, onSold }) {
             <div>
               <div className="flex items-center justify-between mb-2">
                 <p className="text-slate-300 text-sm font-medium">Cards Received</p>
-                <button
-                  onClick={() => setTradeCards((prev) => [...prev, { name: '', condition: 'raw', estimatedValue: '' }])}
-                  className="text-xs px-2 py-1 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 rounded transition-colors"
-                >
-                  + Add Card
-                </button>
+                {!showTradeSearch && (
+                  <button
+                    onClick={() => setShowTradeSearch(true)}
+                    className="text-xs px-2 py-1 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 rounded transition-colors"
+                  >
+                    + Add Card
+                  </button>
+                )}
               </div>
-              {tradeCards.length === 0 && (
+
+              {tradeCards.length > 0 && (
+                <div className="space-y-2 mb-2">
+                  {tradeCards.map((tc, idx) => (
+                    <div key={idx} className="flex items-center gap-3 bg-surface-700 border border-surface-600 rounded-lg px-3 py-2.5">
+                      {tc.imageUrl && (
+                        <img src={tc.imageUrl} alt={tc.name} className="w-12 h-[66px] object-contain rounded flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-white text-sm font-semibold truncate">{tc.name}</p>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${CONDITION_COLOR[tc.condition] || 'bg-slate-700 text-slate-300'}`}>
+                            {TRADE_CONDITION_LABELS[tc.condition]}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="relative w-24 flex-shrink-0">
+                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none">$</span>
+                        <input
+                          type="number" min="0" step="0.01"
+                          value={tc.estimatedValue}
+                          onChange={(e) => setTradeCards((prev) => prev.map((c, i) => i === idx ? { ...c, estimatedValue: e.target.value } : c))}
+                          placeholder="0.00"
+                          className="w-full bg-surface-600 border border-surface-500 rounded pl-5 pr-1 py-1 text-xs text-white focus:outline-none focus:border-accent"
+                        />
+                      </div>
+                      <button
+                        onClick={() => setTradeCards((prev) => prev.filter((_, i) => i !== idx))}
+                        className="text-slate-600 hover:text-red-400 text-sm leading-none flex-shrink-0"
+                      >✕</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {showTradeSearch ? (
+                <TradeCardSearch
+                  onAdd={(tc) => { setTradeCards((prev) => [...prev, tc]); setShowTradeSearch(false) }}
+                  onCancel={() => setShowTradeSearch(false)}
+                />
+              ) : tradeCards.length === 0 && (
                 <p className="text-slate-600 text-xs text-center py-3">No cards added yet — click Add Card</p>
               )}
-              <div className="space-y-2">
-                {tradeCards.map((tc, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={tc.name}
-                      onChange={(e) => setTradeCards((prev) => prev.map((c, i) => i === idx ? { ...c, name: e.target.value } : c))}
-                      placeholder="Card name"
-                      className="flex-1 bg-surface-700 border border-surface-500 rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-accent"
-                    />
-                    <select
-                      value={tc.condition}
-                      onChange={(e) => setTradeCards((prev) => prev.map((c, i) => i === idx ? { ...c, condition: e.target.value } : c))}
-                      className="w-20 bg-surface-700 border border-surface-500 rounded px-1 py-1.5 text-xs text-slate-300 focus:outline-none"
-                    >
-                      {Object.entries(TRADE_CONDITION_LABELS).map(([k, v]) => (
-                        <option key={k} value={k}>{v}</option>
-                      ))}
-                    </select>
-                    <div className="relative w-24">
-                      <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none">$</span>
-                      <input
-                        type="number" min="0" step="0.01"
-                        value={tc.estimatedValue}
-                        onChange={(e) => setTradeCards((prev) => prev.map((c, i) => i === idx ? { ...c, estimatedValue: e.target.value } : c))}
-                        placeholder="0.00"
-                        className="w-full bg-surface-700 border border-surface-500 rounded pl-5 pr-1 py-1.5 text-xs text-white focus:outline-none focus:border-accent"
-                      />
-                    </div>
-                    <button
-                      onClick={() => setTradeCards((prev) => prev.filter((_, i) => i !== idx))}
-                      className="text-slate-600 hover:text-red-400 text-sm leading-none flex-shrink-0"
-                    >✕</button>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
         </div>
@@ -430,10 +642,10 @@ function SellModal({ card, onClose, onSold }) {
         <div className="px-5 py-4 border-t border-surface-600 flex gap-3">
           <button
             onClick={handleSell}
-            disabled={saving || !salePrice || isNaN(salePriceNum) || salePriceNum <= 0}
+            disabled={saving || !canSubmit}
             className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold py-2.5 rounded-lg transition-colors"
           >
-            {saving ? 'Saving…' : 'Mark as Sold'}
+            {saving ? 'Saving…' : isTrade ? 'Mark as Traded' : 'Mark as Sold'}
           </button>
           <button
             onClick={onClose}
@@ -452,6 +664,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, confir
   const { format } = useCurrency()
   const [confirmingRemove, setConfirmingRemove] = useState(false)
   const [sellModalOpen, setSellModalOpen] = useState(false)
+  const [sellModalAsTrade, setSellModalAsTrade] = useState(false)
   const favNames = useFavNames()
 
   const condLabel = CONDITION_LABEL[card.condition] || card.condition
@@ -532,7 +745,12 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, confir
           </span>
           {isFavCard && <span className="text-yellow-400 text-sm leading-none flex-shrink-0">★</span>}
         </div>
-        <p className="text-slate-400 text-base truncate mb-0.5">{card.setName}</p>
+        {(() => {
+          const series = card.setSeries || seriesFromSetId(card.setId)
+          return series && series !== card.setName
+            ? <><p className="text-slate-500 text-sm truncate leading-tight">{series}</p><p className="text-slate-400 text-base truncate mb-0.5">{card.setName}</p></>
+            : <p className="text-slate-400 text-base truncate mb-0.5">{card.setName}</p>
+        })()}
         {card.number && (
           <p className="text-slate-500 text-sm">
             #{card.number}{card.rarity ? ` · ${card.rarity}` : ''}
@@ -654,14 +872,20 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, confir
                 <>
                   <span className="text-slate-300 text-xs font-medium">What happened?</span>
                   <button
-                    onClick={() => { setConfirmingRemove(false); setSellModalOpen(true) }}
+                    onClick={() => { setConfirmingRemove(false); setSellModalAsTrade(false); setSellModalOpen(true) }}
                     className="bg-emerald-700 hover:bg-emerald-600 text-white text-xs px-2.5 py-1 rounded font-semibold transition-colors"
                   >
                     Sold
                   </button>
                   <button
+                    onClick={() => { setConfirmingRemove(false); setSellModalAsTrade(true); setSellModalOpen(true) }}
+                    className="bg-yellow-600 hover:bg-yellow-500 text-black text-xs px-2.5 py-1 rounded font-semibold transition-colors"
+                  >
+                    Traded
+                  </button>
+                  <button
                     onClick={() => onRemove(card.id)}
-                    className="bg-surface-600 hover:bg-surface-500 text-slate-300 text-xs px-2.5 py-1 rounded transition-colors"
+                    className="bg-red-700 hover:bg-red-600 text-white text-xs px-2.5 py-1 rounded font-semibold transition-colors"
                   >
                     Remove
                   </button>
@@ -671,7 +895,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, confir
                   <span className="text-slate-300 text-xs font-medium">Remove card?</span>
                   <button
                     onClick={() => onRemove(card.id)}
-                    className="bg-red-600 hover:bg-red-500 text-white text-xs px-2.5 py-1 rounded font-semibold transition-colors"
+                    className="bg-red-700 hover:bg-red-600 text-white text-xs px-2.5 py-1 rounded font-semibold transition-colors"
                   >
                     Remove
                   </button>
@@ -679,9 +903,9 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, confir
               )}
               <button
                 onClick={() => setConfirmingRemove(false)}
-                className="bg-surface-600 hover:bg-surface-500 text-slate-300 text-xs px-2.5 py-1 rounded transition-colors"
+                className="text-slate-500 hover:text-white text-base leading-none transition-colors px-1"
               >
-                Cancel
+                ✕
               </button>
             </div>
           )}
@@ -697,7 +921,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, confir
       )}
 
       {sellModalOpen && (
-        <SellModal card={card} onClose={() => setSellModalOpen(false)} onSold={onRefresh} />
+        <SellModal card={card} onClose={() => setSellModalOpen(false)} onSold={onRefresh} defaultIsTrade={sellModalAsTrade} />
       )}
     </div>
   )
