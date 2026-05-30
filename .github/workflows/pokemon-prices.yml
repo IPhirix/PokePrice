@@ -1,10 +1,14 @@
 name: Pokemon Price Pipeline
 
 on:
+  push:
+    branches:
+      - main
+
   workflow_dispatch:
 
   schedule:
-    - cron: "20 13 * * *"
+    - cron: '20 13 * * *'
 
 jobs:
   run-pipeline:
