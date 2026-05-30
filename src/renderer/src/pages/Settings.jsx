@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Eye, EyeOff } from 'lucide-react'
+import { Eye, EyeOff } from '../components/icons'
 import { useCurrency, CURRENCIES } from '../context/CurrencyContext'
 import { useAuth } from '../context/AuthContext'
 
@@ -658,9 +658,9 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
               <button
                 type="button"
                 onClick={handleToggleStayLoggedIn}
-                className={`relative w-11 h-6 rounded-full transition-colors ${stayLoggedIn ? 'bg-accent' : 'bg-surface-600'}`}
+                className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors ${stayLoggedIn ? 'bg-accent' : 'bg-surface-600'}`}
               >
-                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${stayLoggedIn ? 'translate-x-6' : 'translate-x-1'}`} />
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${stayLoggedIn ? 'translate-x-5' : 'translate-x-0'}`} />
               </button>
             </div>
 

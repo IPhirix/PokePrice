@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Eye, EyeOff, Zap } from 'lucide-react'
+import { Eye, EyeOff, Zap } from '../components/icons'
 import { useAuth } from '../context/AuthContext'
 import ResetPasswordModal from '../components/ResetPasswordModal'
 

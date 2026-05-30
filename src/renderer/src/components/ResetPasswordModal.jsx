@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Eye, EyeOff, X } from 'lucide-react'
+import { Eye, EyeOff, X } from './icons'
 
 export default function ResetPasswordModal({ onClose }) {
   const [tab, setTab] = useState('security')  // 'security' | 'email'

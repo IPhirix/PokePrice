@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Eye, EyeOff, ShieldCheck } from 'lucide-react'
+import { Eye, EyeOff, ShieldCheck } from '../components/icons'
 import { useAuth } from '../context/AuthContext'
 
 const SECURITY_QUESTIONS = [
