@@ -301,7 +301,9 @@ service.files().create(
         "name": gz_filename.name,
         "parents": [GOOGLE_DRIVE_FOLDER_ID]
     },
-    media_body=media
+    media_body=media,
+    supportsAllDrives=True,
+    fields="id"
 ).execute()
 
 print("Upload complete")
