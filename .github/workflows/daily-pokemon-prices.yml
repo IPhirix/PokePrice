@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '20 13 * * *'
 
 jobs:
   run-pipeline:
