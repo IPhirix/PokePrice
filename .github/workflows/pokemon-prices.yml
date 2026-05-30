@@ -2,8 +2,9 @@ name: Pokemon Price Pipeline
 
 on:
   workflow_dispatch:
+
   schedule:
-    - cron: '20 13 * * *' # 8:20 AM Chicago
+    - cron: "20 13 * * *"
 
 jobs:
   run-pipeline:
