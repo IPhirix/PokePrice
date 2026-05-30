@@ -12,10 +12,9 @@ from pathlib import Path
 from datetime import datetime
 from psycopg2.extras import execute_values
 
-from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
-from google.auth.transport.requests import Request
 
 print("Starting Pokemon price pipeline...")
 
@@ -28,15 +27,19 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 PRICECHARTING_URL = os.getenv("PRICECHARTING_URL")
 GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
+GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
 
 if not DATABASE_URL:
-    raise Exception("DATABASE_URL missing in .env")
+    raise Exception("DATABASE_URL missing")
 
 if not PRICECHARTING_URL:
-    raise Exception("PRICECHARTING_URL missing in .env")
+    raise Exception("PRICECHARTING_URL missing")
 
 if not GOOGLE_DRIVE_FOLDER_ID:
-    raise Exception("GOOGLE_DRIVE_FOLDER_ID missing in .env")
+    raise Exception("GOOGLE_DRIVE_FOLDER_ID missing")
+
+if not GOOGLE_SERVICE_ACCOUNT_JSON:
+    raise Exception("GOOGLE_SERVICE_ACCOUNT_JSON missing")
 
 today = datetime.now().strftime("%Y-%m-%d")
 snapshot_date = datetime.today().date()
@@ -105,7 +108,6 @@ if already_imported(cursor, snapshot_date):
     cursor.close()
     conn.close()
 
-    # cleanup downloaded CSV
     if csv_filename.exists():
         csv_filename.unlink()
 
@@ -216,64 +218,51 @@ print(f"Prepared {len(records):,} records")
 # BULK INSERT
 # -------------------------
 
-try:
-    execute_values(
-        cursor,
-        """
-        INSERT INTO pokemon_card_prices (
-            pricecharting_id,
-            tcg_id,
-            upc,
-            asin,
-            epid,
-            console_name,
-            product_name,
-            genre,
-            release_date,
-            loose_price,
-            cib_price,
-            new_price,
-            graded_price,
-            box_only_price,
-            manual_only_price,
-            bgs_10_price,
-            condition_17_price,
-            condition_18_price,
-            gamestop_price,
-            gamestop_trade_price,
-            retail_loose_buy,
-            retail_loose_sell,
-            retail_cib_buy,
-            retail_cib_sell,
-            retail_new_buy,
-            retail_new_sell,
-            sales_volume,
-            snapshot_date
-        )
-        VALUES %s
-        ON CONFLICT DO NOTHING
-        """,
-        records,
-        page_size=10000
+execute_values(
+    cursor,
+    """
+    INSERT INTO pokemon_card_prices (
+        pricecharting_id,
+        tcg_id,
+        upc,
+        asin,
+        epid,
+        console_name,
+        product_name,
+        genre,
+        release_date,
+        loose_price,
+        cib_price,
+        new_price,
+        graded_price,
+        box_only_price,
+        manual_only_price,
+        bgs_10_price,
+        condition_17_price,
+        condition_18_price,
+        gamestop_price,
+        gamestop_trade_price,
+        retail_loose_buy,
+        retail_loose_sell,
+        retail_cib_buy,
+        retail_cib_sell,
+        retail_new_buy,
+        retail_new_sell,
+        sales_volume,
+        snapshot_date
     )
+    VALUES %s
+    ON CONFLICT DO NOTHING
+    """,
+    records,
+    page_size=10000
+)
 
-    conn.commit()
-
-    print("Imported to Supabase")
-
-except Exception as e:
-    conn.rollback()
-
-    print("Database insert failed:")
-    print(e)
-
-    cursor.close()
-    conn.close()
-
-    raise
-
+conn.commit()
 cursor.close()
 conn.close()
+
+print("Imported to Supabase")
 
 # -------------------------
 # COMPRESS FILE
@@ -285,32 +274,22 @@ with open(csv_filename, "rb") as f_in:
     with gzip.open(gz_filename, "wb", compresslevel=9) as f_out:
         shutil.copyfileobj(f_in, f_out)
 
-print(f"Compressed: {gz_filename.name}")
-
 # -------------------------
-# GOOGLE DRIVE AUTH
-# -------------------------
-
-with open("token.json", "r") as f:
-    token_info = json.load(f)
-
-creds = Credentials.from_authorized_user_info(token_info)
-
-if creds.expired and creds.refresh_token:
-    creds.refresh(Request())
-
-service = build("drive", "v3", credentials=creds)
-
-# -------------------------
-# UPLOAD TO DRIVE
+# GOOGLE DRIVE UPLOAD
 # -------------------------
 
 print("Uploading to Google Drive...")
 
-file_metadata = {
-    "name": gz_filename.name,
-    "parents": [GOOGLE_DRIVE_FOLDER_ID]
-}
+service_account_info = json.loads(
+    GOOGLE_SERVICE_ACCOUNT_JSON
+)
+
+credentials = service_account.Credentials.from_service_account_info(
+    service_account_info,
+    scopes=["https://www.googleapis.com/auth/drive"]
+)
+
+service = build("drive", "v3", credentials=credentials)
 
 media = MediaFileUpload(
     str(gz_filename),
@@ -318,9 +297,11 @@ media = MediaFileUpload(
 )
 
 service.files().create(
-    body=file_metadata,
-    media_body=media,
-    fields="id"
+    body={
+        "name": gz_filename.name,
+        "parents": [GOOGLE_DRIVE_FOLDER_ID]
+    },
+    media_body=media
 ).execute()
 
 print("Upload complete")
@@ -328,8 +309,6 @@ print("Upload complete")
 # -------------------------
 # CLEANUP
 # -------------------------
-
-print("Cleaning up local files...")
 
 try:
     csv_filename.unlink()
@@ -339,10 +318,7 @@ try:
 
     gz_filename.unlink()
 
-    print("Local files deleted")
-
-except Exception as e:
-    print("Cleanup warning:")
-    print(e)
+except:
+    pass
 
 print("Pipeline complete!")
