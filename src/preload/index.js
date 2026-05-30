@@ -39,8 +39,6 @@ contextBridge.exposeInMainWorld('api', {
   searchSealed: (query) => ipcRenderer.invoke('sealed:search', query),
   addSealedProduct: (product, section, purchasePrice, binder) => ipcRenderer.invoke('sealed:add', product, section, purchasePrice, binder),
 
-  getCloudDates: () => ipcRenderer.invoke('prices:cloudDates'),
-  backfillCard: (cardId) => ipcRenderer.invoke('prices:backfillCard', cardId),
   fetchPPTHistory: (cardId) => ipcRenderer.invoke('prices:fetchPPTHistory', cardId),
 
   getAccountStats: () => ipcRenderer.invoke('account:getStats'),

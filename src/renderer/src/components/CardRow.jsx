@@ -327,34 +327,34 @@ const ALL_CONDITIONS_ORDERED = [
   { key: 'cgc10', label: 'CGC 10' },
 ]
 
-function TradeCardSearch({ onAdd, onCancel }) {
+function TradeSearch({ onAdd, onCancel }) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
-  const [searchDone, setSearchDone] = useState(false)
+  const [searchCommitted, setSearchCommitted] = useState(false)
   const [selected, setSelected] = useState(null)
-  const [pcProduct, setPcProduct] = useState(null)
+  const [condition, setCondition] = useState('raw')
+  const [pptProduct, setPptProduct] = useState(null)
   const [fetchingPrice, setFetchingPrice] = useState(false)
   const inputRef = useRef(null)
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 0)
+    window.api.getSettings().then((s) => { if (s.defaultCondition) setCondition(s.defaultCondition) }).catch(() => {})
   }, [])
 
-  async function runSearch() {
+  async function search() {
     const q = query.trim()
     if (!q) return
     setSearching(true)
-    setSearchDone(false)
+    setSearchCommitted(true)
     setSelected(null)
-    setPcProduct(null)
+    setPptProduct(null)
     try {
-      const cards = await window.api.searchCards(q)
-      setResults(cards.slice(0, 10))
-      setSearchDone(true)
+      const cards = await window.api.searchCardsAdvanced(`name:"${q}*"`)
+      setResults(cards)
     } catch {
       setResults([])
-      setSearchDone(true)
     } finally {
       setSearching(false)
     }
@@ -363,112 +363,129 @@ function TradeCardSearch({ onAdd, onCancel }) {
   async function selectCard(card) {
     setSelected(card)
     setFetchingPrice(true)
-    setPcProduct(null)
+    setPptProduct(null)
     try {
       const products = await window.api.searchPPT(`${card.name} ${card.set?.name || ''}`)
-      if (products.length > 0) setPcProduct(products[0])
+      if (products.length > 0) setPptProduct(products[0])
     } catch {}
     setFetchingPrice(false)
   }
 
+  function handleAdd() {
+    if (!selected) return
+    const marketPrice = getPptPrice(pptProduct, condition)
+    onAdd({
+      name: selected.name,
+      tcgId: selected.id,
+      setName: selected.set?.name || '',
+      setId: selected.set?.id || '',
+      number: selected.number || '',
+      rarity: selected.rarity || '',
+      imageUrl: selected.images?.small || '',
+      imageUrlLarge: selected.images?.large || '',
+      condition,
+      marketPrice: marketPrice ?? null,
+    })
+  }
+
   return (
-    <div className="border border-surface-500 rounded-lg bg-surface-900 mt-2 overflow-hidden">
-      <div className="flex gap-2 p-2.5 border-b border-surface-700">
+    <div className="border border-surface-500 rounded-xl bg-surface-900 overflow-hidden">
+      <div className="flex gap-2 p-3 border-b border-surface-700">
         <input
           ref={inputRef}
           value={query}
-          onChange={(e) => { setQuery(e.target.value); setSearchDone(false) }}
-          onKeyDown={(e) => e.key === 'Enter' && runSearch()}
-          placeholder="Search by card name..."
-          className="flex-1 bg-surface-700 border border-surface-600 rounded px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+          onChange={(e) => { setQuery(e.target.value); setSearchCommitted(false) }}
+          onKeyDown={(e) => e.key === 'Enter' && search()}
+          placeholder="Search by name, set, or card # (e.g. Charizard #4)…"
+          className="flex-1 bg-surface-700 border border-surface-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
         />
         <button
-          onClick={runSearch}
+          onClick={search}
           disabled={searching || !query.trim()}
-          className="px-2.5 py-1 bg-accent hover:bg-accent-hover disabled:opacity-40 text-black text-xs font-bold rounded transition-colors"
+          className="px-4 py-2.5 bg-accent hover:bg-amber-400 disabled:opacity-40 text-black font-bold rounded-lg text-sm transition-colors flex items-center gap-1.5 flex-shrink-0"
         >
-          {searching ? '…' : 'Search'}
+          {searching ? (
+            <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
+            </svg>
+          )}
+          {searching ? 'Searching' : 'Search'}
         </button>
-        <button onClick={onCancel} className="text-slate-500 hover:text-white text-sm px-1">✕</button>
+        <button onClick={onCancel} className="px-2 text-slate-500 hover:text-white text-lg transition-colors">✕</button>
       </div>
 
-      {!selected && searchDone && (
-        <div className="max-h-64 overflow-y-auto">
-          {results.length === 0 ? (
-            <p className="text-slate-600 text-xs text-center py-4">No cards found</p>
-          ) : results.map((card) => (
+      {!selected ? (
+        <div className="max-h-72 overflow-y-auto">
+          {searching && <p className="text-slate-500 text-sm text-center py-8">Searching…</p>}
+          {!searching && searchCommitted && results.length === 0 && (
+            <p className="text-slate-600 text-sm text-center py-8">No cards found</p>
+          )}
+          {!searching && !searchCommitted && (
+            <div className="flex flex-col items-center justify-center py-10 gap-2 text-slate-700">
+              <svg className="w-8 h-8 text-slate-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
+              </svg>
+              <p className="text-sm">Search to find a card</p>
+            </div>
+          )}
+          {results.slice(0, 40).map((card) => (
             <button
               key={card.id}
               onClick={() => selectCard(card)}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-700 text-left border-b border-surface-700 last:border-0 transition-colors"
+              className="w-full flex items-center gap-4 px-4 py-3 hover:bg-surface-700 text-left border-b border-surface-700 last:border-0 transition-colors"
             >
               {card.images?.small ? (
-                <img src={card.images.small} alt={card.name} className="w-14 h-20 object-contain rounded flex-shrink-0" />
+                <img src={card.images.small} alt={card.name} className="w-14 h-[77px] object-contain rounded flex-shrink-0" />
               ) : (
-                <div className="w-14 h-20 bg-surface-700 rounded flex-shrink-0" />
+                <div className="w-14 h-[77px] bg-surface-700 rounded flex-shrink-0" />
               )}
               <div className="flex-1 min-w-0">
-                <p className="text-white text-sm font-semibold truncate">{card.name}</p>
-                <p className="text-slate-400 text-xs truncate mt-0.5">{card.set?.name}{card.number ? ` · #${card.number}` : ''}</p>
+                <p className="text-white text-base font-semibold truncate">
+                  {card.name}{card.number ? <span className="text-slate-400 font-normal"> #{card.number}</span> : ''}
+                </p>
+                <p className="text-slate-400 text-sm mt-0.5">{[card.set?.series, card.set?.name].filter(Boolean).join(' - ')}</p>
+                {card.rarity && <p className="text-slate-500 text-sm mt-0.5">{card.rarity}</p>}
               </div>
             </button>
           ))}
         </div>
-      )}
-
-      {selected && (
+      ) : (
         <div>
           <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-700">
-            <button
-              onClick={() => { setSelected(null); setPcProduct(null) }}
-              className="text-slate-400 hover:text-white text-xs flex-shrink-0"
-            >
-              ‹ Back
-            </button>
+            <button onClick={() => { setSelected(null); setPptProduct(null) }} className="text-slate-400 hover:text-white text-sm flex-shrink-0">‹ Back</button>
             {selected.images?.small && (
               <img src={selected.images.small} alt={selected.name} className="w-12 h-[66px] object-contain rounded flex-shrink-0" />
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-white text-sm font-semibold truncate">{selected.name}</p>
-              <p className="text-slate-400 text-xs truncate mt-0.5">{selected.set?.name}{selected.number ? ` · #${selected.number}` : ''}</p>
+              <p className="text-white text-base font-semibold truncate">{selected.name}</p>
+              <p className="text-slate-400 text-sm truncate">{[selected.set?.series, selected.set?.name].filter(Boolean).join(' - ')}</p>
             </div>
-            {fetchingPrice && <span className="text-slate-600 text-xs flex-shrink-0">loading…</span>}
+            {fetchingPrice && <span className="text-slate-500 text-sm flex-shrink-0">Getting price…</span>}
           </div>
-          <div className="divide-y divide-surface-700">
-            {ALL_CONDITIONS_ORDERED.map(({ key, label }) => {
-              const price = fetchingPrice ? null : getPptPrice(pcProduct, key)
-              return (
-                <button
-                  key={key}
-                  onClick={() => onAdd({
-                    name: selected.name,
-                    tcgId: selected.id,
-                    setName: selected.set?.name || '',
-                    setId: selected.set?.id || '',
-                    number: selected.number || '',
-                    rarity: selected.rarity || '',
-                    imageUrl: selected.images?.small || '',
-                    imageUrlLarge: selected.images?.large || '',
-                    condition: key,
-                    estimatedValue: price != null ? String(price) : '',
-                  })}
-                  className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-surface-700 text-left transition-colors"
-                >
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${CONDITION_COLOR[key] || 'bg-slate-700 text-slate-300'}`}>
-                    {label}
-                  </span>
-                  <span className="text-xs flex items-center">
-                    {fetchingPrice ? (
-                      <PriceSpinner />
-                    ) : price != null ? (
-                      <span className="text-accent font-semibold">${price.toFixed(2)}</span>
-                    ) : (
-                      <span className="text-slate-600">—</span>
-                    )}
-                  </span>
-                </button>
-              )
-            })}
+          <div className="p-4 space-y-3">
+            <div>
+              <label className="text-slate-400 text-sm mb-1.5 block">Condition</label>
+              <select
+                value={condition}
+                onChange={(e) => setCondition(e.target.value)}
+                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-base text-white focus:outline-none focus:border-accent"
+              >
+                {ALL_CONDITIONS_ORDERED.map((c) => (
+                  <option key={c.key} value={c.key}>{c.label}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={handleAdd}
+              className="w-full bg-accent hover:bg-amber-400 text-black font-bold py-2.5 rounded-lg text-base transition-colors"
+            >
+              Add to Trade
+            </button>
           </div>
         </div>
       )}
@@ -476,33 +493,27 @@ function TradeCardSearch({ onAdd, onCancel }) {
   )
 }
 
-function SellModal({ card, onClose, onSold, defaultIsTrade = false }) {
+function SellModal({ card, onClose, onSold }) {
   const { format } = useCurrency()
   const [salePrice, setSalePrice] = useState('')
   const [saleDate, setSaleDate] = useState(new Date().toISOString().split('T')[0])
-  const [isTrade, setIsTrade] = useState(defaultIsTrade)
-  const [tradeCards, setTradeCards] = useState([])
-  const [showTradeSearch, setShowTradeSearch] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const purchasePrice = card.purchasePrice ?? null
   const salePriceNum = parseFloat(salePrice)
-  const effectivePrice = isTrade && !salePrice ? 0 : salePriceNum
-  const previewPL = !isNaN(effectivePrice) && salePrice !== '' && purchasePrice != null
-    ? effectivePrice - purchasePrice : null
-  const canSubmit = isTrade
-    ? !salePrice || (!isNaN(salePriceNum) && salePriceNum >= 0)
-    : !isNaN(salePriceNum) && salePriceNum > 0
+  const previewPL = !isNaN(salePriceNum) && salePrice !== '' && purchasePrice != null
+    ? salePriceNum - purchasePrice : null
+  const canSubmit = !isNaN(salePriceNum) && salePriceNum > 0
 
   async function handleSell() {
     if (!canSubmit) return
     setSaving(true)
     try {
       await window.api.sellCard(card.id, {
-        salePrice: Math.round(effectivePrice * 100) / 100,
+        salePrice: Math.round(salePriceNum * 100) / 100,
         saleDate,
-        isTrade,
-        tradeCardsReceived: isTrade ? tradeCards.filter((c) => c.name.trim()) : []
+        isTrade: false,
+        tradeCardsReceived: []
       })
       onClose()
       onSold()
@@ -517,14 +528,14 @@ function SellModal({ card, onClose, onSold, defaultIsTrade = false }) {
       className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
       onClick={(e) => { e.stopPropagation(); if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-2xl mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 py-5 border-b border-surface-600 flex items-center gap-5">
           {card.imageUrl && (
-            <img src={card.imageUrl} alt={card.name} className="w-24 h-[136px] object-contain rounded-lg flex-shrink-0" />
+            <img src={card.imageUrl} alt={card.name} className="w-16 h-[90px] object-contain rounded-lg flex-shrink-0" />
           )}
           <div className="flex-1 min-w-0">
-            <h2 className="text-xl font-bold text-white truncate">{card.name}</h2>
-            <p className="text-slate-400 text-sm truncate mt-1">
+            <h2 className="text-lg font-bold text-white truncate">{card.name}</h2>
+            <p className="text-slate-400 text-sm truncate mt-0.5">
               {(() => {
                 const series = card.setSeries || seriesFromSetId(card.setId)
                 return series && series !== card.setName ? `${series} - ${card.setName}` : card.setName
@@ -534,7 +545,7 @@ function SellModal({ card, onClose, onSold, defaultIsTrade = false }) {
           <button onClick={onClose} className="text-slate-400 hover:text-white text-xl w-8 h-8 flex items-center justify-center flex-shrink-0 self-start">✕</button>
         </div>
 
-        <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+        <div className="p-6 space-y-4">
           <div>
             <label className="block text-slate-300 text-sm font-medium mb-1.5">Sale Price</label>
             <div className="relative">
@@ -555,7 +566,6 @@ function SellModal({ card, onClose, onSold, defaultIsTrade = false }) {
               </p>
             )}
           </div>
-
           <div>
             <label className="block text-slate-300 text-sm font-medium mb-1.5">Sale Date</label>
             <input
@@ -565,78 +575,6 @@ function SellModal({ card, onClose, onSold, defaultIsTrade = false }) {
               className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
             />
           </div>
-
-          <div>
-            <label className="flex items-center gap-2 cursor-pointer select-none" onClick={() => setIsTrade((v) => !v)}>
-              <div className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 transition-colors ${isTrade ? 'bg-accent border-accent' : 'border-surface-400 bg-surface-700'}`}>
-                {isTrade && (
-                  <svg className="w-2.5 h-2.5 text-black" viewBox="0 0 10 10" fill="none">
-                    <path d="M1.5 5L4 7.5L8.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
-              </div>
-              <span className="text-slate-300 text-sm">This was a trade</span>
-            </label>
-          </div>
-
-          {isTrade && (
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-slate-300 text-sm font-medium">Cards Received</p>
-                {!showTradeSearch && (
-                  <button
-                    onClick={() => setShowTradeSearch(true)}
-                    className="text-xs px-2 py-1 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 rounded transition-colors"
-                  >
-                    + Add Card
-                  </button>
-                )}
-              </div>
-
-              {tradeCards.length > 0 && (
-                <div className="space-y-2 mb-2">
-                  {tradeCards.map((tc, idx) => (
-                    <div key={idx} className="flex items-center gap-3 bg-surface-700 border border-surface-600 rounded-lg px-3 py-2.5">
-                      {tc.imageUrl && (
-                        <img src={tc.imageUrl} alt={tc.name} className="w-12 h-[66px] object-contain rounded flex-shrink-0" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-white text-sm font-semibold truncate">{tc.name}</p>
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${CONDITION_COLOR[tc.condition] || 'bg-slate-700 text-slate-300'}`}>
-                            {TRADE_CONDITION_LABELS[tc.condition]}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="relative w-24 flex-shrink-0">
-                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs pointer-events-none">$</span>
-                        <input
-                          type="number" min="0" step="0.01"
-                          value={tc.estimatedValue}
-                          onChange={(e) => setTradeCards((prev) => prev.map((c, i) => i === idx ? { ...c, estimatedValue: e.target.value } : c))}
-                          placeholder="0.00"
-                          className="w-full bg-surface-600 border border-surface-500 rounded pl-5 pr-1 py-1 text-xs text-white focus:outline-none focus:border-accent"
-                        />
-                      </div>
-                      <button
-                        onClick={() => setTradeCards((prev) => prev.filter((_, i) => i !== idx))}
-                        className="text-slate-600 hover:text-red-400 text-sm leading-none flex-shrink-0"
-                      >✕</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {showTradeSearch ? (
-                <TradeCardSearch
-                  onAdd={(tc) => { setTradeCards((prev) => [...prev, tc]); setShowTradeSearch(false) }}
-                  onCancel={() => setShowTradeSearch(false)}
-                />
-              ) : tradeCards.length === 0 && (
-                <p className="text-slate-600 text-xs text-center py-3">No cards added yet — click Add Card</p>
-              )}
-            </div>
-          )}
         </div>
 
         <div className="px-5 py-4 border-t border-surface-600 flex gap-3">
@@ -645,7 +583,7 @@ function SellModal({ card, onClose, onSold, defaultIsTrade = false }) {
             disabled={saving || !canSubmit}
             className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold py-2.5 rounded-lg transition-colors"
           >
-            {saving ? 'Saving…' : isTrade ? 'Mark as Traded' : 'Mark as Sold'}
+            {saving ? 'Saving…' : 'Mark as Sold'}
           </button>
           <button
             onClick={onClose}
@@ -659,12 +597,234 @@ function SellModal({ card, onClose, onSold, defaultIsTrade = false }) {
   )
 }
 
-export default function CardRow({ card, onRemove, onRefresh, onCardClick, confirmRemove = true, showPlPct = false, onTogglePlPct, showDollarChanges = false, onToggleDollarChanges, bulkMode = false, isSelected = false, onToggleSelect }) {
+function TradeModal({ card, onClose, onTraded }) {
+  const [tradeDate, setTradeDate] = useState(new Date().toISOString().split('T')[0])
+  const [cashReceived, setCashReceived] = useState('')
+  const [receivedCards, setReceivedCards] = useState([])
+  const [showSearch, setShowSearch] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  async function handleTrade() {
+    setSaving(true)
+    try {
+      const cash = parseFloat(cashReceived)
+      await window.api.sellCard(card.id, {
+        salePrice: 0,
+        saleDate: tradeDate,
+        isTrade: true,
+        cashReceived: !isNaN(cash) && cash > 0 ? Math.round(cash * 100) / 100 : 0,
+        tradeCardsReceived: receivedCards
+      })
+      onClose()
+      onTraded()
+    } catch (err) {
+      console.error('Failed to record trade:', err)
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+      onClick={(e) => { e.stopPropagation(); if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-3xl mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="px-8 py-6 border-b border-surface-600 flex items-center gap-6">
+          {card.imageUrl && (
+            <img src={card.imageUrl} alt={card.name} className="w-20 h-[112px] object-contain rounded-xl flex-shrink-0" />
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-slate-500 text-sm font-medium uppercase tracking-wider mb-1">Recording Trade</p>
+            <h2 className="text-2xl font-bold text-white truncate">{card.name}</h2>
+            <p className="text-slate-400 text-base truncate mt-1">
+              {(() => {
+                const series = card.setSeries || seriesFromSetId(card.setId)
+                return series && series !== card.setName ? `${series} - ${card.setName}` : card.setName
+              })()}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-2xl w-10 h-10 flex items-center justify-center flex-shrink-0 self-start">✕</button>
+        </div>
+
+        <div className="p-8 space-y-6 max-h-[70vh] overflow-y-auto">
+          {/* Trade date + cash received row */}
+          <div className="grid grid-cols-2 gap-5">
+            <div>
+              <label className="block text-slate-300 text-base font-medium mb-2">Trade Date</label>
+              <input
+                type="date"
+                value={tradeDate}
+                onChange={(e) => setTradeDate(e.target.value)}
+                className="w-full bg-surface-700 border border-surface-500 rounded-xl px-4 py-3 text-base text-white focus:outline-none focus:border-accent"
+              />
+            </div>
+            <div>
+              <label className="block text-slate-300 text-base font-medium mb-2">Cash Received (optional)</label>
+              <div className="relative">
+                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={cashReceived}
+                  onChange={(e) => setCashReceived(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full bg-surface-700 border border-surface-500 rounded-xl pl-9 pr-4 py-3 text-base text-white placeholder-slate-600 focus:outline-none focus:border-accent"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Items received */}
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="text-slate-300 text-base font-medium">Items Received</p>
+                <p className="text-slate-500 text-sm mt-0.5">Cards added here will appear in your collection</p>
+              </div>
+              {!showSearch && (
+                <button
+                  onClick={() => setShowSearch(true)}
+                  className="flex items-center gap-2 text-sm px-4 py-2 bg-accent hover:bg-amber-400 text-black font-bold rounded-lg transition-colors flex-shrink-0"
+                >
+                  + Add Items
+                </button>
+              )}
+            </div>
+
+            {receivedCards.length > 0 && (
+              <div className="space-y-3 mb-4">
+                {receivedCards.map((tc, idx) => (
+                  <div key={idx} className="flex items-center gap-4 bg-surface-700 border border-surface-600 rounded-xl px-4 py-3">
+                    {tc.imageUrl ? (
+                      <img src={tc.imageUrl} alt={tc.name} className="w-14 h-[78px] object-contain rounded flex-shrink-0" />
+                    ) : (
+                      <div className="w-14 h-[78px] bg-surface-600 rounded flex-shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-base font-semibold truncate">{tc.name}</p>
+                      <p className="text-slate-500 text-sm truncate">{tc.setName}</p>
+                      <span className={`mt-1.5 inline-block text-sm px-3 py-0.5 rounded-full font-semibold ${CONDITION_COLOR[tc.condition] || 'bg-slate-700 text-slate-300'}`}>
+                        {TRADE_CONDITION_LABELS[tc.condition]}
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setReceivedCards((prev) => prev.filter((_, i) => i !== idx))}
+                      className="text-slate-600 hover:text-red-400 text-xl leading-none flex-shrink-0"
+                    >✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {showSearch ? (
+              <TradeSearch
+                onAdd={(tc) => { setReceivedCards((prev) => [...prev, tc]); setShowSearch(false) }}
+                onCancel={() => setShowSearch(false)}
+              />
+            ) : receivedCards.length === 0 && (
+              <div className="text-center py-10 border-2 border-dashed border-surface-600 rounded-xl">
+                <p className="text-slate-500 text-base">No items added yet</p>
+                <p className="text-slate-600 text-sm mt-1">Click "+ Add Items" to add cards you received</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="px-8 py-5 border-t border-surface-600 flex gap-4">
+          <button
+            onClick={handleTrade}
+            disabled={saving}
+            className="flex-1 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white font-bold py-3 rounded-xl text-base transition-colors"
+          >
+            {saving ? 'Saving…' : 'Mark as Traded'}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-8 py-3 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 rounded-xl text-base transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function NotesModal({ card, onClose, onSaved }) {
+  const [location, setLocation] = useState(card.purchaseLocation || '')
+  const [notes, setNotes] = useState(card.notes || '')
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    await window.api.updateCard(card.id, { purchaseLocation: location, notes })
+    onSaved()
+    setSaving(false)
+    onClose()
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+      onClick={(e) => { e.stopPropagation(); if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-md mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-surface-600 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-white">{card.name}</h2>
+            <p className="text-slate-500 text-xs mt-0.5">Card Notes</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="block text-slate-300 text-sm font-medium mb-1.5">Purchased / Traded Location</label>
+            <input
+              type="text"
+              value={location}
+              onChange={(e) => setLocation(e.target.value)}
+              placeholder="e.g. Local card shop, eBay, trade with friend…"
+              className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-accent"
+            />
+          </div>
+          <div>
+            <label className="block text-slate-300 text-sm font-medium mb-1.5">Notes</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Any additional notes about this card…"
+              rows={4}
+              className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-accent resize-none"
+            />
+          </div>
+        </div>
+        <div className="px-5 py-4 border-t border-surface-600 flex gap-3">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex-1 bg-accent hover:bg-amber-400 disabled:opacity-50 text-black font-bold py-2 rounded-lg text-sm transition-colors"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          <button
+            onClick={onClose}
+            className="px-5 py-2 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 rounded-lg text-sm transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBinderFilter, confirmRemove = true, showPlPct = false, onTogglePlPct, showDollarChanges = false, onToggleDollarChanges, bulkMode = false, isSelected = false, onToggleSelect }) {
   const navigate = useNavigate()
   const { format } = useCurrency()
   const [confirmingRemove, setConfirmingRemove] = useState(false)
   const [sellModalOpen, setSellModalOpen] = useState(false)
-  const [sellModalAsTrade, setSellModalAsTrade] = useState(false)
+  const [tradeModalOpen, setTradeModalOpen] = useState(false)
+  const [notesOpen, setNotesOpen] = useState(false)
   const favNames = useFavNames()
 
   const condLabel = CONDITION_LABEL[card.condition] || card.condition
@@ -740,7 +900,8 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, confir
       <div className="w-64 flex-shrink-0 min-w-0">
         <div className="flex items-center gap-1.5 mb-1 min-w-0">
           <FitText text={card.name} className="text-white font-bold leading-tight min-w-0 overflow-hidden whitespace-nowrap" maxSize={18} minSize={11} />
-          <span className={`text-xs px-4 py-0.5 rounded-full font-semibold flex-shrink-0 ${condColor}`}>
+          {card.number && <span className="text-slate-500 text-xs flex-shrink-0">#{card.number}</span>}
+          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${condColor}`}>
             {condLabel}
           </span>
           {isFavCard && <span className="text-yellow-400 text-sm leading-none flex-shrink-0">★</span>}
@@ -748,23 +909,40 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, confir
         {(() => {
           const series = card.setSeries || seriesFromSetId(card.setId)
           return series && series !== card.setName
-            ? <><p className="text-slate-500 text-sm truncate leading-tight">{series}</p><p className="text-slate-400 text-base truncate mb-0.5">{card.setName}</p></>
+            ? <p className="text-slate-400 text-base truncate mb-0.5">{series} - {card.setName}</p>
             : <p className="text-slate-400 text-base truncate mb-0.5">{card.setName}</p>
         })()}
-        {card.number && (
-          <p className="text-slate-500 text-sm">
-            #{card.number}{card.rarity ? ` · ${card.rarity}` : ''}
-          </p>
-        )}
-        {(card.binder || card.folder) && (
-          <p className="mt-1">
-            <span className="inline-flex items-center gap-1 text-xs px-4 py-0.5 rounded-full bg-surface-700 text-slate-400 border border-surface-600">
-              <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" /></svg>
-              {card.binder || card.folder}
-            </span>
-          </p>
-        )}
         <InlineDatePicker cardId={card.id} current={card.addedDate} onSaved={onRefresh} />
+        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+          {(card.binder || card.folder) && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onBinderFilter?.(card.binder || card.folder) }}
+              className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-surface-700 hover:bg-surface-600 text-slate-400 hover:text-white border border-surface-600 hover:border-surface-500 transition-colors"
+              title={`Filter by binder "${card.binder || card.folder}"`}
+            >
+              <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <rect x="2" y="4" width="20" height="16" rx="2" />
+                <path d="M2 9h20" />
+                <path d="M7 4v5" />
+              </svg>
+              {card.binder || card.folder}
+            </button>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); setNotesOpen(true) }}
+            className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border transition-colors ${
+              card.notes || card.purchaseLocation
+                ? 'bg-accent/15 border-accent/40 text-accent hover:bg-accent/25'
+                : 'bg-surface-700 hover:bg-surface-600 text-slate-400 hover:text-white border-surface-600 hover:border-surface-500'
+            }`}
+            title="Card notes"
+          >
+            <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+            Notes
+          </button>
+        </div>
       </div>
 
       <Divider />
@@ -798,6 +976,9 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, confir
         <div className="w-36 flex-shrink-0 text-right">
         {isPortfolio ? (
           <div className="space-y-1.5">
+            {card.isTrade && (
+              <p className="text-right text-xs text-cyan-400 font-semibold">(Trade)</p>
+            )}
             <div className="flex items-baseline justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
               <span className="text-slate-500 text-xs shrink-0">Paid</span>
               <InlinePurchasePrice cardId={card.id} current={purchasePrice} onSaved={onRefresh} />
@@ -872,13 +1053,13 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, confir
                 <>
                   <span className="text-slate-300 text-xs font-medium">What happened?</span>
                   <button
-                    onClick={() => { setConfirmingRemove(false); setSellModalAsTrade(false); setSellModalOpen(true) }}
+                    onClick={() => { setConfirmingRemove(false); setSellModalOpen(true) }}
                     className="bg-emerald-700 hover:bg-emerald-600 text-white text-xs px-2.5 py-1 rounded font-semibold transition-colors"
                   >
                     Sold
                   </button>
                   <button
-                    onClick={() => { setConfirmingRemove(false); setSellModalAsTrade(true); setSellModalOpen(true) }}
+                    onClick={() => { setConfirmingRemove(false); setTradeModalOpen(true) }}
                     className="bg-yellow-600 hover:bg-yellow-500 text-black text-xs px-2.5 py-1 rounded font-semibold transition-colors"
                   >
                     Traded
@@ -921,7 +1102,13 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, confir
       )}
 
       {sellModalOpen && (
-        <SellModal card={card} onClose={() => setSellModalOpen(false)} onSold={onRefresh} defaultIsTrade={sellModalAsTrade} />
+        <SellModal card={card} onClose={() => setSellModalOpen(false)} onSold={onRefresh} />
+      )}
+      {tradeModalOpen && (
+        <TradeModal card={card} onClose={() => setTradeModalOpen(false)} onTraded={onRefresh} />
+      )}
+      {notesOpen && (
+        <NotesModal card={card} onClose={() => setNotesOpen(false)} onSaved={onRefresh} />
       )}
     </div>
   )

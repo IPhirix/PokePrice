@@ -28,7 +28,7 @@ const CONDITIONS = [
 // Keywords for each settings section — used by the search filter
 const SECTION_KEYWORDS = {
   startpage:  ['start', 'page', 'startup', 'landing', 'initial', 'load', 'home', 'collection', 'watchlist', 'pokedex', 'search', 'trade', 'history', 'default page'],
-  api:        ['api', 'token', 'pokemon price tracker', 'ppt', 'pricing data', 'key', 'authentication', 'source', 'firebase', 'storage', 'bucket', 'cloud', 'historical'],
+  api:        ['api', 'token', 'pokemon price tracker', 'ppt', 'pricing data', 'key', 'authentication', 'source'],
   currency:   ['currency', 'exchange', 'rate', 'usd', 'cad', 'eur', 'gbp', 'format', 'dollar', 'money'],
   sort:       ['sort', 'order', 'default sort', 'recently added', 'name', 'set', 'portfolio', 'watchlist'],
   condition:  ['condition', 'grade', 'psa', 'cgc', 'raw', 'ungraded', 'default condition', 'graded', 'adding'],
@@ -51,7 +51,6 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   const navigate = useNavigate()
   const { currency, setCurrency } = useCurrency()
   const [pptToken, setPptToken] = useState('')
-  const [firebaseBucket, setFirebaseBucket] = useState('')
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   const [confirmRemove, setConfirmRemove] = useState(true)
@@ -82,7 +81,6 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   useEffect(() => {
     window.api.getSettings().then((s) => {
       setPptToken(s.pptToken || '')
-      setFirebaseBucket(s.firebaseStorageBucket || '')
       if (s.confirmRemove !== undefined) setConfirmRemove(s.confirmRemove)
       setDefaultBuyPct(s.defaultTargetBuyPct != null ? String(s.defaultTargetBuyPct) : '')
       setDefaultSellPct(s.defaultTargetSellPct != null ? String(s.defaultTargetSellPct) : '')
@@ -133,8 +131,7 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   async function handleSave(e) {
     e.preventDefault()
     await window.api.setSettings({
-      pptToken: pptToken.trim(),
-      firebaseStorageBucket: firebaseBucket.trim()
+      pptToken: pptToken.trim()
     })
     setSaved(true)
     setTimeout(() => setSaved(false), 2500)
@@ -304,21 +301,6 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
                   value={pptToken}
                   onChange={(e) => setPptToken(e.target.value)}
                   placeholder="Your Pokemon Price Tracker Bearer token"
-                  className="w-full bg-surface-700 border border-surface-500 rounded px-3 py-2 text-sm text-white font-mono placeholder-slate-600 focus:outline-none focus:border-accent"
-                  spellCheck={false}
-                />
-              </div>
-              <div>
-                <label className="text-slate-400 text-xs block mb-1.5">Firebase Storage Bucket</label>
-                <p className="text-slate-500 text-xs mb-2">
-                  Enables historical price charts. Enter your Firebase Storage bucket name (e.g.{' '}
-                  <span className="font-mono text-slate-400">your-project.appspot.com</span>). See setup guide below.
-                </p>
-                <input
-                  type="text"
-                  value={firebaseBucket}
-                  onChange={(e) => setFirebaseBucket(e.target.value)}
-                  placeholder="your-project.appspot.com"
                   className="w-full bg-surface-700 border border-surface-500 rounded px-3 py-2 text-sm text-white font-mono placeholder-slate-600 focus:outline-none focus:border-accent"
                   spellCheck={false}
                 />

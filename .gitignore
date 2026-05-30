@@ -3,4 +3,11 @@ dist/
 out/
 build/
 *.exe
+NOTES.md
+.venv/
 .env
+token.json
+credentials.json
+PokemonPrices/
+__pycache__/
+*.pyc

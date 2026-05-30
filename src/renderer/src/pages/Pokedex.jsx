@@ -187,6 +187,7 @@ const DETAIL_SORT_OPTS = [
 const BINDER_PER_PAGE = 9
 
 const VARIANT_LABELS = [
+  { key: 'normal',       label: 'Normal',    cls: 'bg-slate-600/80 text-slate-100' },
   { key: 'firstEdition', label: '1st Ed',    cls: 'bg-yellow-700/80 text-yellow-100' },
   { key: 'holo',         label: 'Holo',      cls: 'bg-blue-700/80 text-blue-100' },
   { key: 'reverse',      label: 'Rev. Holo', cls: 'bg-purple-700/80 text-purple-100' },

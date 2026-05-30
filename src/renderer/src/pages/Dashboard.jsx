@@ -746,10 +746,10 @@ export default function Dashboard() {
     setActiveTab('search')
   }
 
-  function handleBannerSearch(e) {
-    e.preventDefault()
+  function handleBannerSearch() {
     if (!bannerSearch.trim()) return
     setGlobalSearchQuery(bannerSearch.trim())
+    setBannerSearch('')
     setActiveTab('search')
   }
 
@@ -820,15 +820,16 @@ export default function Dashboard() {
               </button>
             ))}
             {/* Inline search field to the right of the Search tab */}
-            <form onSubmit={handleBannerSearch} className="flex items-center ml-1">
+            <div className="flex items-center ml-1">
               <input
                 type="text"
                 value={bannerSearch}
                 onChange={(e) => setBannerSearch(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleBannerSearch()}
                 placeholder="Search cards…"
                 className="h-[34px] px-3 text-sm bg-surface-800 border border-surface-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-accent hover:border-surface-500 transition-colors w-44"
               />
-            </form>
+            </div>
           </div>
 
           <div className="flex-1" />
@@ -1176,6 +1177,7 @@ export default function Dashboard() {
                     onRemove={handleRemove}
                     onRefresh={loadCards}
                     confirmRemove={confirmRemove}
+                    onBinderFilter={(binder) => setBinderFilter(binder)}
                     showPlPct={showPlPct}
                     onTogglePlPct={() => setShowPlPct((v) => !v)}
                     showDollarChanges={showDollarChanges}

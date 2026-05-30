@@ -39,6 +39,30 @@ let popularCache = null
 
 const VARIANT_LABELS = { normal: 'Normal', holo: 'Holo', reverse: 'Reverse Holo', firstEdition: '1st Edition', wPromo: 'Promo' }
 
+const VARIANT_BADGE_LIST = [
+  { key: 'normal',       label: 'Normal',    cls: 'bg-slate-600/80 text-slate-100' },
+  { key: 'firstEdition', label: '1st Ed',    cls: 'bg-yellow-700/80 text-yellow-100' },
+  { key: 'holo',         label: 'Holo',      cls: 'bg-blue-700/80 text-blue-100' },
+  { key: 'reverse',      label: 'Rev. Holo', cls: 'bg-purple-700/80 text-purple-100' },
+  { key: 'wPromo',       label: 'W Promo',   cls: 'bg-emerald-700/80 text-emerald-100' },
+]
+
+function VariantBadges({ variants, className = '' }) {
+  const active = variants ? VARIANT_BADGE_LIST.filter((v) => variants[v.key]) : []
+  if (!active.length) return null
+  return (
+    <div className={`flex flex-wrap gap-0.5 items-center ${className}`}>
+      {active.map((v) => (
+        <span key={v.key} className={`text-[10px] font-semibold px-1 py-0.5 rounded leading-none ${v.cls}`}>
+          {v.label}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+const ENERGY_TYPES = ['Colorless','Darkness','Dragon','Fairy','Fighting','Fire','Grass','Lightning','Metal','Psychic','Water']
+
 function formatVariants(variants) {
   if (!variants) return '—'
   const active = Object.entries(variants).filter(([, v]) => v).map(([k]) => VARIANT_LABELS[k] || k)
@@ -684,6 +708,13 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
   const [binderSectionFilter, setBinderSectionFilter] = useState('')
   const [binderSortOrder, setBinderSortOrder] = useState('name')
   const [showCollectionProgress, setShowCollectionProgress] = useState(true)
+  const [energyTypeFilter, setEnergyTypeFilter] = useState('')
+  const [cardTypeFilter, setCardTypeFilter] = useState('')
+  const [variationFilter, setVariationFilter] = useState('')
+  const [illustratorFilter, setIllustratorFilter] = useState('')
+  const [cardDetails, setCardDetails] = useState({})
+  const [viewMode, setViewMode] = useState('grid')
+  const [searchBinderPage, setSearchBinderPage] = useState(0)
   const setDropdownRef = useRef(null)
   const nameRef = useRef(null)
 
@@ -738,6 +769,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
       setMode('cards')
       runSearch('', '', '', initialArtist)
     } else if (initialQuery.trim()) {
+      setMode('cards')
       runSearch(initialQuery, '', '')
     } else {
       loadPopular()
@@ -756,7 +788,14 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     setHasSearched(true)
     setResults([])
     window.api.searchCardsAdvanced(`set.id:"${browsedSet.id}"`)
-      .then(setResults)
+      .then((cards) => {
+        // All cards in a set share the same series — stamp it directly so it shows immediately
+        const series = browsedSet.series
+        const withSeries = series
+          ? cards.map((c) => c._divider ? c : { ...c, set: { ...c.set, series: c.set?.series || series } })
+          : cards
+        setResults(withSeries)
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [browsedSet])
@@ -777,6 +816,32 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     return () => window.removeEventListener('popstate', handlePopState)
   }, [browsedBinder])
 
+  // Background-fetch full card details (list endpoint omits rarity, artist, series, variants)
+  // — mirrors Pokedex's cardDetails pattern exactly
+  useEffect(() => {
+    setCardDetails({})
+    const queue = results.filter((c) => !c._divider)
+    if (!queue.length) return
+    let cancelled = false
+    const CONCURRENCY = 8
+
+    async function worker() {
+      while (queue.length && !cancelled) {
+        const card = queue.shift()
+        try {
+          const fetched = await window.api.searchCardsAdvanced(`id:"${card.id}"`)
+          if (!cancelled && fetched[0]) {
+            const { rarity, artist, types, variants, set } = fetched[0]
+            setCardDetails((prev) => ({ ...prev, [card.id]: { rarity, artist, types, variants, series: set?.series || '' } }))
+          }
+        } catch {}
+      }
+    }
+
+    Promise.allSettled(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker))
+    return () => { cancelled = true }
+  }, [results])
+
   useEffect(() => {
     if (!setDropdownOpen) return
     function handleClickOutside(e) {
@@ -788,11 +853,18 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [setDropdownOpen])
 
-  async function runSearch(name = nameQuery, set = setQuery, rar = rarity, artist = artistFilter) {
+  async function runSearch(name = nameQuery, set = setQuery, rar = rarity, artist = artistFilter, energyType = energyTypeFilter, cType = cardTypeFilter) {
     const extraParts = []
     if (set.trim())    extraParts.push(`set.name:"${set.trim()}"`)
     if (rar)           extraParts.push(`rarity:"${rar}"`)
     if (artist.trim()) extraParts.push(`artist:"${artist.trim()}"`)
+    if (energyType)    extraParts.push(`types:"${energyType}"`)
+    if (cType === 'Pokemon')    extraParts.push(`supertype:"Pokémon"`)
+    else if (cType === 'Energy') extraParts.push(`supertype:"Energy"`)
+    else if (cType === 'Item')   extraParts.push(`supertype:"Trainer" subtypes:"Item"`)
+    else if (cType === 'Supporter') extraParts.push(`supertype:"Trainer" subtypes:"Supporter"`)
+    else if (cType === 'Stadium')   extraParts.push(`supertype:"Trainer" subtypes:"Stadium"`)
+    else if (cType === 'Tool')      extraParts.push(`supertype:"Trainer" subtypes:"Tool"`)
 
     const q = name.trim()
     if (!q && !extraParts.length) return
@@ -818,9 +890,19 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
           const targetNum = parseInt(rawNum, 10)
           const isNumeric = !isNaN(targetNum)
           if (namePart) {
-            const allCards = await searchWith(`name:"${namePart}*"`)
+            // Run both a direct name+number API query and a broader name-only query in parallel
+            const [directMatches, allCards] = await Promise.all([
+              searchWith(`name:"${namePart}*" number:"${rawNum}"`),
+              searchWith(`name:"${namePart}*"`),
+            ])
+            const seen = new Set()
             const matched = []; const rest = []
+            for (const c of directMatches) {
+              if (!seen.has(c.id)) { seen.add(c.id); matched.push(c) }
+            }
             for (const c of allCards) {
+              if (seen.has(c.id)) continue
+              seen.add(c.id)
               const cn = String(c.number || '')
               const hits = isNumeric ? parseInt(cn, 10) === targetNum : cn.toUpperCase() === rawNum.toUpperCase()
               ;(hits ? matched : rest).push(c)
@@ -928,7 +1010,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     }
   }
 
-  const canSearch = nameQuery.trim() || setQuery.trim() || rarity || binderFilter || artistFilter.trim()
+  const canSearch = nameQuery.trim() || setQuery.trim() || rarity || binderFilter || artistFilter.trim() || energyTypeFilter || cardTypeFilter
 
   const binderResults = binderFilter
     ? ownedCards
@@ -952,6 +1034,20 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
   }
 
   const baseResults = (mode === 'sets' && browsedSet) ? results : (binderResults ?? results)
+
+  // Mirror Pokedex visibleCards: spread cardDetails into each card, merge series into card.set
+  const enrichedBaseResults = useMemo(() =>
+    baseResults.map((c) => {
+      if (c._divider) return c
+      const detail = cardDetails[c.id]
+      if (!detail) return c
+      const { series: enrichedSeries, ...restDetail } = detail
+      return {
+        ...c,
+        ...restDetail,
+        set: enrichedSeries ? { ...c.set, series: enrichedSeries } : c.set,
+      }
+    }), [baseResults, cardDetails])
 
   const setStats = useMemo(() => {
     const stats = {}
@@ -986,6 +1082,11 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
   }, [allSets])
 
   const setDateMap = useMemo(() => new Map(allSets.map((s) => [s.id, s.releaseDate || ''])), [allSets])
+
+  const uniqueArtists = useMemo(() => {
+    const vals = results.filter((c) => !c._divider).map((c) => cardDetails[c.id]?.artist || c.artist).filter(Boolean)
+    return [...new Set(vals)].sort()
+  }, [results, cardDetails])
 
   const setsFiltered = useMemo(() => {
     const q = setsQuery.trim().toLowerCase()
@@ -1073,18 +1174,25 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     }
     return 0
   }
-  const _divIdx = baseResults.findIndex((c) => c._divider)
+  const _divIdx = enrichedBaseResults.findIndex((c) => c._divider)
   const sortedResults = _divIdx === -1
-    ? [...baseResults].sort(sortCompareFn)
+    ? [...enrichedBaseResults].sort(sortCompareFn)
     : [
-        ...[...baseResults.slice(0, _divIdx)].sort(sortCompareFn),
+        ...[...enrichedBaseResults.slice(0, _divIdx)].sort(sortCompareFn),
         { _divider: true, id: '__divider__' },
-        ...[...baseResults.slice(_divIdx + 1)].sort(sortCompareFn),
+        ...[...enrichedBaseResults.slice(_divIdx + 1)].sort(sortCompareFn),
       ]
 
   const displayResults = useMemo(() => {
-    if (!browsedSet) return sortedResults
-    return sortedResults.filter((card) => {
+    let base = sortedResults
+    if (variationFilter) {
+      base = base.filter((card) => card._divider || card.variants?.[variationFilter] === true)
+    }
+    if (illustratorFilter) {
+      base = base.filter((card) => card._divider || card.artist === illustratorFilter)
+    }
+    if (!browsedSet) return base
+    return base.filter((card) => {
       if (card._divider) return true
       if (setRarityFilter && card.rarity !== setRarityFilter) return false
       if (setCollectionFilter === 'owned')      return ownedCards.some((c) => c.tcgId === card.id)
@@ -1093,329 +1201,442 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
       if (setCollectionFilter === 'not_owned')  return !ownedCards.some((c) => c.tcgId === card.id)
       return true
     })
-  }, [sortedResults, setRarityFilter, setCollectionFilter, ownedCards, browsedSet])
+  }, [sortedResults, variationFilter, illustratorFilter, setRarityFilter, setCollectionFilter, ownedCards, browsedSet])
 
   return (
     <div>
       {/* ── Search / filter bar — always visible ── */}
       <div className="bg-surface-800 border border-surface-600 rounded-xl p-4 mb-5">
-        <div className="flex gap-3 flex-wrap items-end">
+        <div className="flex flex-col gap-3">
 
-          {/* Mode toggle — inline, leftmost */}
-          <div className="flex gap-0.5 bg-surface-900 border border-surface-600 rounded-lg p-1 self-end mb-[1px] flex-shrink-0">
-            <button
-              onClick={() => { setMode('sets'); setBrowsedSet(null) }}
-              className={`px-5 py-2 rounded text-sm font-semibold transition-colors ${mode === 'sets' ? 'bg-accent text-black' : 'text-slate-400 hover:text-white'}`}
-            >
-              Sets
-            </button>
-            <button
-              onClick={() => { setMode('cards'); setBrowsedSet(null) }}
-              className={`px-5 py-2 rounded text-sm font-semibold transition-colors ${mode === 'cards' ? 'bg-accent text-black' : 'text-slate-400 hover:text-white'}`}
-            >
-              Items
-            </button>
-            <button
-              onClick={() => { setMode('folders'); setBrowsedSet(null); setBrowsedBinder(null) }}
-              className={`px-5 py-2 rounded text-sm font-semibold transition-colors ${mode === 'folders' ? 'bg-accent text-black' : 'text-slate-400 hover:text-white'}`}
-            >
-              Binders
-            </button>
-          </div>
+          {/* ── Row 1: mode toggle + primary search controls ── */}
+          <div className="flex gap-3 items-end flex-wrap">
 
-          {/* Cards mode fields */}
-          {mode === 'cards' && <>
-            {artistFilter && (
-              <div className="w-full flex items-center gap-2 bg-amber-900/20 border border-accent/40 rounded-lg px-3 py-2">
-                <svg className="w-3.5 h-3.5 text-accent flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 012.828 0l.172.172a2 2 0 010 2.828L12 16H9v-3z" />
-                </svg>
-                <span className="text-accent text-sm">Illustrator: <strong className="text-white">{artistFilter}</strong></span>
-                <button
-                  onClick={() => { setArtistFilter(''); loadPopular() }}
-                  className="ml-auto text-accent hover:text-white text-lg leading-none transition-colors"
-                  title="Clear artist filter"
-                >×</button>
-              </div>
-            )}
-            <div className="flex-1 min-w-[160px]">
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Pokémon Name</label>
-              <input
-                ref={nameRef}
-                value={nameQuery}
-                onChange={(e) => setNameQuery(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="e.g. Charizard"
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
-              />
-            </div>
-            <div className="flex-1 min-w-[160px] relative" ref={setDropdownRef}>
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Set Name</label>
+            {/* Mode toggle — always leftmost */}
+            <div className="flex gap-0.5 bg-surface-900 border border-surface-600 rounded-lg p-1 self-end mb-[1px] flex-shrink-0">
               <button
-                type="button"
-                onClick={() => { setSetDropdownOpen((v) => !v); setSetSearch('') }}
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-left flex items-center justify-between focus:outline-none focus:border-accent hover:border-surface-400"
+                onClick={() => { setMode('sets'); setBrowsedSet(null) }}
+                className={`px-5 py-2 rounded text-sm font-semibold transition-colors ${mode === 'sets' ? 'bg-accent text-black' : 'text-slate-400 hover:text-white'}`}
               >
-                <span className={setQuery ? 'text-white' : 'text-slate-500'}>{setQuery || 'Any set…'}</span>
-                <svg className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${setDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                Sets
               </button>
-              {setDropdownOpen && (
-                <div className="absolute z-50 mt-1 w-full bg-surface-700 border border-surface-500 rounded-lg shadow-xl overflow-hidden">
-                  <div className="p-2 border-b border-surface-600">
-                    <input
-                      autoFocus
-                      value={setSearch}
-                      onChange={(e) => setSetSearch(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === 'Escape') setSetDropdownOpen(false) }}
-                      placeholder="Search by name or code (e.g. SWSH)…"
-                      className="w-full bg-surface-800 border border-surface-600 rounded px-2.5 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
-                    />
-                  </div>
-                  <div className="max-h-52 overflow-y-auto">
-                    <button
-                      type="button"
-                      onClick={() => { setSetQuery(''); setSetDropdownOpen(false) }}
-                      className="w-full text-left px-3 py-2 text-sm text-slate-400 hover:bg-surface-600 hover:text-white transition-colors"
-                    >
-                      Any set
-                    </button>
-                    {allSets
-                      .filter((s) => {
-                        const q = setSearch.toLowerCase()
-                        return s.name.toLowerCase().includes(q) || (s.ptcgoCode || '').toLowerCase().includes(q)
-                      })
-                      .map((s) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          onClick={() => { setSetQuery(s.name); setSetDropdownOpen(false) }}
-                          className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-600 transition-colors flex items-center justify-between gap-2 ${setQuery === s.name ? 'text-accent' : 'text-white'}`}
-                        >
-                          <span className="truncate">{s.name}</span>
-                          {s.ptcgoCode && <span className="text-slate-500 text-xs flex-shrink-0">{s.ptcgoCode}</span>}
-                        </button>
-                      ))
-                    }
-                  </div>
+              <button
+                onClick={() => { setMode('cards'); setBrowsedSet(null) }}
+                className={`px-5 py-2 rounded text-sm font-semibold transition-colors ${mode === 'cards' ? 'bg-accent text-black' : 'text-slate-400 hover:text-white'}`}
+              >
+                Items
+              </button>
+              <button
+                onClick={() => { setMode('folders'); setBrowsedSet(null); setBrowsedBinder(null) }}
+                className={`px-5 py-2 rounded text-sm font-semibold transition-colors ${mode === 'folders' ? 'bg-accent text-black' : 'text-slate-400 hover:text-white'}`}
+              >
+                Binders
+              </button>
+            </div>
+
+            {/* Cards mode — row 1 */}
+            {mode === 'cards' && <>
+              {artistFilter && (
+                <div className="w-full flex items-center gap-2 bg-amber-900/20 border border-accent/40 rounded-lg px-3 py-2">
+                  <svg className="w-3.5 h-3.5 text-accent flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 012.828 0l.172.172a2 2 0 010 2.828L12 16H9v-3z" />
+                  </svg>
+                  <span className="text-accent text-sm">Illustrator: <strong className="text-white">{artistFilter}</strong></span>
+                  <button
+                    onClick={() => { setArtistFilter(''); loadPopular() }}
+                    className="ml-auto text-accent hover:text-white text-lg leading-none transition-colors"
+                    title="Clear artist filter"
+                  >×</button>
                 </div>
               )}
-            </div>
-            <div className="w-52 flex-shrink-0">
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Rarity</label>
-              <select
-                value={rarity} onChange={(e) => {
-                  const v = e.target.value
-                  setRarity(v)
-                  if (hasSearched && (nameQuery.trim() || setQuery.trim() || v || artistFilter.trim())) {
-                    runSearch(nameQuery, setQuery, v, artistFilter)
-                  }
-                }}
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
-              >
-                {RARITIES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-              </select>
-            </div>
-            <div className="w-48 flex-shrink-0">
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Binder</label>
-              <select
-                value={binderFilter} onChange={(e) => setBinderFilter(e.target.value)}
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
-              >
-                <option value="">All Cards</option>
-                <optgroup label="Collection">
-                  <option value="collection">Collection (all)</option>
-                  {portfolioBinders.map((f) => (
-                    <option key={f} value={`binder:${f}`}>&nbsp;&nbsp;{f}</option>
-                  ))}
-                </optgroup>
-                <optgroup label="Watchlist">
-                  <option value="watchlist">Watchlist (all)</option>
-                  {watchlistBinders.map((f) => (
-                    <option key={f} value={`binder:${f}`}>&nbsp;&nbsp;{f}</option>
-                  ))}
-                </optgroup>
-              </select>
-            </div>
-            <div className="w-48 flex-shrink-0">
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Sort By</label>
-              <select
-                value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
-              >
-                <option value="released_desc">Released (Newest First)</option>
-                <option value="released_asc">Released (Oldest First)</option>
-                <option value="name">Name (A → Z)</option>
-                <option value="set_asc">Set</option>
-                <option value="number_asc">Card Number (Low → High)</option>
-                <option value="number_desc">Card Number (High → Low)</option>
-                <option value="price">Current Price</option>
-              </select>
-            </div>
-            <div className="flex gap-2 items-end flex-shrink-0">
-              <button
-                onClick={() => runSearch()}
-                disabled={loading || !canSearch || !!binderFilter}
-                className="px-4 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-40 text-black font-bold rounded-lg text-sm transition-colors flex items-center gap-1.5 whitespace-nowrap"
-              >
-                {loading ? (
-                  <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
-                  </svg>
+              <div className="flex-1 min-w-[160px]">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Pokémon Name</label>
+                <input
+                  ref={nameRef}
+                  value={nameQuery}
+                  onChange={(e) => setNameQuery(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="e.g. Charizard"
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+                />
+              </div>
+              <div className="flex-1 min-w-[160px] relative" ref={setDropdownRef}>
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Set Name</label>
+                <button
+                  type="button"
+                  onClick={() => { setSetDropdownOpen((v) => !v); setSetSearch('') }}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-left flex items-center justify-between focus:outline-none focus:border-accent hover:border-surface-400"
+                >
+                  <span className={setQuery ? 'text-white' : 'text-slate-500'}>{setQuery || 'Any set…'}</span>
+                  <svg className={`w-4 h-4 text-slate-400 flex-shrink-0 transition-transform ${setDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                </button>
+                {setDropdownOpen && (
+                  <div className="absolute z-50 mt-1 w-full bg-surface-700 border border-surface-500 rounded-lg shadow-xl overflow-hidden">
+                    <div className="p-2 border-b border-surface-600">
+                      <input
+                        autoFocus
+                        value={setSearch}
+                        onChange={(e) => setSetSearch(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Escape') setSetDropdownOpen(false) }}
+                        placeholder="Search by name or code (e.g. SWSH)…"
+                        className="w-full bg-surface-800 border border-surface-600 rounded px-2.5 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+                      />
+                    </div>
+                    <div className="max-h-52 overflow-y-auto">
+                      <button
+                        type="button"
+                        onClick={() => { setSetQuery(''); setSetDropdownOpen(false) }}
+                        className="w-full text-left px-3 py-2 text-sm text-slate-400 hover:bg-surface-600 hover:text-white transition-colors"
+                      >
+                        Any set
+                      </button>
+                      {allSets
+                        .filter((s) => {
+                          const q = setSearch.toLowerCase()
+                          return s.name.toLowerCase().includes(q) || (s.ptcgoCode || '').toLowerCase().includes(q)
+                        })
+                        .map((s) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => { setSetQuery(s.name); setSetDropdownOpen(false) }}
+                            className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-600 transition-colors flex items-center justify-between gap-2 ${setQuery === s.name ? 'text-accent' : 'text-white'}`}
+                          >
+                            <span className="truncate">{s.name}</span>
+                            {s.ptcgoCode && <span className="text-slate-500 text-xs flex-shrink-0">{s.ptcgoCode}</span>}
+                          </button>
+                        ))
+                      }
+                    </div>
+                  </div>
                 )}
-                <span>{loading ? 'Searching…' : 'Search'}</span>
-              </button>
-              <button
-                onClick={() => {
-                  setNameQuery('')
-                  setSetQuery('')
-                  setRarity('')
-                  setBinderFilter('')
-                  setArtistFilter('')
-                  setSortOrder('released_desc')
-                  setError(null)
-                  loadPopular()
-                }}
-                className="px-4 py-2.5 bg-surface-600 hover:bg-surface-500 text-slate-300 font-medium rounded-lg text-sm transition-colors whitespace-nowrap"
-              >
-                Clear
-              </button>
-            </div>
-          </>}
-
-          {/* Sets mode: search + filters */}
-          {mode === 'sets' && <>
-            <div className="flex-1 min-w-[160px]">
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Search Sets</label>
-              <input
-                value={setsQuery}
-                onChange={(e) => setSetsQuery(e.target.value)}
-                placeholder="Search sets…"
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
-              />
-            </div>
-            <div className="w-52 flex-shrink-0">
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Parent Set</label>
-              <select
-                value={seriesFilter}
-                onChange={(e) => setSeriesFilter(e.target.value)}
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
-              >
-                <option value="">All Series</option>
-                {allSeries.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            <div className="w-36 flex-shrink-0">
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Year</label>
-              <select
-                value={yearFilter}
-                onChange={(e) => setYearFilter(e.target.value)}
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
-              >
-                <option value="">All Years</option>
-                {allYears.map((y) => <option key={y} value={y}>{y}</option>)}
-              </select>
-            </div>
-            <div className="flex items-end flex-shrink-0">
-              <button
-                onClick={() => setShowCollectionProgress((v) => !v)}
-                title="Toggle collection progress bars"
-                className={`px-3 py-2.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${showCollectionProgress ? 'bg-accent text-black' : 'bg-surface-600 hover:bg-surface-500 text-slate-300'}`}
-              >
-                Progress
-              </button>
-            </div>
-            {(seriesFilter || yearFilter || setsQuery) && (
-              <div className="flex items-end flex-shrink-0">
+              </div>
+              <div className="w-48 flex-shrink-0">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Sort By</label>
+                <select
+                  value={sortOrder} onChange={(e) => setSortOrder(e.target.value)}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
+                >
+                  <option value="released_desc">Released (Newest First)</option>
+                  <option value="released_asc">Released (Oldest First)</option>
+                  <option value="name">Name (A → Z)</option>
+                  <option value="set_asc">Set</option>
+                  <option value="number_asc">Card Number (Low → High)</option>
+                  <option value="number_desc">Card Number (High → Low)</option>
+                  <option value="price">Current Price</option>
+                </select>
+              </div>
+              <div className="flex gap-2 items-end flex-shrink-0">
                 <button
-                  onClick={() => { setSeriesFilter(''); setYearFilter(''); setSetsQuery('') }}
+                  onClick={() => runSearch()}
+                  disabled={loading || !canSearch || !!binderFilter}
+                  className="px-4 py-2.5 bg-accent hover:bg-accent-hover disabled:opacity-40 text-black font-bold rounded-lg text-sm transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                >
+                  {loading ? (
+                    <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
+                    </svg>
+                  )}
+                  <span>{loading ? 'Searching…' : 'Search'}</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setNameQuery('')
+                    setSetQuery('')
+                    setRarity('')
+                    setBinderFilter('')
+                    setArtistFilter('')
+                    setEnergyTypeFilter('')
+                    setCardTypeFilter('')
+                    setVariationFilter('')
+                    setIllustratorFilter('')
+                    setSortOrder('released_desc')
+                    setError(null)
+                    loadPopular()
+                  }}
                   className="px-4 py-2.5 bg-surface-600 hover:bg-surface-500 text-slate-300 font-medium rounded-lg text-sm transition-colors whitespace-nowrap"
                 >
                   Clear
                 </button>
               </div>
-            )}
-          </>}
+            </>}
 
-          {/* Sealed mode: product search */}
-          {mode === 'sealed' && <>
-            <div className="flex-1 min-w-[200px]">
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Product Name</label>
-              <input
-                value={sealedQuery}
-                onChange={(e) => setSealedQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && runSealedSearch()}
-                placeholder="e.g. Scarlet & Violet Elite Trainer Box"
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
-              />
-            </div>
-            <div className="flex gap-2 items-end flex-shrink-0">
-              <button
-                onClick={runSealedSearch}
-                disabled={sealedLoading || !sealedQuery.trim()}
-                className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-black font-bold rounded-lg text-sm transition-colors whitespace-nowrap"
-              >
-                {sealedLoading ? 'Searching…' : 'Search'}
-              </button>
-              <button
-                onClick={() => { setSealedQuery(''); setSealedResults([]); setError(null) }}
-                className="px-4 py-2.5 bg-surface-600 hover:bg-surface-500 text-slate-300 font-medium rounded-lg text-sm transition-colors whitespace-nowrap"
-              >
-                Clear
-              </button>
-            </div>
-          </>}
-
-          {/* Binders mode: search + filters */}
-          {mode === 'folders' && <>
-            <div className="flex-1 min-w-[160px]">
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Search Binders</label>
-              <input
-                value={binderSearch}
-                onChange={(e) => setBinderSearch(e.target.value)}
-                placeholder="Search binders…"
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
-              />
-            </div>
-            <div className="w-44 flex-shrink-0">
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Section</label>
-              <select
-                value={binderSectionFilter}
-                onChange={(e) => setBinderSectionFilter(e.target.value)}
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
-              >
-                <option value="">All Sections</option>
-                <option value="collection">Collection</option>
-                <option value="watchlist">Watchlist</option>
-              </select>
-            </div>
-            <div className="w-44 flex-shrink-0">
-              <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Sort By</label>
-              <select
-                value={binderSortOrder}
-                onChange={(e) => setBinderSortOrder(e.target.value)}
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
-              >
-                <option value="name">Name (A → Z)</option>
-                <option value="count">Card Count</option>
-                <option value="value">Total Value</option>
-              </select>
-            </div>
-            {(binderSearch || binderSectionFilter) && (
+            {/* Sets mode */}
+            {mode === 'sets' && <>
+              <div className="flex-1 min-w-[160px]">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Search Sets</label>
+                <input
+                  value={setsQuery}
+                  onChange={(e) => setSetsQuery(e.target.value)}
+                  placeholder="Search sets…"
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+                />
+              </div>
+              <div className="w-52 flex-shrink-0">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Parent Set</label>
+                <select
+                  value={seriesFilter}
+                  onChange={(e) => setSeriesFilter(e.target.value)}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
+                >
+                  <option value="">All Series</option>
+                  {allSeries.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+              <div className="w-36 flex-shrink-0">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Year</label>
+                <select
+                  value={yearFilter}
+                  onChange={(e) => setYearFilter(e.target.value)}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
+                >
+                  <option value="">All Years</option>
+                  {allYears.map((y) => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
               <div className="flex items-end flex-shrink-0">
                 <button
-                  onClick={() => { setBinderSearch(''); setBinderSectionFilter('') }}
+                  onClick={() => setShowCollectionProgress((v) => !v)}
+                  title="Toggle collection progress bars"
+                  className={`px-3 py-2.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${showCollectionProgress ? 'bg-accent text-black' : 'bg-surface-600 hover:bg-surface-500 text-slate-300'}`}
+                >
+                  Progress
+                </button>
+              </div>
+              {(seriesFilter || yearFilter || setsQuery) && (
+                <div className="flex items-end flex-shrink-0">
+                  <button
+                    onClick={() => { setSeriesFilter(''); setYearFilter(''); setSetsQuery('') }}
+                    className="px-4 py-2.5 bg-surface-600 hover:bg-surface-500 text-slate-300 font-medium rounded-lg text-sm transition-colors whitespace-nowrap"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+            </>}
+
+            {/* Sealed mode */}
+            {mode === 'sealed' && <>
+              <div className="flex-1 min-w-[200px]">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Product Name</label>
+                <input
+                  value={sealedQuery}
+                  onChange={(e) => setSealedQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && runSealedSearch()}
+                  placeholder="e.g. Scarlet & Violet Elite Trainer Box"
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+                />
+              </div>
+              <div className="flex gap-2 items-end flex-shrink-0">
+                <button
+                  onClick={runSealedSearch}
+                  disabled={sealedLoading || !sealedQuery.trim()}
+                  className="px-6 py-2.5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-40 text-black font-bold rounded-lg text-sm transition-colors whitespace-nowrap"
+                >
+                  {sealedLoading ? 'Searching…' : 'Search'}
+                </button>
+                <button
+                  onClick={() => { setSealedQuery(''); setSealedResults([]); setError(null) }}
                   className="px-4 py-2.5 bg-surface-600 hover:bg-surface-500 text-slate-300 font-medium rounded-lg text-sm transition-colors whitespace-nowrap"
                 >
                   Clear
                 </button>
               </div>
-            )}
-          </>}
+            </>}
+
+            {/* Binders mode */}
+            {mode === 'folders' && <>
+              <div className="flex-1 min-w-[160px]">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Search Binders</label>
+                <input
+                  value={binderSearch}
+                  onChange={(e) => setBinderSearch(e.target.value)}
+                  placeholder="Search binders…"
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+                />
+              </div>
+              <div className="w-44 flex-shrink-0">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Section</label>
+                <select
+                  value={binderSectionFilter}
+                  onChange={(e) => setBinderSectionFilter(e.target.value)}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
+                >
+                  <option value="">All Sections</option>
+                  <option value="collection">Collection</option>
+                  <option value="watchlist">Watchlist</option>
+                </select>
+              </div>
+              <div className="w-44 flex-shrink-0">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Sort By</label>
+                <select
+                  value={binderSortOrder}
+                  onChange={(e) => setBinderSortOrder(e.target.value)}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
+                >
+                  <option value="name">Name (A → Z)</option>
+                  <option value="count">Card Count</option>
+                  <option value="value">Total Value</option>
+                </select>
+              </div>
+              {(binderSearch || binderSectionFilter) && (
+                <div className="flex items-end flex-shrink-0">
+                  <button
+                    onClick={() => { setBinderSearch(''); setBinderSectionFilter('') }}
+                    className="px-4 py-2.5 bg-surface-600 hover:bg-surface-500 text-slate-300 font-medium rounded-lg text-sm transition-colors whitespace-nowrap"
+                  >
+                    Clear
+                  </button>
+                </div>
+              )}
+            </>}
+
+          </div>
+
+          {/* ── Row 2: secondary filters (Items mode only) ── */}
+          {mode === 'cards' && (
+            <div className="flex gap-3 items-end flex-wrap">
+              <div className="w-52 flex-shrink-0">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Rarity</label>
+                <select
+                  value={rarity} onChange={(e) => {
+                    const v = e.target.value
+                    setRarity(v)
+                    if (hasSearched && (nameQuery.trim() || setQuery.trim() || v || artistFilter.trim())) {
+                      runSearch(nameQuery, setQuery, v, artistFilter)
+                    }
+                  }}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
+                >
+                  {RARITIES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                </select>
+              </div>
+              <div className="w-44 flex-shrink-0">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Variations</label>
+                <select
+                  value={variationFilter} onChange={(e) => setVariationFilter(e.target.value)}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
+                >
+                  <option value="">All Variations</option>
+                  <option value="normal">Normal</option>
+                  <option value="holo">Holo</option>
+                  <option value="reverse">Reverse Holo</option>
+                  <option value="firstEdition">1st Edition</option>
+                  <option value="wPromo">W Promo</option>
+                </select>
+              </div>
+              <div className="w-44 flex-shrink-0">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Energy Type</label>
+                <select
+                  value={energyTypeFilter} onChange={(e) => {
+                    const v = e.target.value
+                    setEnergyTypeFilter(v)
+                    if (hasSearched && (nameQuery.trim() || setQuery.trim() || rarity || artistFilter.trim() || v || cardTypeFilter)) {
+                      runSearch(nameQuery, setQuery, rarity, artistFilter, v, cardTypeFilter)
+                    }
+                  }}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
+                >
+                  <option value="">All Types</option>
+                  {ENERGY_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div className="w-44 flex-shrink-0">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Card Type</label>
+                <select
+                  value={cardTypeFilter} onChange={(e) => {
+                    const v = e.target.value
+                    setCardTypeFilter(v)
+                    if (hasSearched && (nameQuery.trim() || setQuery.trim() || rarity || artistFilter.trim() || energyTypeFilter || v)) {
+                      runSearch(nameQuery, setQuery, rarity, artistFilter, energyTypeFilter, v)
+                    }
+                  }}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
+                >
+                  <option value="">All Card Types</option>
+                  <option value="Pokemon">Pokémon</option>
+                  <option value="Energy">Energy</option>
+                  <option value="Item">Item</option>
+                  <option value="Supporter">Supporter</option>
+                  <option value="Stadium">Stadium</option>
+                  <option value="Tool">Tool</option>
+                </select>
+              </div>
+              <div className="w-48 flex-shrink-0">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Illustrator</label>
+                <select
+                  value={illustratorFilter} onChange={(e) => setIllustratorFilter(e.target.value)}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
+                >
+                  <option value="">All Illustrators</option>
+                  {uniqueArtists.map((a) => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
+              <div className="w-48 flex-shrink-0">
+                <label className="text-slate-400 text-xs mb-1.5 block uppercase tracking-wider font-medium">Binder</label>
+                <select
+                  value={binderFilter} onChange={(e) => setBinderFilter(e.target.value)}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-accent"
+                >
+                  <option value="">All Cards</option>
+                  <optgroup label="Collection">
+                    <option value="collection">Collection (all)</option>
+                    {portfolioBinders.map((f) => (
+                      <option key={f} value={`binder:${f}`}>&nbsp;&nbsp;{f}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Watchlist">
+                    <option value="watchlist">Watchlist (all)</option>
+                    {watchlistBinders.map((f) => (
+                      <option key={f} value={`binder:${f}`}>&nbsp;&nbsp;{f}</option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+              <div className="ml-auto flex items-center self-end flex-shrink-0">
+                <div className="flex items-center rounded-lg border border-surface-600 overflow-hidden text-xs">
+                  {[
+                    { mode: 'grid', label: 'Grid', icon: (
+                      <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
+                        <rect x="1" y="1" width="6" height="6" rx="1" />
+                        <rect x="9" y="1" width="6" height="6" rx="1" />
+                        <rect x="1" y="9" width="6" height="6" rx="1" />
+                        <rect x="9" y="9" width="6" height="6" rx="1" />
+                      </svg>
+                    )},
+                    { mode: 'table', label: 'Table', icon: (
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 6h18M3 14h18M3 18h18" />
+                      </svg>
+                    )},
+                    { mode: 'binder', label: 'Binder', icon: (
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                      </svg>
+                    )},
+                  ].map((v) => (
+                    <button
+                      key={v.mode}
+                      onClick={() => { setViewMode(v.mode); setSearchBinderPage(0) }}
+                      className={`flex items-center gap-1.5 px-3 py-2 font-medium transition-colors ${
+                        viewMode === v.mode
+                          ? 'bg-surface-600 text-white'
+                          : 'text-slate-400 hover:text-white hover:bg-surface-700 bg-surface-800'
+                      }`}
+                    >
+                      {v.icon}
+                      {v.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
         </div>
       </div>
@@ -1755,9 +1976,6 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
         </div>
       )}
 
-      {mode === 'cards' && hasSearched && !loading && results.length > 0 && nameQuery === '' && setQuery === '' && rarity === '' && (
-        <p className="text-slate-500 text-sm mb-4">Showing top 20 Special Illustration Rares — use filters above to search for any card</p>
-      )}
 
       {mode === 'cards' && !binderFilter && hasSearched && !loading && results.length === 0 && !error && (
         <div className="flex flex-col items-center justify-center py-16 text-slate-600">
@@ -1888,64 +2106,200 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
         </div>
       )}
 
-      {/* Cards mode + set browse card grid */}
+      {/* Cards mode + set browse: view toggle + results */}
       {!loading && baseResults.length > 0 && (mode === 'cards' || browsedSet) && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          {displayResults.map((card) => {
-            if (card._divider) {
-              return (
-                <div key="__divider__" className="col-span-full flex items-center gap-3 py-2 select-none">
-                  <div className="flex-1 h-px bg-surface-600" />
-                  <span className="text-xs text-slate-500 font-medium">Similar Items</span>
-                  <div className="flex-1 h-px bg-surface-600" />
-                </div>
-              )
-            }
-            const price = cardPrice(card)
-            const inPortfolio = ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
-            const inWatchlist = ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
-            const isFav = favNames.some((n) => { const cn = (card.name || '').toLowerCase(); const fn = (n || '').toLowerCase(); return fn && (cn === fn || cn.includes(fn)) })
+        <>
+          {/* ── Grid view ── */}
+          {(viewMode === 'grid' || browsedSet) && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+              {displayResults.map((card) => {
+                if (card._divider) {
+                  return (
+                    <div key="__divider__" className="col-span-full flex items-center gap-3 py-2 select-none">
+                      <div className="flex-1 h-px bg-surface-600" />
+                      <span className="text-xs text-slate-500 font-medium">Similar Items</span>
+                      <div className="flex-1 h-px bg-surface-600" />
+                    </div>
+                  )
+                }
+                const price = cardPrice(card)
+                const inPortfolio = ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
+                const inWatchlist = ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
+                const isFav = favNames.some((n) => { const cn = (card.name || '').toLowerCase(); const fn = (n || '').toLowerCase(); return fn && (cn === fn || cn.includes(fn)) })
+                return (
+                  <div key={card.id} onClick={() => openCardModal(card)} className="relative border border-surface-600 hover:border-surface-400 rounded-xl p-2 bg-surface-800 transition-colors cursor-pointer">
+                    {isFav && (
+                      <span className="absolute top-2 left-2 text-yellow-400 text-xl leading-none pointer-events-none z-10">★</span>
+                    )}
+                    {(inPortfolio || inWatchlist) && (
+                      <div className="absolute top-1.5 right-1.5 flex flex-col gap-0.5 z-10 pointer-events-none">
+                        {inPortfolio && <span className="text-[11px] font-bold px-2 py-1 rounded bg-accent text-black leading-none">Collection</span>}
+                        {inWatchlist && <span className="text-[11px] font-bold px-2 py-1 rounded bg-sky-500 text-white leading-none">Watchlist</span>}
+                      </div>
+                    )}
+                    <div className="aspect-[5/7] w-full">
+                      {card.images?.small ? (
+                        <img
+                          src={card.images.small} alt={card.name}
+                          className="w-full h-full object-contain rounded-lg"
+                          onError={(e) => { e.target.style.display = 'none'; e.target.nextElementSibling.style.display = 'flex' }}
+                        />
+                      ) : null}
+                      <div style={{ display: card.images?.small ? 'none' : 'flex' }} className="w-full h-full bg-surface-700 rounded-lg flex-col items-center justify-center text-slate-600 gap-1">
+                        <svg width="28" height="36" viewBox="0 0 28 36" fill="none">
+                          <rect x="1" y="1" width="26" height="34" rx="3" stroke="currentColor" strokeWidth="1.5"/>
+                          <circle cx="14" cy="15" r="5" stroke="currentColor" strokeWidth="1.5"/>
+                          <path d="M5 28 Q14 22 23 28" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                        </svg>
+                        <span className="text-xs">No image</span>
+                      </div>
+                    </div>
+                    <div className="mt-2 px-0.5">
+                      <p className="text-white text-xs font-semibold leading-tight text-center truncate">
+                        {card.name}{card.number ? <span className="text-slate-400 font-normal"> #{card.number}</span> : ''}
+                      </p>
+                      <p className="text-slate-500 text-xs text-center truncate mt-0.5">
+                        {card.set?.series && card.set.series !== card.set?.name
+                          ? `${card.set.series} - ${card.set.name}`
+                          : card.set?.name || ''}
+                      </p>
+                      <VariantBadges variants={card.variants} className="justify-center mt-0.5" />
+                      {price != null && (
+                        <p className="text-slate-300 text-xs font-semibold text-center mt-1">{format(price)}</p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* ── Table view ── */}
+          {viewMode === 'table' && !browsedSet && (
+            <div className="bg-surface-800 border border-surface-600 rounded-xl overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-surface-700">
+                    <th className="text-left text-slate-500 text-xs uppercase tracking-wider px-4 py-3 font-medium">Card</th>
+                    <th className="text-left text-slate-500 text-xs uppercase tracking-wider px-4 py-3 font-medium">Set</th>
+                    <th className="text-left text-slate-500 text-xs uppercase tracking-wider px-4 py-3 font-medium">Rarity</th>
+                    <th className="text-left text-slate-500 text-xs uppercase tracking-wider px-4 py-3 font-medium">Illustrator</th>
+                    <th className="text-left text-slate-500 text-xs uppercase tracking-wider px-4 py-3 font-medium">Variants</th>
+                    <th className="text-right text-slate-500 text-xs uppercase tracking-wider px-4 py-3 font-medium">Price</th>
+                    <th className="text-right text-slate-500 text-xs uppercase tracking-wider px-4 py-3 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {displayResults.map((card) => {
+                    if (card._divider) {
+                      return (
+                        <tr key="__divider__"><td colSpan={7} className="px-4 py-2">
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 h-px bg-surface-700" />
+                            <span className="text-xs text-slate-600 font-medium">Similar Items</span>
+                            <div className="flex-1 h-px bg-surface-700" />
+                          </div>
+                        </td></tr>
+                      )
+                    }
+                    const price = cardPrice(card)
+                    const inPortfolio = ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
+                    const inWatchlist = ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
+                    return (
+                      <tr key={card.id} onClick={() => openCardModal(card)} className="border-b border-surface-700 last:border-0 hover:bg-surface-700/50 cursor-pointer transition-colors">
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-3">
+                            <img src={card.images?.small} alt={card.name} className="w-10 h-14 object-contain rounded flex-shrink-0" onError={(e) => (e.target.style.display = 'none')} />
+                            <div>
+                              <p className="text-white text-sm font-semibold leading-tight">{card.name}</p>
+                              {card.number && <p className="text-slate-500 text-xs">#{card.number}</p>}
+                              <div className="flex gap-1 mt-1">
+                                {inPortfolio && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-accent text-black leading-none">Collection</span>}
+                                {inWatchlist && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500 text-white leading-none">Watchlist</span>}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-400 text-sm">
+                          {card.set?.series && card.set.series !== card.set?.name
+                            ? `${card.set.series} - ${card.set.name}`
+                            : card.set?.name || '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-400 text-sm">{card.rarity || '—'}</td>
+                        <td className="px-4 py-2.5 text-slate-400 text-sm">{card.artist || '—'}</td>
+                        <td className="px-4 py-2.5"><VariantBadges variants={card.variants} /></td>
+                        <td className="px-4 py-2.5 text-right">
+                          {price != null ? <span className="text-accent font-semibold text-sm">{format(price)}</span> : <span className="text-slate-600 text-sm">—</span>}
+                        </td>
+                        <td className="px-4 py-2.5" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex gap-1.5 justify-end">
+                            {inPortfolio ? (
+                              <span className="text-xs text-accent font-semibold px-2 py-1 rounded bg-accent/10 border border-accent/30">✓ Collection</span>
+                            ) : (
+                              <button onClick={() => setAddModal({ card, section: 'collection' })} className="text-xs font-bold px-2 py-1 rounded bg-accent hover:bg-accent-hover text-black transition-colors whitespace-nowrap">+ Collection</button>
+                            )}
+                            {inWatchlist ? (
+                              <span className="text-xs text-sky-400 font-semibold px-2 py-1 rounded bg-sky-500/10 border border-sky-500/30">✓ Watchlist</span>
+                            ) : (
+                              <button onClick={() => setAddModal({ card, section: 'watchlist' })} className="text-xs font-bold px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-white transition-colors whitespace-nowrap">+ Watchlist</button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ── Binder view ── */}
+          {viewMode === 'binder' && !browsedSet && (() => {
+            const binderCards = displayResults.filter((c) => !c._divider)
+            const BINDER_PER_PAGE = 9
+            const pageCount = Math.ceil(binderCards.length / BINDER_PER_PAGE)
+            const pageSlice = binderCards.slice(searchBinderPage * BINDER_PER_PAGE, (searchBinderPage + 1) * BINDER_PER_PAGE)
             return (
-              <div key={card.id} onClick={() => openCardModal(card)} className="relative border border-surface-600 hover:border-surface-400 rounded-xl p-2 bg-surface-800 transition-colors cursor-pointer">
-                {isFav && (
-                  <span className="absolute top-2 left-2 text-yellow-400 text-xl leading-none pointer-events-none z-10">★</span>
-                )}
-                {(inPortfolio || inWatchlist) && (
-                  <div className="absolute top-1.5 right-1.5 flex flex-col gap-0.5 z-10 pointer-events-none">
-                    {inPortfolio && <span className="text-[11px] font-bold px-2 py-1 rounded bg-accent text-black leading-none">Collection</span>}
-                    {inWatchlist && <span className="text-[11px] font-bold px-2 py-1 rounded bg-sky-500 text-white leading-none">Watchlist</span>}
-                  </div>
-                )}
-                <div className="aspect-[5/7] w-full">
-                  {card.images?.small ? (
-                    <img
-                      src={card.images.small} alt={card.name}
-                      className="w-full h-full object-contain rounded-lg"
-                      onError={(e) => { e.target.style.display = 'none'; e.target.nextElementSibling.style.display = 'flex' }}
-                    />
-                  ) : null}
-                  <div style={{ display: card.images?.small ? 'none' : 'flex' }} className="w-full h-full bg-surface-700 rounded-lg flex-col items-center justify-center text-slate-600 gap-1">
-                    <svg width="28" height="36" viewBox="0 0 28 36" fill="none">
-                      <rect x="1" y="1" width="26" height="34" rx="3" stroke="currentColor" strokeWidth="1.5"/>
-                      <circle cx="14" cy="15" r="5" stroke="currentColor" strokeWidth="1.5"/>
-                      <path d="M5 28 Q14 22 23 28" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                    </svg>
-                    <span className="text-xs">No image</span>
+              <div className="w-full flex flex-col items-center gap-4">
+                <div
+                  className="bg-surface-900 rounded-xl border border-surface-700 shadow-2xl p-2"
+                  style={{ height: '60vh', aspectRatio: '5/7', maxWidth: '420px' }}
+                >
+                  <div className="grid grid-cols-3 grid-rows-3 gap-1.5 h-full">
+                    {Array.from({ length: BINDER_PER_PAGE }).map((_, i) => {
+                      const card = pageSlice[i]
+                      if (!card) return <div key={i} className="rounded border border-dashed border-surface-700 bg-surface-800/40" />
+                      const inPortfolio = ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
+                      const inWatchlist = ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
+                      return (
+                        <button
+                          key={card.id}
+                          onClick={() => openCardModal(card)}
+                          className="rounded overflow-hidden relative transition-all hover:scale-[1.03] hover:z-10 bg-surface-800 ring-1 ring-surface-600 hover:ring-accent/60"
+                        >
+                          <img src={card.images?.small} alt={card.name} className="w-full h-full object-cover" onError={(e) => (e.target.style.display = 'none')} />
+                          {(inPortfolio || inWatchlist) && (
+                            <div className="absolute top-1 right-1 flex flex-col gap-0.5 pointer-events-none">
+                              {inPortfolio && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-accent text-black leading-none">Coll.</span>}
+                              {inWatchlist && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-sky-500 text-white leading-none">Watch.</span>}
+                            </div>
+                          )}
+                        </button>
+                      )
+                    })}
                   </div>
                 </div>
-                <div className="mt-2 px-0.5">
-                  <p className="text-white text-xs font-semibold leading-tight text-center truncate">
-                    {card.name}{card.number ? <span className="text-slate-400 font-normal"> #{card.number}</span> : ''}
-                  </p>
-                  <p className="text-slate-500 text-xs text-center truncate mt-0.5">{[card.set?.series, card.set?.name].filter(Boolean).join(' - ')}</p>
-                  {price != null && (
-                    <p className="text-slate-300 text-xs font-semibold text-center mt-1">{format(price)}</p>
-                  )}
-                </div>
+                {pageCount > 1 && (
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setSearchBinderPage((p) => Math.max(0, p - 1))} disabled={searchBinderPage === 0} className="px-4 py-2 rounded-lg border border-surface-600 text-slate-400 hover:text-white hover:border-surface-500 disabled:opacity-30 transition-all text-sm">← Prev</button>
+                    <span className="text-slate-500 text-sm">Page {searchBinderPage + 1} of {pageCount}</span>
+                    <button onClick={() => setSearchBinderPage((p) => Math.min(pageCount - 1, p + 1))} disabled={searchBinderPage === pageCount - 1} className="px-4 py-2 rounded-lg border border-surface-600 text-slate-400 hover:text-white hover:border-surface-500 disabled:opacity-30 transition-all text-sm">Next →</button>
+                  </div>
+                )}
               </div>
             )
-          })}
-        </div>
+          })()}
+        </>
       )}
 
       {addModal && (

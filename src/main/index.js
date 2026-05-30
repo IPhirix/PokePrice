@@ -7,7 +7,6 @@ const fs = require('fs')
 const path = require('path')
 const axios = require('axios')
 const cron = require('node-cron')
-const { listAvailableDates, downloadCsvForDate } = require('./services/firebaseStorage')
 
 // Force consistent userData path across dev and production builds (productName
 // capitalisation differs, so pin it explicitly to 'pokeprice').
@@ -120,23 +119,51 @@ let _tcgdexSetCacheTime = 0
 // API doesn't return a `serie` object (common on list/search endpoints).
 function seriesFromSetId(id) {
   if (!id) return ''
-  if (id.startsWith('sv'))   return 'Scarlet & Violet'
-  if (id.startsWith('swsh')) return 'Sword & Shield'
-  if (id.startsWith('sm'))   return 'Sun & Moon'
-  if (id.startsWith('xy'))   return 'XY'
-  if (id.startsWith('bw'))   return 'Black & White'
-  if (id.startsWith('hgss')) return 'HeartGold & SoulSilver'
-  if (id.startsWith('dp'))   return 'Diamond & Pearl'
-  if (id.startsWith('ex'))   return 'EX'
-  if (id.startsWith('pop'))  return 'POP'
-  if (id.startsWith('neo'))  return 'Neo'
-  if (id.startsWith('gym'))  return 'Gym'
-  if (id.startsWith('base')) return 'Base'
+  if (id.startsWith('sv'))    return 'Scarlet & Violet'
+  if (id.startsWith('swsh'))  return 'Sword & Shield'
+  if (id.startsWith('sm'))    return 'Sun & Moon'
+  if (id.startsWith('xy'))    return 'XY'
+  if (id.startsWith('bw'))    return 'Black & White'
+  if (id.startsWith('hgss'))  return 'HeartGold & SoulSilver'
+  if (id.startsWith('dp'))    return 'Diamond & Pearl'
+  if (id.startsWith('me'))    return 'Mega Evolution'
+  if (id.startsWith('ecard')) return 'E-Card'
+  if (id.startsWith('ex'))    return 'EX'
+  if (id.startsWith('pop'))   return 'POP'
+  if (id.startsWith('neo'))   return 'Neo'
+  if (id.startsWith('gym'))   return 'Gym'
+  if (id.startsWith('base'))  return 'Base'
+  if (id.startsWith('col'))   return 'Call of Legends'
+  if (id.startsWith('pl'))    return 'Platinum'
+  if (id.startsWith('ru'))    return 'Rising Rivals'
   return ''
 }
 
 async function getTcgdexSetMap() {
   if (_tcgdexSetCache && Date.now() - _tcgdexSetCacheTime < 3600000) return _tcgdexSetCache
+
+  // Prefer the rich setsCache (from sets:list) which has full serie.name from TCGdex
+  const richSets = setsCache || (() => {
+    try {
+      const cacheFile = setsCacheFile()
+      if (fs.existsSync(cacheFile)) {
+        const { fetchedAt, sets } = JSON.parse(fs.readFileSync(cacheFile, 'utf8'))
+        if (Date.now() - fetchedAt < 86400000) return sets
+      }
+    } catch {}
+    return null
+  })()
+
+  if (richSets) {
+    _tcgdexSetCache = new Map(richSets.map((s) => [
+      s.id,
+      { name: s.name, series: s.series || seriesFromSetId(s.id), releaseDate: s.releaseDate || '' }
+    ]))
+    _tcgdexSetCacheTime = Date.now()
+    return _tcgdexSetCache
+  }
+
+  // Fall back to the /sets list endpoint (no serie field — seriesFromSetId is the only fallback)
   const res = await axios.get(`${TCGDEX_BASE}/sets`, { timeout: 15000 })
   _tcgdexSetCache = new Map((res.data || []).map((s) => [
     s.id,
@@ -167,6 +194,7 @@ function mapTcgdexCard(d) {
     number: localId,
     rarity: d.rarity || '',
     artist: d.illustrator || '',
+    supertype: d.category || '',
     types: d.types || [],
     subtypes,
     variants: d.variants || null,
@@ -186,13 +214,16 @@ function parsePtcgQuery(q) {
   while ((m = regex.exec(q)) !== null) {
     const value = m[2].replace(/\*$/, '')
     switch (m[1]) {
-      case 'id':       directCardId = value; break
-      case 'name':     params.name = value; break
-      case 'set.id':   params['set.id'] = value; break
-      case 'set.name': params['set.name'] = value; break
-      case 'rarity':   params.rarity = value; break
-      case 'artist':   params.illustrator = value; break
-      case 'number':   params['eq:localId'] = value; break
+      case 'id':        directCardId = value; break
+      case 'name':      params.name = value; break
+      case 'set.id':    params['set.id'] = value; break
+      case 'set.name':  params['set.name'] = value; break
+      case 'rarity':    params.rarity = value; break
+      case 'artist':    params.illustrator = value; break
+      case 'number':    params['eq:localId'] = value; break
+      case 'types':     params.types = value; break
+      case 'supertype': params.category = value; break
+      case 'subtypes':  params.trainerType = value; break
     }
   }
   return { directCardId, params }
@@ -564,7 +595,7 @@ ipcMain.handle('account:getStats', () => {
     const history = readPrices(c.id)
     const latest = history[history.length - 1]
     if (latest?.price) totalValue += latest.price
-    if (c.purchasePrice) totalInvested += c.purchasePrice
+    if (c.purchasePrice && !c.isTrade) totalInvested += c.purchasePrice
   })
   const totalProfit = totalInvested > 0 ? totalValue - totalInvested : null
   return {
@@ -762,8 +793,7 @@ ipcMain.handle('cards:sell', (_, cardId, soldInfo) => {
   // Add received trade cards directly to the collection
   const received = (soldInfo.tradeCardsReceived || []).filter(tc => tc.name?.trim())
   const newTradeCards = received.map(tc => {
-    const pp = parseFloat(tc.estimatedValue)
-    const purchasePrice = !isNaN(pp) && pp > 0 ? Math.round(pp * 100) / 100 : null
+    const mp = tc.marketPrice != null ? Math.round(tc.marketPrice * 100) / 100 : null
     return {
       id: randomUUID(),
       tcgId: tc.tcgId || null,
@@ -776,15 +806,16 @@ ipcMain.handle('cards:sell', (_, cardId, soldInfo) => {
       quantity: 1,
       section: 'collection',
       folder: null,
-      purchasePrice,
-      currentPrice: purchasePrice,
-      priceSource: purchasePrice ? 'ppt' : null,
+      isTrade: true,
+      purchasePrice: mp,
+      currentPrice: mp,
+      priceSource: mp ? 'ppt' : null,
       pptId: null,
       pptName: null,
       imageUrl: tc.imageUrl || '',
       imageUrlLarge: tc.imageUrlLarge || '',
       addedDate: today,
-      lastPriceUpdate: purchasePrice ? today : null,
+      lastPriceUpdate: mp ? today : null,
       targetBuyPrice: null,
       targetSellPrice: null,
       targetBuyPct: null,
@@ -1742,17 +1773,6 @@ ipcMain.handle('prices:deleteEntry', (_, cardId, date) => {
   return true
 })
 
-// Lists dated CSV files available in Firebase Storage
-ipcMain.handle('prices:cloudDates', async () => {
-  const { firebaseStorageBucket } = readSettings()
-  if (!firebaseStorageBucket) return []
-  try {
-    return await listAvailableDates(firebaseStorageBucket)
-  } catch (e) {
-    console.warn('Could not list cloud dates:', e.message)
-    return []
-  }
-})
 
 // PPT condition name → app condition key mapping for graded history
 const PPT_CONDITION_MAP = {
@@ -1804,46 +1824,6 @@ ipcMain.handle('prices:fetchPPTHistory', async (_, cardId) => {
   return readPrices(cardId)
 })
 
-// Downloads historical CSVs from Firebase Storage and backfills a card's price history
-ipcMain.handle('prices:backfillCard', async (_, cardId) => {
-  const { firebaseStorageBucket } = readSettings()
-  if (!firebaseStorageBucket) return { filled: 0, error: 'Firebase Storage not configured' }
-
-  const card = readCards().find((c) => c.id === cardId)
-  if (!card?.pricechartingId) return { filled: 0, error: 'Card not linked to PriceCharting' }
-
-  let dates
-  try {
-    dates = await listAvailableDates(firebaseStorageBucket)
-  } catch (e) {
-    return { filled: 0, error: e.message }
-  }
-
-  const existingDates = new Set(readPrices(cardId).map((h) => h.date))
-  const cacheDir = csvCacheDir()
-  let filled = 0
-
-  for (const date of dates) {
-    if (existingDates.has(date)) continue
-    try {
-      const text = await downloadCsvForDate(date, firebaseStorageBucket, cacheDir)
-      if (!text) continue
-      const csvMap = parsePcCsvToMap(text)
-      const row = csvMap.get(String(card.pricechartingId))
-      if (row) {
-        const price = getPcCsvPrice(row, card.condition)
-        if (price) {
-          bulkLoadHistory(cardId, [{ date, price, source: 'pricecharting' }])
-          existingDates.add(date)
-          filled++
-        }
-      }
-    } catch (e) {
-      console.warn(`Backfill failed for ${date}:`, e.message)
-    }
-  }
-  return { filled }
-})
 
 function calcChange(current, previous) {
   if (!current || !previous) return null
@@ -1859,14 +1839,19 @@ function cardShowsCacheFile(stateCode) {
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
 ipcMain.handle('cardshows:fetch', async (_, stateCode, stateName) => {
+  console.log('[cardshows] fetch requested:', stateCode, stateName)
   const cacheFile = cardShowsCacheFile(stateCode)
   if (fs.existsSync(cacheFile)) {
     try {
       const { fetchedAt, shows } = JSON.parse(fs.readFileSync(cacheFile, 'utf8'))
-      if (Date.now() - fetchedAt < 86400000) return { shows, cached: true }
+      if (Date.now() - fetchedAt < 86400000) {
+        console.log('[cardshows] returning cached data:', shows.length, 'shows')
+        return { shows, cached: true }
+      }
     } catch { /* stale or corrupt — re-fetch below */ }
   }
 
+  console.log('[cardshows] no cache — launching hidden browser for', stateCode)
   const shows = await new Promise((resolve, reject) => {
     let settled = false
     const settle = (fn, val) => {

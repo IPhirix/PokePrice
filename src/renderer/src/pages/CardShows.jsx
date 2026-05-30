@@ -82,8 +82,44 @@ function ShowCard({ show, distance, isGoing, onToggleGoing }) {
         </div>
       )}
 
-      <div className="flex items-start justify-between gap-2 pr-1">
-        <p className="text-white text-sm font-semibold leading-snug flex-1 min-w-0 pr-16">{show.name}</p>
+      <p className={`text-white text-sm font-semibold leading-snug ${isClose ? 'pr-16' : ''}`}>
+        {show.name}
+      </p>
+
+      {(show.venue || show.address || show.cityState) && (
+        <button
+          onClick={() => {
+            const query = [show.venue, show.address, show.cityState].filter(Boolean).join(', ')
+            window.api.openExternal(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`)
+          }}
+          className="flex items-center gap-1 text-left group w-fit"
+        >
+          <svg className="w-3 h-3 flex-shrink-0 text-violet-400 group-hover:text-violet-300 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
+          <span className="text-xs text-violet-400 group-hover:text-violet-300 group-hover:underline transition-colors">
+            {[show.venue, show.cityState].filter(Boolean).join(' — ')}
+          </span>
+        </button>
+      )}
+
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center flex-wrap gap-x-3 gap-y-0.5">
+          {show.time && (
+            <span className="text-slate-400 text-xs flex items-center gap-1">
+              <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+              </svg>
+              {show.time}
+            </span>
+          )}
+          {typeof distance === 'number' && (
+            <span className="text-slate-500 text-xs">
+              {distance < 2 ? '< 2 mi' : `${Math.round(distance)} mi away`}
+            </span>
+          )}
+        </div>
         <button
           onClick={() => onToggleGoing(show)}
           className={`flex-shrink-0 flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border transition-colors ${
@@ -98,63 +134,67 @@ function ShowCard({ show, distance, isGoing, onToggleGoing }) {
           {isGoing ? 'Going' : 'Going?'}
         </button>
       </div>
-
-      {show.venue && <p className="text-slate-400 text-xs">{show.venue}</p>}
-
-      {(show.address || show.cityState) && (
-        <button
-          onClick={() => {
-            const query = [show.address, show.cityState].filter(Boolean).join(', ')
-            window.api.openExternal(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`)
-          }}
-          className="flex items-start gap-1 text-left group w-fit"
-        >
-          <svg className="w-3 h-3 flex-shrink-0 mt-0.5 text-violet-400 group-hover:text-violet-300 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          <span className="text-xs text-violet-400 group-hover:text-violet-300 group-hover:underline transition-colors leading-tight">
-            {show.address && <span className="block">{show.address}</span>}
-            {show.cityState && <span className="block">{show.cityState}</span>}
-          </span>
-        </button>
-      )}
-
-      <div className="flex items-center flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-        {show.time && (
-          <span className="text-slate-400 text-xs flex items-center gap-1">
-            <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-            </svg>
-            {show.time}
-          </span>
-        )}
-        {typeof distance === 'number' && !isClose && (
-          <span className="text-slate-500 text-xs">{Math.round(distance)} mi away</span>
-        )}
-      </div>
     </div>
   )
 }
 
-function UpcomingSidebar({ upcomingShows, onRemove }) {
+function ShowRow({ show, onRemove, onShowClick, dimmed = false }) {
+  return (
+    <div className="relative">
+      <button
+        onClick={() => onShowClick?.(show)}
+        className={`w-full rounded-lg px-2.5 py-2 pr-6 border text-left transition-colors ${
+          dimmed
+            ? 'bg-surface-800/50 border-surface-700 hover:bg-surface-700/50'
+            : 'bg-surface-800 hover:bg-surface-700 border-surface-600 hover:border-violet-500/50'
+        }`}
+      >
+        <p className={`text-xs font-medium leading-snug ${dimmed ? 'text-slate-400' : 'text-white'}`}>{show.name}</p>
+        <p className="text-slate-500 text-[10px] mt-0.5 truncate">{show.cityState}</p>
+        {show.time && <p className="text-slate-600 text-[10px]">{show.time}</p>}
+      </button>
+      <button
+        onClick={() => onRemove(show.id)}
+        className="absolute top-1.5 right-1.5 w-4 h-4 flex items-center justify-center text-slate-600 hover:text-red-400 transition-colors text-[10px] rounded"
+        title="Remove"
+      >✕</button>
+    </div>
+  )
+}
+
+function UpcomingSidebar({ upcomingShows, onRemove, onShowClick }) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
+  const [upcomingOpen, setUpcomingOpen] = useState(true)
+  const [attendedOpen, setAttendedOpen] = useState(false)
 
   const upcoming = upcomingShows
     .filter(s => { const d = parseShowDate(s.date); return d && d >= today })
     .sort((a, b) => parseShowDate(a.date) - parseShowDate(b.date))
 
-  const groups = {}
+  const attended = upcomingShows
+    .filter(s => { const d = parseShowDate(s.date); return d && d < today })
+    .sort((a, b) => parseShowDate(b.date) - parseShowDate(a.date))
+
+  const upcomingGroups = {}
   for (const show of upcoming) {
-    if (!groups[show.date]) groups[show.date] = { label: show.date, shows: [] }
-    groups[show.date].shows.push(show)
+    if (!upcomingGroups[show.date]) upcomingGroups[show.date] = { label: show.date, shows: [] }
+    upcomingGroups[show.date].shows.push(show)
   }
-  const groupList = Object.values(groups)
+  const groupList = Object.values(upcomingGroups)
 
   return (
     <div className="w-72 flex-shrink-0 border-r border-surface-700 flex flex-col overflow-hidden">
-      <div className="px-3 py-2.5 border-b border-surface-700 flex items-center gap-2 flex-shrink-0">
+      <button
+        onClick={() => setUpcomingOpen(o => !o)}
+        className="px-3 py-2.5 border-b border-surface-700 flex items-center gap-2 flex-shrink-0 w-full text-left hover:bg-surface-800/40 transition-colors"
+      >
+        <svg
+          className={`w-3 h-3 text-slate-500 flex-shrink-0 transition-transform ${upcomingOpen ? 'rotate-90' : ''}`}
+          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"
+        >
+          <polyline points="9 18 15 12 9 6" />
+        </svg>
         <svg className="w-4 h-4 text-violet-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8">
           <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
@@ -164,11 +204,11 @@ function UpcomingSidebar({ upcomingShows, onRemove }) {
             {upcoming.length}
           </span>
         )}
-      </div>
+      </button>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2">
-        {groupList.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-center py-10 px-3">
+      <div className="flex-1 min-h-0 overflow-y-auto px-2 py-2 flex flex-col gap-3">
+        {upcomingOpen && (groupList.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-10 px-3 text-center">
             <svg className="w-7 h-7 text-slate-700 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
@@ -183,21 +223,38 @@ function UpcomingSidebar({ upcomingShows, onRemove }) {
                 </p>
                 <div className="space-y-1">
                   {group.shows.map(show => (
-                    <div key={show.id} className="flex items-start gap-1 group">
-                      <div className="flex-1 min-w-0 bg-surface-800 rounded-lg px-2.5 py-2 border border-surface-600">
-                        <p className="text-white text-xs font-medium leading-snug">{show.name}</p>
-                        <p className="text-slate-500 text-[10px] mt-0.5 truncate">{show.cityState}</p>
-                        {show.time && <p className="text-slate-600 text-[10px]">{show.time}</p>}
-                      </div>
-                      <button
-                        onClick={() => onRemove(show.id)}
-                        className="flex-shrink-0 mt-1.5 w-5 h-5 flex items-center justify-center text-slate-700 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 text-xs"
-                      >✕</button>
-                    </div>
+                    <ShowRow key={show.id} show={show} onRemove={onRemove} onShowClick={onShowClick} />
                   ))}
                 </div>
               </div>
             ))}
+          </div>
+        ))}
+
+        {attended.length > 0 && (
+          <div className="border-t border-surface-700 pt-2">
+            <button
+              onClick={() => setAttendedOpen(o => !o)}
+              className="w-full flex items-center gap-2 px-1 py-1 text-left"
+            >
+              <svg
+                className={`w-3 h-3 text-slate-500 flex-shrink-0 transition-transform ${attendedOpen ? 'rotate-90' : ''}`}
+                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5"
+              >
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+              <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider flex-1">Shows Attended</span>
+              <span className="text-[10px] px-1.5 py-0.5 bg-surface-700 text-slate-500 rounded-full font-medium">
+                {attended.length}
+              </span>
+            </button>
+            {attendedOpen && (
+              <div className="space-y-1 mt-1">
+                {attended.map(show => (
+                  <ShowRow key={show.id} show={show} onRemove={onRemove} onShowClick={onShowClick} dimmed />
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -205,7 +262,7 @@ function UpcomingSidebar({ upcomingShows, onRemove }) {
   )
 }
 
-function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing }) {
+function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing, jumpToDate }) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const showMap = buildShowMap(shows)
@@ -218,10 +275,24 @@ function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing }) {
     new Date(today.getFullYear(), today.getMonth(), 1)
   )
 
+  useEffect(() => {
+    if (!jumpToDate) return
+    const d = new Date(jumpToDate.getFullYear(), jumpToDate.getMonth(), jumpToDate.getDate())
+    setCurrentMonth(new Date(d.getFullYear(), d.getMonth(), 1))
+    setSelectedDate(d)
+  }, [jumpToDate])
+
+  const minMonth = new Date(today.getFullYear(), 0, 1) // Jan 1 of current year
+
   function changeMonth(delta) {
-    setCurrentMonth(m => new Date(m.getFullYear(), m.getMonth() + delta, 1))
+    setCurrentMonth(m => {
+      const next = new Date(m.getFullYear(), m.getMonth() + delta, 1)
+      return next < minMonth ? m : next
+    })
     setSelectedDate(null)
   }
+
+  const atMinMonth = currentMonth <= minMonth
 
   const year = currentMonth.getFullYear()
   const month = currentMonth.getMonth()
@@ -240,10 +311,11 @@ function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing }) {
     ? [...(showMap[selectedKey] || [])].sort((a, b) => {
         const da = distances[a.cityState]
         const db = distances[b.cityState]
-        const closeA = typeof da === 'number' && da <= 10
-        const closeB = typeof db === 'number' && db <= 10
-        if (closeA && !closeB) return -1
-        if (!closeA && closeB) return 1
+        const hasA = typeof da === 'number'
+        const hasB = typeof db === 'number'
+        if (hasA && hasB) return da - db
+        if (hasA) return -1
+        if (hasB) return 1
         return 0
       })
     : []
@@ -257,13 +329,25 @@ function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing }) {
       {/* Calendar */}
       <div className="flex-1 min-w-0 flex flex-col min-h-0 overflow-hidden">
         <div className="flex items-center justify-between mb-3 flex-shrink-0">
-          <button onClick={() => changeMonth(-1)}
-            className="flex items-center gap-1 px-3 py-1.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 hover:text-white text-sm rounded-lg transition-colors">
+          <button onClick={() => changeMonth(-1)} disabled={atMinMonth}
+            className="flex items-center gap-1 px-3 py-1.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 hover:text-white text-sm rounded-lg transition-colors disabled:opacity-30 disabled:cursor-not-allowed">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
             Prev
           </button>
-          <div className="text-center">
-            <p className="text-white font-semibold">{MONTHS[month]} {year}</p>
+          <div className="flex flex-col items-center gap-1">
+            <div className="flex items-center gap-2">
+              <p className="text-white font-semibold">{MONTHS[month]} {year}</p>
+              <button
+                onClick={() => {
+                  setCurrentMonth(new Date(today.getFullYear(), today.getMonth(), 1))
+                  const todayKey = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`
+                  setSelectedDate(showMap[todayKey] ? new Date(today) : null)
+                }}
+                className="text-[10px] px-1.5 py-0.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 hover:border-violet-500 text-slate-400 hover:text-violet-300 rounded transition-colors"
+              >
+                Today
+              </button>
+            </div>
             {monthShowCount > 0 && <p className="text-violet-400 text-xs">{monthShowCount} show{monthShowCount !== 1 ? 's' : ''}</p>}
           </div>
           <button onClick={() => changeMonth(1)}
@@ -279,10 +363,13 @@ function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing }) {
           ))}
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          <div className="grid grid-cols-7 gap-1">
+        <div className="flex-1 min-h-0 overflow-hidden">
+          <div
+            className="grid grid-cols-7 gap-1 h-full"
+            style={{ gridAutoRows: '1fr' }}
+          >
             {cells.map((day, idx) => {
-              if (!day) return <div key={idx} className="min-h-[100px]" />
+              if (!day) return <div key={idx} className="rounded-lg bg-surface-800/10" />
               const cellDate = new Date(year, month, day)
               cellDate.setHours(0, 0, 0, 0)
               const isPast = cellDate < today
@@ -291,31 +378,42 @@ function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing }) {
               const dayShows = showMap[key] || []
               const isSelected = selectedDate && sameDay(cellDate, selectedDate)
 
+              const borderCls = isSelected
+                ? 'border-violet-400'
+                : isToday ? 'border-violet-500' : 'border-surface-600'
+              const bgCls = isSelected
+                ? 'bg-violet-900/30'
+                : isToday ? 'bg-violet-900/10' : 'bg-surface-800/40'
+              const dayNumCls = isSelected
+                ? 'text-violet-200 font-bold'
+                : isToday ? 'text-violet-400 font-bold' : isPast ? 'text-slate-600' : 'text-slate-400'
+
               return (
                 <div key={idx}
                   onClick={() => dayShows.length > 0 && setSelectedDate(isSelected ? null : cellDate)}
                   className={[
-                    'min-h-[100px] border rounded-lg p-1.5 flex flex-col transition-colors',
+                    'border rounded-lg p-1.5 flex flex-col overflow-hidden transition-colors',
                     dayShows.length > 0 ? 'cursor-pointer' : 'cursor-default',
-                    isToday ? 'border-violet-500' : 'border-surface-600',
-                    isSelected ? 'bg-violet-900/30 border-violet-400' : isToday ? 'bg-violet-900/10' : 'bg-surface-800/40',
+                    borderCls, bgCls,
                     !isSelected && dayShows.length > 0 ? 'hover:bg-surface-700/50' : '',
                   ].filter(Boolean).join(' ')}
                 >
-                  <div className={`text-right text-xs font-bold mb-1 ${
-                    isToday ? 'text-violet-400' : isPast ? 'text-slate-600' : 'text-slate-300'
-                  }`}>{day}</div>
+                  <div className="flex items-center justify-between mb-1">
+                    {isToday
+                      ? <span className="text-white text-[9px] font-semibold leading-none">Today</span>
+                      : <span />}
+                    <span className={`text-xs ${dayNumCls}`}>{day}</span>
+                  </div>
 
-                  {dayShows.slice(0, 5).map((show, i) => (
-                    <div key={show.id || i} className={`text-[10px] leading-tight mb-0.5 rounded px-1 py-0.5 ${
+                  {dayShows.slice(0, 4).map((show, i) => (
+                    <div key={show.id || i} className={`text-[10px] leading-tight mb-0.5 rounded px-1 py-0.5 overflow-hidden ${
                       isPast ? 'bg-surface-700/50 text-slate-500' : 'bg-violet-900/50 text-violet-100'
                     }`}>
                       <div className="font-medium truncate">{show.name}</div>
-                      {show.time && <div className={isPast ? 'text-slate-600' : 'text-violet-400/80'}>{show.time}</div>}
                     </div>
                   ))}
-                  {dayShows.length > 5 && (
-                    <div className="text-[10px] text-slate-500 pl-1 mt-0.5">+{dayShows.length - 5} more</div>
+                  {dayShows.length > 4 && (
+                    <div className="text-[10px] text-slate-500 pl-1">+{dayShows.length - 4}</div>
                   )}
                 </div>
               )
@@ -328,18 +426,14 @@ function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing }) {
       <div className="w-96 flex-shrink-0 flex flex-col min-h-0">
         {selectedDate ? (
           <div className="bg-surface-800 border border-violet-500/30 rounded-xl p-3 flex flex-col min-h-0">
-            <div className="flex items-start justify-between mb-2 flex-shrink-0">
-              <div>
-                <p className="text-violet-400 text-[11px] font-medium uppercase tracking-wider">
-                  {selectedDate.toLocaleDateString('en-US', { weekday: 'long' })}
-                </p>
-                <p className="text-white font-semibold text-sm">
-                  {selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
-                </p>
-                <p className="text-violet-300 text-[11px]">{selectedShows.length} show{selectedShows.length !== 1 ? 's' : ''}</p>
-              </div>
-              <button onClick={() => setSelectedDate(null)}
-                className="text-slate-500 hover:text-white w-5 h-5 flex items-center justify-center rounded transition-colors">✕</button>
+            <div className="mb-2 flex-shrink-0">
+              <p className="text-violet-400 text-[11px] font-medium uppercase tracking-wider">
+                {selectedDate.toLocaleDateString('en-US', { weekday: 'long' })}
+              </p>
+              <p className="text-white font-semibold text-sm">
+                {selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
+              </p>
+              <p className="text-violet-300 text-[11px]">{selectedShows.length} show{selectedShows.length !== 1 ? 's' : ''}</p>
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto space-y-2">
               {selectedShows.map((show, i) => (
@@ -501,8 +595,10 @@ export default function CardShows() {
   const [viewMode, setViewMode] = useState('calendar')
   const [upcomingShows, setUpcomingShows] = useState([])
   const [distances, setDistances] = useState({})
+  const [jumpToDate, setJumpToDate] = useState(null)
   const userLocRef = useRef(null)
   const geocodeCleanupRef = useRef(null)
+  const pendingJumpRef = useRef(null)
 
   useEffect(() => {
     window.api.getSettings().then(s => {
@@ -530,6 +626,10 @@ export default function CardShows() {
       const result = await window.api.getCardShows(state.code, state.name)
       const loadedShows = result.shows || []
       setShows(loadedShows)
+      if (pendingJumpRef.current) {
+        setJumpToDate(pendingJumpRef.current)
+        pendingJumpRef.current = null
+      }
 
       // Kick off distance calculation
       const settings = await window.api.getSettings()
@@ -582,6 +682,19 @@ export default function CardShows() {
       const showData = { ...show, stateCode: selectedState?.code, stateName: selectedState?.name }
       await window.api.addUpcomingShow(showData)
       setUpcomingShows(prev => [...prev, showData])
+    }
+  }
+
+  async function handleSidebarShowClick(show) {
+    const date = parseShowDate(show.date)
+    if (!date) return
+    setViewMode('calendar')
+    if (selectedState?.code === show.stateCode) {
+      setJumpToDate(new Date(date))
+    } else {
+      pendingJumpRef.current = new Date(date)
+      const state = { code: show.stateCode, name: show.stateName }
+      loadState(state)
     }
   }
 
@@ -646,7 +759,7 @@ export default function CardShows() {
 
       {/* Body: sidebar + main content */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <UpcomingSidebar upcomingShows={upcomingShows} onRemove={removeUpcoming} />
+        <UpcomingSidebar upcomingShows={upcomingShows} onRemove={removeUpcoming} onShowClick={handleSidebarShowClick} />
 
         <div className="flex-1 min-h-0 overflow-hidden px-6 py-4 flex flex-col">
           {!selectedState && (
@@ -695,7 +808,7 @@ export default function CardShows() {
 
           {selectedState && !loading && !error && shows.length > 0 && (
             viewMode === 'calendar'
-              ? <CalendarView shows={shows} distances={distances} upcomingShowIds={upcomingShowIds} onToggleGoing={toggleGoing} />
+              ? <CalendarView shows={shows} distances={distances} upcomingShowIds={upcomingShowIds} onToggleGoing={toggleGoing} jumpToDate={jumpToDate} />
               : <ListView shows={shows} distances={distances} upcomingShowIds={upcomingShowIds} onToggleGoing={toggleGoing} />
           )}
         </div>
