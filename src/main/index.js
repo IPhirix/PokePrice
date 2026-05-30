@@ -2,7 +2,7 @@
 
 const { app, shell, BrowserWindow, ipcMain, dialog, Menu } = require('electron')
 const { join } = require('path')
-const { randomUUID } = require('crypto')
+const { randomUUID, pbkdf2Sync, randomBytes } = require('crypto')
 const fs = require('fs')
 const path = require('path')
 const axios = require('axios')
@@ -2235,6 +2235,201 @@ ipcMain.handle('upcoming:add', (_, show) => {
 ipcMain.handle('upcoming:remove', (_, showId) => {
   writeUpcomingShows(readUpcomingShows().filter(s => s.id !== showId))
   return true
+})
+
+// ── Auth ─────────────────────────────────────────────────────────────────────
+
+function authFile() { return path.join(getDataDir(), 'auth.json') }
+function readAuth() {
+  const f = authFile()
+  if (!fs.existsSync(f)) return null
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return null }
+}
+function writeAuth(data) {
+  fs.writeFileSync(authFile(), JSON.stringify(data, null, 2))
+}
+
+function generateSalt() { return randomBytes(32).toString('hex') }
+function hashPassword(password, salt) {
+  return pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex')
+}
+function generateToken() { return randomBytes(32).toString('hex') }
+
+// In-memory session token (used when stayLoggedIn is false)
+let _memorySessionToken = null
+
+// In-memory store for email reset codes: { code, expiry, email }
+let _emailResetCode = null
+
+// In-memory store for temp reset tokens (granted after passing security/email check)
+const _resetTokens = new Set()
+
+ipcMain.handle('auth:isSetup', () => fs.existsSync(authFile()))
+
+ipcMain.handle('auth:isSessionValid', () => {
+  const auth = readAuth()
+  if (!auth) return false
+  if (auth.stayLoggedIn && auth.sessionToken) return true
+  if (!auth.stayLoggedIn && _memorySessionToken) return true
+  return false
+})
+
+ipcMain.handle('auth:setup', (_, { username, password, securityQuestion, securityAnswer, stayLoggedIn }) => {
+  const salt = generateSalt()
+  const passwordHash = hashPassword(password, salt)
+  const secAnswerSalt = generateSalt()
+  const securityAnswerHash = hashPassword(securityAnswer.trim().toLowerCase(), secAnswerSalt)
+  const token = generateToken()
+  const auth = {
+    username,
+    passwordHash,
+    salt,
+    securityQuestion,
+    securityAnswerHash,
+    securityAnswerSalt: secAnswerSalt,
+    stayLoggedIn: stayLoggedIn !== false,
+    sessionToken: stayLoggedIn !== false ? token : null,
+  }
+  writeAuth(auth)
+  if (!auth.stayLoggedIn) _memorySessionToken = token
+  return { ok: true }
+})
+
+ipcMain.handle('auth:login', (_, { username, password }) => {
+  const auth = readAuth()
+  if (!auth) return { ok: false, error: 'No account set up.' }
+  if (auth.username !== username) return { ok: false, error: 'Invalid username or password.' }
+  const hash = hashPassword(password, auth.salt)
+  if (hash !== auth.passwordHash) return { ok: false, error: 'Invalid username or password.' }
+  const token = generateToken()
+  if (auth.stayLoggedIn) {
+    writeAuth({ ...auth, sessionToken: token })
+  } else {
+    _memorySessionToken = token
+  }
+  return { ok: true }
+})
+
+ipcMain.handle('auth:logout', () => {
+  const auth = readAuth()
+  if (!auth) return
+  _memorySessionToken = null
+  if (auth.sessionToken) writeAuth({ ...auth, sessionToken: null })
+})
+
+ipcMain.handle('auth:getUsername', () => {
+  const auth = readAuth()
+  return auth ? auth.username : null
+})
+
+ipcMain.handle('auth:getSecurityQuestion', () => {
+  const auth = readAuth()
+  return auth ? auth.securityQuestion : null
+})
+
+ipcMain.handle('auth:verifySecurityAnswer', (_, { answer }) => {
+  const auth = readAuth()
+  if (!auth) return { ok: false }
+  const hash = hashPassword(answer.trim().toLowerCase(), auth.securityAnswerSalt)
+  if (hash !== auth.securityAnswerHash) return { ok: false, error: 'Incorrect answer.' }
+  const token = generateToken()
+  _resetTokens.add(token)
+  setTimeout(() => _resetTokens.delete(token), 15 * 60 * 1000)
+  return { ok: true, resetToken: token }
+})
+
+ipcMain.handle('auth:sendResetEmail', async (_, { email }) => {
+  const resendApiKey = process.env.RESEND_KEY || ''
+  if (!resendApiKey) return { ok: false, error: 'Email service not configured. Use the security question instead.' }
+  const code = String(Math.floor(100000 + Math.random() * 900000))
+  _emailResetCode = { code, email: email.trim().toLowerCase(), expiry: Date.now() + 15 * 60 * 1000 }
+  try {
+    const resend = new Resend(resendApiKey)
+    const { error: sendErr } = await resend.emails.send({
+      from: 'PokePrice <onboarding@resend.dev>',
+      to: email.trim(),
+      subject: 'PokePrice — Password Reset Code',
+      html: `<div style="background:#0f1117;color:#e2e8f0;font-family:sans-serif;padding:32px;max-width:420px;margin:0 auto;border-radius:12px">
+        <h2 style="color:#f59e0b;margin:0 0 16px">PokePrice</h2>
+        <p style="margin:0 0 24px;color:#cbd5e1">Your password reset code is:</p>
+        <div style="background:#1e2535;border-radius:8px;padding:20px;text-align:center;font-size:36px;font-weight:bold;letter-spacing:8px;color:#f59e0b">${code}</div>
+        <p style="color:#475569;font-size:12px;margin:24px 0 0">This code expires in 15 minutes. If you did not request a password reset, you can ignore this email.</p>
+      </div>`
+    })
+    if (sendErr) return { ok: false, error: 'Failed to send email. Check your Resend API key.' }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: 'Failed to send email.' }
+  }
+})
+
+ipcMain.handle('auth:verifyEmailCode', (_, { code }) => {
+  if (!_emailResetCode) return { ok: false, error: 'No reset code found. Please request a new one.' }
+  if (Date.now() > _emailResetCode.expiry) {
+    _emailResetCode = null
+    return { ok: false, error: 'Reset code has expired. Please request a new one.' }
+  }
+  if (code.trim() !== _emailResetCode.code) return { ok: false, error: 'Incorrect code.' }
+  _emailResetCode = null
+  const token = generateToken()
+  _resetTokens.add(token)
+  setTimeout(() => _resetTokens.delete(token), 15 * 60 * 1000)
+  return { ok: true, resetToken: token }
+})
+
+ipcMain.handle('auth:resetPassword', (_, { resetToken, newPassword }) => {
+  if (!_resetTokens.has(resetToken)) return { ok: false, error: 'Invalid or expired reset token.' }
+  const auth = readAuth()
+  if (!auth) return { ok: false, error: 'No account found.' }
+  _resetTokens.delete(resetToken)
+  const salt = generateSalt()
+  const passwordHash = hashPassword(newPassword, salt)
+  writeAuth({ ...auth, passwordHash, salt })
+  return { ok: true }
+})
+
+ipcMain.handle('auth:changePassword', (_, { currentPassword, newPassword }) => {
+  const auth = readAuth()
+  if (!auth) return { ok: false, error: 'No account found.' }
+  const hash = hashPassword(currentPassword, auth.salt)
+  if (hash !== auth.passwordHash) return { ok: false, error: 'Current password is incorrect.' }
+  const salt = generateSalt()
+  const passwordHash = hashPassword(newPassword, salt)
+  writeAuth({ ...auth, passwordHash, salt })
+  return { ok: true }
+})
+
+ipcMain.handle('auth:updateSecurityQuestion', (_, { currentPassword, securityQuestion, securityAnswer }) => {
+  const auth = readAuth()
+  if (!auth) return { ok: false, error: 'No account found.' }
+  const hash = hashPassword(currentPassword, auth.salt)
+  if (hash !== auth.passwordHash) return { ok: false, error: 'Current password is incorrect.' }
+  const secAnswerSalt = generateSalt()
+  const securityAnswerHash = hashPassword(securityAnswer.trim().toLowerCase(), secAnswerSalt)
+  writeAuth({ ...auth, securityQuestion, securityAnswerHash, securityAnswerSalt: secAnswerSalt })
+  return { ok: true }
+})
+
+ipcMain.handle('auth:setStayLoggedIn', (_, stayLoggedIn) => {
+  const auth = readAuth()
+  if (!auth) return
+  if (stayLoggedIn) {
+    // Persist the current memory token (or generate new one) into the file
+    const token = _memorySessionToken || generateToken()
+    _memorySessionToken = null
+    writeAuth({ ...auth, stayLoggedIn: true, sessionToken: token })
+  } else {
+    // Move persisted token to memory
+    const token = auth.sessionToken || generateToken()
+    _memorySessionToken = token
+    writeAuth({ ...auth, stayLoggedIn: false, sessionToken: null })
+  }
+  return true
+})
+
+ipcMain.handle('auth:getStayLoggedIn', () => {
+  const auth = readAuth()
+  return auth ? auth.stayLoggedIn !== false : true
 })
 
 ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))

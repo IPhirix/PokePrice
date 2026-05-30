@@ -1,14 +1,10 @@
 name: Pokemon Price Pipeline
 
 on:
-  push:
-    branches:
-      - main
-
   workflow_dispatch:
 
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '20 13 * * *' # 8:20 AM Chicago (CDT)
 
 jobs:
   run-pipeline:
@@ -35,7 +31,7 @@ jobs:
           pip install google-api-python-client
           pip install google-auth
 
-      - name: Run pipeline
+      - name: Run Pokemon Price Pipeline
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PRICECHARTING_URL: ${{ secrets.PRICECHARTING_URL }}

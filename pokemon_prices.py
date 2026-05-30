@@ -274,6 +274,8 @@ with open(csv_filename, "rb") as f_in:
     with gzip.open(gz_filename, "wb", compresslevel=9) as f_out:
         shutil.copyfileobj(f_in, f_out)
 
+print(f"Compressed: {gz_filename.name}")
+
 # -------------------------
 # GOOGLE DRIVE UPLOAD
 # -------------------------
@@ -312,6 +314,8 @@ print("Upload complete")
 # CLEANUP
 # -------------------------
 
+print("Cleaning up local files...")
+
 try:
     csv_filename.unlink()
 
@@ -320,7 +324,10 @@ try:
 
     gz_filename.unlink()
 
-except:
-    pass
+    print("Local files deleted")
+
+except Exception as e:
+    print("Cleanup warning:")
+    print(e)
 
 print("Pipeline complete!")

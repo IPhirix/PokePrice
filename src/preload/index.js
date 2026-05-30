@@ -78,5 +78,23 @@ contextBridge.exposeInMainWorld('api', {
 
   windowMinimize: () => ipcRenderer.send('window:minimize'),
   windowMaximize: () => ipcRenderer.send('window:maximize'),
-  windowClose: () => ipcRenderer.send('window:close')
+  windowClose: () => ipcRenderer.send('window:close'),
+
+  auth: {
+    isSetup: () => ipcRenderer.invoke('auth:isSetup'),
+    isSessionValid: () => ipcRenderer.invoke('auth:isSessionValid'),
+    setup: (data) => ipcRenderer.invoke('auth:setup', data),
+    login: (data) => ipcRenderer.invoke('auth:login', data),
+    logout: () => ipcRenderer.invoke('auth:logout'),
+    getUsername: () => ipcRenderer.invoke('auth:getUsername'),
+    getSecurityQuestion: () => ipcRenderer.invoke('auth:getSecurityQuestion'),
+    verifySecurityAnswer: (data) => ipcRenderer.invoke('auth:verifySecurityAnswer', data),
+    sendResetEmail: (data) => ipcRenderer.invoke('auth:sendResetEmail', data),
+    verifyEmailCode: (data) => ipcRenderer.invoke('auth:verifyEmailCode', data),
+    resetPassword: (data) => ipcRenderer.invoke('auth:resetPassword', data),
+    changePassword: (data) => ipcRenderer.invoke('auth:changePassword', data),
+    updateSecurityQuestion: (data) => ipcRenderer.invoke('auth:updateSecurityQuestion', data),
+    setStayLoggedIn: (val) => ipcRenderer.invoke('auth:setStayLoggedIn', val),
+    getStayLoggedIn: () => ipcRenderer.invoke('auth:getStayLoggedIn'),
+  }
 })

@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Eye, EyeOff } from 'lucide-react'
 import { useCurrency, CURRENCIES } from '../context/CurrencyContext'
+import { useAuth } from '../context/AuthContext'
 
 const PCT_OPTIONS = Array.from({ length: 20 }, (_, i) => (i < 10 ? -(10 - i) * 5 : (i - 9) * 5))
 
@@ -37,6 +39,7 @@ const SECTION_KEYWORDS = {
   management: ['remove', 'confirm', 'delete', 'management', 'card management', 'portfolio', 'watchlist'],
   refresh:    ['refresh', 'update', 'fetch', 'prices', 'ppt', 'data', 'refresh card'],
   history:    ['history', 'clear', 'reset', 'data', 'historical', 'price history', 'delete history'],
+  security:   ['security', 'login', 'password', 'stay logged in', 'session', 'auth', 'account', 'sign in'],
 }
 
 const START_PAGE_OPTIONS = [
@@ -47,9 +50,19 @@ const START_PAGE_OPTIONS = [
   { value: 'search',     label: 'Search' },
 ]
 
+const SECURITY_QUESTIONS = [
+  "What was the name of your first pet?",
+  "What city were you born in?",
+  "What is your mother's maiden name?",
+  "What was the name of your elementary school?",
+  "What was your childhood nickname?",
+  "What is the name of the street you grew up on?",
+]
+
 export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   const navigate = useNavigate()
   const { currency, setCurrency } = useCurrency()
+  const { logout } = useAuth()
   const [loading, setLoading] = useState(true)
   const [confirmRemove, setConfirmRemove] = useState(true)
   const [clearingHistory, setClearingHistory] = useState(false)
@@ -78,6 +91,21 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   const [newPortfolioFolderError, setNewPortfolioFolderError] = useState(false)
   const [newWatchlistFolderError, setNewWatchlistFolderError] = useState(false)
 
+  // Security section
+  const [stayLoggedIn, setStayLoggedIn] = useState(true)
+  const [showChangePw, setShowChangePw] = useState(false)
+  const [showUpdateSec, setShowUpdateSec] = useState(false)
+  const [secCurrentPw, setSecCurrentPw] = useState('')
+  const [secNewPw, setSecNewPw] = useState('')
+  const [secConfirmPw, setSecConfirmPw] = useState('')
+  const [showSecCurrent, setShowSecCurrent] = useState(false)
+  const [showSecNew, setShowSecNew] = useState(false)
+  const [changePwMsg, setChangePwMsg] = useState(null)
+  const [secQuestion, setSecQuestion] = useState(SECURITY_QUESTIONS[0])
+  const [secAnswer, setSecAnswer] = useState('')
+  const [secUpdateCurrentPw, setSecUpdateCurrentPw] = useState('')
+  const [secUpdateMsg, setSecUpdateMsg] = useState(null)
+
   useEffect(() => {
     window.api.getSettings().then((s) => {
       if (s.confirmRemove !== undefined) setConfirmRemove(s.confirmRemove)
@@ -92,6 +120,7 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
     }).finally(() => setLoading(false))
     window.api.listBinders('collection').then(setPortfolioFolders).catch(() => {})
     window.api.listBinders('watchlist').then(setWatchlistFolders).catch(() => {})
+    window.api.auth.getStayLoggedIn().then(setStayLoggedIn).catch(() => {})
   }, [])
 
   // Returns true if the section's keywords match the current search query
@@ -201,6 +230,44 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
     const val = e.target.value
     setDefaultStartTab(val)
     await window.api.setSettings({ defaultStartTab: val })
+  }
+
+  async function handleToggleStayLoggedIn() {
+    const newVal = !stayLoggedIn
+    setStayLoggedIn(newVal)
+    await window.api.auth.setStayLoggedIn(newVal)
+  }
+
+  async function handleChangePassword() {
+    if (!secCurrentPw || !secNewPw || !secConfirmPw) return setChangePwMsg({ ok: false, text: 'All fields are required.' })
+    if (secNewPw.length < 6) return setChangePwMsg({ ok: false, text: 'New password must be at least 6 characters.' })
+    if (secNewPw !== secConfirmPw) return setChangePwMsg({ ok: false, text: 'New passwords do not match.' })
+    const result = await window.api.auth.changePassword({ currentPassword: secCurrentPw, newPassword: secNewPw })
+    if (result.ok) {
+      setChangePwMsg({ ok: true, text: 'Password changed successfully.' })
+      setSecCurrentPw(''); setSecNewPw(''); setSecConfirmPw('')
+      setShowChangePw(false)
+    } else {
+      setChangePwMsg({ ok: false, text: result.error || 'Failed to change password.' })
+    }
+    setTimeout(() => setChangePwMsg(null), 5000)
+  }
+
+  async function handleUpdateSecQuestion() {
+    if (!secUpdateCurrentPw || !secAnswer.trim()) return setSecUpdateMsg({ ok: false, text: 'All fields are required.' })
+    const result = await window.api.auth.updateSecurityQuestion({
+      currentPassword: secUpdateCurrentPw,
+      securityQuestion: secQuestion,
+      securityAnswer: secAnswer,
+    })
+    if (result.ok) {
+      setSecUpdateMsg({ ok: true, text: 'Security question updated.' })
+      setSecUpdateCurrentPw(''); setSecAnswer('')
+      setShowUpdateSec(false)
+    } else {
+      setSecUpdateMsg({ ok: false, text: result.error || 'Failed to update.' })
+    }
+    setTimeout(() => setSecUpdateMsg(null), 5000)
   }
 
   function goBack() {
@@ -573,6 +640,147 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
             ))}
           </div>
         </div>
+
+        {/* Security */}
+        {shows('security') && (
+          <div className="mb-4 bg-surface-800 border border-surface-600 rounded-xl p-5 space-y-4">
+            <div>
+              <h2 className="text-white font-semibold text-sm mb-1">Security</h2>
+              <p className="text-slate-500 text-xs">Manage your login credentials and session settings.</p>
+            </div>
+
+            {/* Stay logged in toggle */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-slate-300 text-sm font-medium">Stay logged in</p>
+                <p className="text-slate-500 text-xs mt-0.5">Skip the login screen on future launches</p>
+              </div>
+              <button
+                type="button"
+                onClick={handleToggleStayLoggedIn}
+                className={`relative w-11 h-6 rounded-full transition-colors ${stayLoggedIn ? 'bg-accent' : 'bg-surface-600'}`}
+              >
+                <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-transform ${stayLoggedIn ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            {/* Change password */}
+            <div className="border-t border-surface-600 pt-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-slate-300 text-sm font-medium">Change Password</p>
+                <button
+                  onClick={() => { setShowChangePw((v) => !v); setChangePwMsg(null) }}
+                  className="text-accent text-xs hover:underline"
+                >
+                  {showChangePw ? 'Cancel' : 'Change'}
+                </button>
+              </div>
+              {showChangePw && (
+                <div className="space-y-3">
+                  <div className="relative">
+                    <input
+                      type={showSecCurrent ? 'text' : 'password'}
+                      value={secCurrentPw}
+                      onChange={(e) => setSecCurrentPw(e.target.value)}
+                      placeholder="Current password"
+                      className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 pr-9 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+                    />
+                    <button type="button" onClick={() => setShowSecCurrent((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white">
+                      {showSecCurrent ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <input
+                      type={showSecNew ? 'text' : 'password'}
+                      value={secNewPw}
+                      onChange={(e) => setSecNewPw(e.target.value)}
+                      placeholder="New password (min 6 chars)"
+                      className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 pr-9 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+                    />
+                    <button type="button" onClick={() => setShowSecNew((v) => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white">
+                      {showSecNew ? <EyeOff size={14} /> : <Eye size={14} />}
+                    </button>
+                  </div>
+                  <input
+                    type="password"
+                    value={secConfirmPw}
+                    onChange={(e) => setSecConfirmPw(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleChangePassword()}
+                    placeholder="Confirm new password"
+                    className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+                  />
+                  {changePwMsg && (
+                    <p className={`text-sm ${changePwMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{changePwMsg.text}</p>
+                  )}
+                  <button
+                    onClick={handleChangePassword}
+                    className="px-4 py-2 bg-accent hover:bg-accent-hover text-black text-sm font-bold rounded-lg transition-colors"
+                  >
+                    Save Password
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Update security question */}
+            <div className="border-t border-surface-600 pt-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-slate-300 text-sm font-medium">Security Question</p>
+                <button
+                  onClick={() => { setShowUpdateSec((v) => !v); setSecUpdateMsg(null) }}
+                  className="text-accent text-xs hover:underline"
+                >
+                  {showUpdateSec ? 'Cancel' : 'Update'}
+                </button>
+              </div>
+              {showUpdateSec && (
+                <div className="space-y-3">
+                  <input
+                    type="password"
+                    value={secUpdateCurrentPw}
+                    onChange={(e) => setSecUpdateCurrentPw(e.target.value)}
+                    placeholder="Current password to confirm"
+                    className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+                  />
+                  <select
+                    value={secQuestion}
+                    onChange={(e) => setSecQuestion(e.target.value)}
+                    className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
+                  >
+                    {SECURITY_QUESTIONS.map((q) => <option key={q} value={q}>{q}</option>)}
+                  </select>
+                  <input
+                    type="text"
+                    value={secAnswer}
+                    onChange={(e) => setSecAnswer(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleUpdateSecQuestion()}
+                    placeholder="Your answer (case-insensitive)"
+                    className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+                  />
+                  {secUpdateMsg && (
+                    <p className={`text-sm ${secUpdateMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{secUpdateMsg.text}</p>
+                  )}
+                  <button
+                    onClick={handleUpdateSecQuestion}
+                    className="px-4 py-2 bg-accent hover:bg-accent-hover text-black text-sm font-bold rounded-lg transition-colors"
+                  >
+                    Update Question
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Sign out */}
+            <div className="border-t border-surface-600 pt-4">
+              <button
+                onClick={logout}
+                className="px-4 py-2 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 text-sm font-medium rounded-lg transition-colors"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Price History */}
         {shows('history') && (
