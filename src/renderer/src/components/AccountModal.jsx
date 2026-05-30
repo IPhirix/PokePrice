@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '../context/CurrencyContext'
+import { useAuth } from '../context/AuthContext'
 
 const COUNTRIES = [
   'Australia', 'Austria', 'Belgium', 'Brazil', 'Canada', 'China', 'Czech Republic',
@@ -101,6 +102,7 @@ function ProfileField({ label, value }) {
 
 export default function AccountModal({ onClose }) {
   const { format, currency, setCurrency } = useCurrency()
+  const { logout } = useAuth()
   const navigate = useNavigate()
   const [profile, setProfile] = useState({ firstName: '', username: '', country: '', state: '', email: '', zipCode: '' })
   const [editing, setEditing] = useState(false)
@@ -257,14 +259,28 @@ export default function AccountModal({ onClose }) {
               </div>
             )}
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-surface-700 transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={logout}
+              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 hover:text-white rounded-lg transition-colors"
+              title="Sign Out"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+              Sign Out
+            </button>
+            <button
+              onClick={onClose}
+              className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-surface-700 transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div className="overflow-y-auto flex-1">

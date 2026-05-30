@@ -18,6 +18,7 @@ import CardShows from './CardShows'
 import NotificationPanel from '../components/NotificationPanel'
 import { useAlerts } from '../context/AlertsContext'
 import { useCurrency } from '../context/CurrencyContext'
+import { useAuth } from '../context/AuthContext'
 
 
 const TABS = [
@@ -560,6 +561,7 @@ export default function Dashboard() {
   const [notifOpen, setNotifOpen] = useState(false)
   const notifBtnRef = useRef(null)
   const { activeAlerts, alertCount, readIds, dismissAlert, dismissAll, markAllRead } = useAlerts()
+  const { logout } = useAuth()
   const [selectedCards, setSelectedCards] = useState(new Set())
   const [showBulkBinderPicker, setShowBulkBinderPicker] = useState(false)
   const [soldCards, setSoldCards] = useState([])
@@ -870,6 +872,20 @@ export default function Dashboard() {
               <circle cx="12" cy="7" r="4" stroke="currentColor" strokeWidth={1.8} />
             </svg>
             My Account
+          </button>
+
+          {/* Sign Out */}
+          <button
+            onClick={logout}
+            className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 hover:text-white text-sm font-medium rounded-lg transition-colors"
+            title="Sign Out"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            Sign Out
           </button>
 
           {/* Notifications */}
