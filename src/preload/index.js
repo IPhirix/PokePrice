@@ -52,6 +52,7 @@ contextBridge.exposeInMainWorld('api', {
   getLocale: () => ipcRenderer.invoke('app:locale'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (s) => ipcRenderer.invoke('settings:set', s),
+  sendTestEmail: () => ipcRenderer.invoke('email:test'),
   searchPriceCharting: (query) => ipcRenderer.invoke('ppt:search', query),
   searchPPT: (query) => ipcRenderer.invoke('ppt:search', query),
   getAllConditionPrices: (cardId) => ipcRenderer.invoke('prices:allConditions', cardId),

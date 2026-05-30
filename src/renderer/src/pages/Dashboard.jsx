@@ -10,6 +10,7 @@ import ShareModal from '../components/ShareModal'
 import WatchlistSummary from '../components/WatchlistSummary'
 import SearchPage, { CardDetailModal } from './SearchPage'
 import Settings from './Settings'
+import ErrorBoundary from '../components/ErrorBoundary'
 import AccountModal from '../components/AccountModal'
 import TradeAnalyzer from './TradeAnalyzer'
 import Pokedex from './Pokedex'
@@ -90,8 +91,7 @@ const ALL_COLUMNS = [
   { key: 'currentPrice',    label: 'Current Price' },
   { key: 'plDollar',        label: 'P&L ($)',           portfolioOnly: true },
   { key: 'plPct',           label: 'P&L (%)',           portfolioOnly: true },
-  { key: 'targetBuyPrice',  label: 'Buy Price Alert' },
-  { key: 'targetSellPrice', label: 'Sell Price Alert' },
+  { key: 'alertPrice', label: 'Price Alert' },
   { key: 'imageUrl',        label: 'Image URL',         defaultOff: true },
 ]
 
@@ -115,9 +115,11 @@ function applySort(cards, sortBy, setDateMap = new Map()) {
     if (sortBy === 'changeWeek') return (b.changeWeek ?? -Infinity) - (a.changeWeek ?? -Infinity)
     if (sortBy === 'changeMonth') return (b.changeMonth ?? -Infinity) - (a.changeMonth ?? -Infinity)
     if (sortBy === 'priceAlert') {
-      const hasAlert = (c) =>
-        (c.targetBuyPrice != null && c.currentPrice != null && c.currentPrice <= c.targetBuyPrice) ||
-        (c.targetSellPrice != null && c.currentPrice != null && c.currentPrice >= c.targetSellPrice)
+      const hasAlert = (c) => {
+        if (c.alertPrice == null || c.currentPrice == null) return false
+        const isUp = c.alertPct != null ? c.alertPct > 0 : c.alertPrice > c.currentPrice
+        return isUp ? c.currentPrice >= c.alertPrice : c.currentPrice <= c.alertPrice
+      }
       const aAlert = hasAlert(a), bAlert = hasAlert(b)
       if (aAlert && !bAlert) return -1
       if (!aAlert && bAlert) return 1
@@ -158,8 +160,7 @@ function buildExportRows(cards, enabledCols, section) {
       currentPrice: currentPrice != null ? currentPrice.toFixed(2) : null,
       plDollar: pl != null ? pl.toFixed(2) : null,
       plPct,
-      targetBuyPrice: card.targetBuyPrice != null ? card.targetBuyPrice.toFixed(2) : null,
-      targetSellPrice: card.targetSellPrice != null ? card.targetSellPrice.toFixed(2) : null,
+      alertPrice: card.alertPrice != null ? card.alertPrice.toFixed(2) : null,
       imageUrl: card.imageUrl || null,
     }
     rows.push(visibleCols.map((c) => vals[c.key] ?? ''))
@@ -769,10 +770,14 @@ export default function Dashboard() {
   const binderFiltered = binderFilter
     ? tabCards.filter((c) => (c.binder || c.folder) === binderFilter)
     : tabCards
-  const filteredCards = alertFilter === 'buy'
-    ? binderFiltered.filter((c) => c.targetBuyPrice != null && c.currentPrice != null && c.currentPrice <= c.targetBuyPrice)
-    : alertFilter === 'sell'
-    ? binderFiltered.filter((c) => c.targetSellPrice != null && c.currentPrice != null && c.currentPrice >= c.targetSellPrice)
+  const filteredCards = alertFilter === 'up'
+    ? binderFiltered.filter((c) => c.alertPrice != null && c.currentPrice != null &&
+        (c.alertPct != null ? c.alertPct > 0 : c.alertPrice > c.currentPrice) &&
+        c.currentPrice >= c.alertPrice)
+    : alertFilter === 'down'
+    ? binderFiltered.filter((c) => c.alertPrice != null && c.currentPrice != null &&
+        (c.alertPct != null ? c.alertPct <= 0 : c.alertPrice < c.currentPrice) &&
+        c.currentPrice <= c.alertPrice)
     : binderFiltered
   const sorted = applySort(filteredCards, sortBy, setDateMap)
 
@@ -1061,8 +1066,8 @@ export default function Dashboard() {
             className="w-36 bg-surface-700 border border-surface-500 rounded px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-accent"
           >
             <option value="">All Cards</option>
-            <option value="buy">Cards to Buy</option>
-            <option value="sell">Cards to Sell</option>
+            <option value="up">Price Up Alerts</option>
+            <option value="down">Price Down Alerts</option>
           </select>
           <span className="text-slate-500 text-sm whitespace-nowrap">Sort by</span>
           <select
@@ -1131,12 +1136,13 @@ export default function Dashboard() {
           {showSettings ? (
             <Settings onBack={() => setShowSettings(false)} onSortChange={(val) => setSortBy(val)} onCardDataChanged={loadCards} />
           ) : activeTab === 'search' ? (
-            <SearchPage
-              key={globalSearchQuery + '|' + globalArtistFilter}
-              initialQuery={globalSearchQuery}
-              initialArtist={globalArtistFilter}
-              onCardAdded={handleCardAdded}
-            />
+            <ErrorBoundary key={globalSearchQuery + '|' + globalArtistFilter}>
+              <SearchPage
+                initialQuery={globalSearchQuery}
+                initialArtist={globalArtistFilter}
+                onCardAdded={handleCardAdded}
+              />
+            </ErrorBoundary>
           ) : (
             <>
               {/* Collapsible section header for collection / watchlist */}

@@ -156,14 +156,15 @@ function TargetPriceField({ label, value, pctValue, cardId, fieldName, onSaved, 
     setPct(pctValue != null ? String(pctValue) : '')
   }, [value, pctValue])
 
-  const pctField = fieldName === 'targetBuyPrice' ? 'targetBuyPct' : 'targetSellPct'
-
   async function save() {
     const parsed = parseFloat(input)
     const newVal = !isNaN(parsed) && parsed > 0 ? Math.round(parsed * 100) / 100 : null
     if (newVal === (value ?? null)) return
-    setPct('')
-    await window.api.updateCard(cardId, { [fieldName]: newVal, [pctField]: null })
+    const newPct = newVal != null && currentPrice != null
+      ? Math.round((newVal - currentPrice) / currentPrice * 1000) / 10
+      : null
+    setPct(newPct != null ? String(newPct) : '')
+    await window.api.updateCard(cardId, { alertPrice: newVal, alertPct: newPct })
     onSaved()
   }
 
@@ -172,15 +173,19 @@ function TargetPriceField({ label, value, pctValue, cardId, fieldName, onSaved, 
     setPct(val)
     if (val === '') {
       setInput('')
-      await window.api.updateCard(cardId, { [fieldName]: null, [pctField]: null })
+      await window.api.updateCard(cardId, { alertPrice: null, alertPct: null })
       onSaved()
     } else {
       const p = parseFloat(val)
-      if (!isNaN(p) && currentPrice != null) {
-        const calculated = Math.round(currentPrice * (1 + p / 100) * 100) / 100
-        setInput(String(calculated))
-        skipResetRef.current = true
-        await window.api.updateCard(cardId, { [fieldName]: calculated, [pctField]: p })
+      if (!isNaN(p)) {
+        if (currentPrice != null) {
+          const calculated = Math.round(currentPrice * (1 + p / 100) * 100) / 100
+          setInput(String(calculated))
+          skipResetRef.current = true
+          await window.api.updateCard(cardId, { alertPrice: calculated, alertPct: p })
+        } else {
+          await window.api.updateCard(cardId, { alertPrice: null, alertPct: p })
+        }
         onSaved()
       }
     }
@@ -188,20 +193,18 @@ function TargetPriceField({ label, value, pctValue, cardId, fieldName, onSaved, 
 
   return (
     <div>
-      <p className={`text-sm font-medium mb-1 ${fieldName === 'targetBuyPrice' ? 'text-emerald-500' : 'text-red-400'}`}>{label}</p>
+      <p className="text-sm font-medium mb-1 text-accent">{label}</p>
       <div className="flex items-center gap-1.5">
-        {currentPrice != null && (
-          <select
-            value={pct}
-            onChange={handlePctChange}
-            className="flex-shrink-0 w-16 text-xs bg-surface-600 border border-surface-500 rounded px-1 py-1.5 text-slate-400 focus:outline-none focus:border-accent"
-          >
-            <option value="">%</option>
-            {PCT_OPTIONS.map((p) => (
-              <option key={p} value={p}>{p > 0 ? `+${p}%` : `${p}%`}</option>
-            ))}
-          </select>
-        )}
+        <select
+          value={pct}
+          onChange={handlePctChange}
+          className="flex-shrink-0 w-16 text-xs bg-surface-600 border border-surface-500 rounded px-1 py-1.5 text-slate-400 focus:outline-none focus:border-accent"
+        >
+          <option value="">%</option>
+          {PCT_OPTIONS.map((p) => (
+            <option key={p} value={p}>{p > 0 ? `+${p}%` : `${p}%`}</option>
+          ))}
+        </select>
         <div className="relative flex-1">
         <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
         <input
@@ -218,6 +221,173 @@ function TargetPriceField({ label, value, pctValue, cardId, fieldName, onSaved, 
         />
         </div>
       </div>
+    </div>
+  )
+}
+
+function InlineBinderPicker({ card, onSaved, onBinderFilter }) {
+  const [open, setOpen] = useState(false)
+  const [binders, setBinders] = useState([])
+  const [showNew, setShowNew] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [dupError, setDupError] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    if (!open) return
+    const section = card.section || 'watchlist'
+    window.api.listBinders(section).then(setBinders).catch(() => {})
+  }, [open, card.section])
+
+  useEffect(() => {
+    if (!open) return
+    function handleClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) {
+        setOpen(false)
+        setShowNew(false)
+        setNewName('')
+        setDupError(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [open])
+
+  async function assignBinder(name) {
+    setSaving(true)
+    await window.api.updateCard(card.id, { binder: name || null })
+    onSaved()
+    setOpen(false)
+    setShowNew(false)
+    setNewName('')
+    setSaving(false)
+  }
+
+  async function createAndAssign() {
+    const name = newName.trim()
+    if (!name) return
+    if (binders.some((b) => b.toLowerCase() === name.toLowerCase())) { setDupError(true); return }
+    setSaving(true)
+    setDupError(false)
+    await window.api.addBinder(card.section || 'watchlist', name)
+    await assignBinder(name)
+  }
+
+  const hasBinder = !!(card.binder || card.folder)
+
+  return (
+    <div className="relative" ref={ref}>
+      {hasBinder ? (
+        <div className="inline-flex items-center gap-0 rounded-full bg-surface-700 border border-surface-600 overflow-hidden text-xs text-slate-400">
+          <button
+            onClick={(e) => { e.stopPropagation(); setOpen((v) => !v) }}
+            className="flex items-center pl-2 pr-1 py-0.5 hover:bg-surface-600 hover:text-white transition-colors"
+            title="Change binder"
+          >
+            <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <rect x="2" y="4" width="20" height="16" rx="2" />
+              <path d="M2 9h20" />
+              <path d="M7 4v5" />
+            </svg>
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); onBinderFilter?.(card.binder || card.folder) }}
+            className="pr-2 py-0.5 hover:bg-surface-600 hover:text-white transition-colors"
+            title={`Filter by "${card.binder || card.folder}"`}
+          >
+            {card.binder || card.folder}
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={(e) => { e.stopPropagation(); setOpen((v) => !v) }}
+          className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-dashed border-surface-500 text-slate-600 hover:text-slate-400 hover:border-surface-400 transition-colors"
+          title="Add to binder"
+        >
+          <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+          </svg>
+          Add to binder
+        </button>
+      )}
+
+      {open && (
+        <div
+          className="absolute left-0 top-full mt-1 bg-surface-800 border border-surface-600 rounded-xl shadow-2xl z-50 min-w-[180px] py-1 overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {!showNew ? (
+            <>
+              {hasBinder && (
+                <button
+                  onClick={() => assignBinder('')}
+                  disabled={saving}
+                  className="w-full text-left px-4 py-2 text-xs text-slate-500 hover:bg-surface-700 hover:text-white transition-colors"
+                >
+                  Remove from binder
+                </button>
+              )}
+              {binders.length > 0 && (
+                <div className={hasBinder ? 'border-t border-surface-700 mt-1 pt-1' : ''}>
+                  {binders.map((b) => (
+                    <button
+                      key={b}
+                      onClick={() => assignBinder(b)}
+                      disabled={saving || b === (card.binder || card.folder)}
+                      className={`w-full text-left px-4 py-2 text-sm transition-colors ${
+                        b === (card.binder || card.folder)
+                          ? 'text-accent cursor-default'
+                          : 'text-slate-300 hover:bg-surface-700 hover:text-white disabled:opacity-50'
+                      }`}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="border-t border-surface-700 mt-1 pt-1">
+                <button
+                  onClick={() => setShowNew(true)}
+                  className="w-full text-left px-4 py-2 text-sm text-slate-400 hover:bg-surface-700 hover:text-white transition-colors"
+                >
+                  + New binder…
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="px-3 py-2 space-y-1.5">
+              <input
+                autoFocus
+                value={newName}
+                onChange={(e) => { setNewName(e.target.value); setDupError(false) }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') createAndAssign()
+                  if (e.key === 'Escape') { setShowNew(false); setNewName(''); setDupError(false) }
+                }}
+                placeholder="Binder name…"
+                className={`w-full bg-surface-700 border rounded px-2.5 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none ${dupError ? 'border-red-500' : 'border-surface-500 focus:border-accent'}`}
+              />
+              {dupError && <p className="text-red-400 text-xs">Already exists</p>}
+              <div className="flex gap-1.5">
+                <button
+                  onClick={createAndAssign}
+                  disabled={!newName.trim() || saving}
+                  className="flex-1 bg-accent disabled:opacity-50 text-black text-xs font-bold py-1.5 rounded transition-colors"
+                >
+                  {saving ? '…' : 'Create'}
+                </button>
+                <button
+                  onClick={() => { setShowNew(false); setNewName(''); setDupError(false) }}
+                  className="px-2 text-slate-500 hover:text-white text-sm"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -351,8 +521,71 @@ function TradeSearch({ onAdd, onCancel }) {
     setSelected(null)
     setPptProduct(null)
     try {
-      const cards = await window.api.searchCardsAdvanced(`name:"${q}*"`)
-      setResults(cards)
+      // "Charizard #4" — explicit card number with hash
+      const hashMatch = q.match(/^(.*?)\s*#(\w+)\s*$/)
+      if (hashMatch) {
+        const name = hashMatch[1].trim()
+        const rawNum = hashMatch[2]
+        const targetNum = parseInt(rawNum, 10)
+        const isNumeric = !isNaN(targetNum)
+        if (name) {
+          const allCards = await window.api.searchCardsAdvanced(`name:"${name}*"`).catch(() => [])
+          const matched = []; const rest = []
+          for (const c of allCards) {
+            const cn = String(c.number || '')
+            const hits = isNumeric ? parseInt(cn, 10) === targetNum : cn.toUpperCase() === rawNum.toUpperCase()
+            if (hits) matched.push(c); else rest.push(c)
+          }
+          setResults(matched.length > 0 && rest.length > 0
+            ? [...matched, { _divider: true, id: '__divider__' }, ...rest]
+            : [...matched, ...rest])
+        } else {
+          const numVariants = isNumeric
+            ? [...new Set([rawNum, String(targetNum), String(targetNum).padStart(3, '0')])]
+            : [rawNum]
+          const batches = await Promise.all(numVariants.map((v) =>
+            window.api.searchCardsAdvanced(`number:"${v}"`).catch(() => [])
+          ))
+          const seen = new Set(); const merged = []
+          for (const batch of batches) for (const c of batch) if (!seen.has(c.id)) { seen.add(c.id); merged.push(c) }
+          setResults(merged)
+        }
+        return
+      }
+      // "Charizard 4" — trailing number may be card number
+      const trailingMatch = q.match(/^(.+?)\s+(\d+)\s*$/)
+      if (trailingMatch) {
+        const name = trailingMatch[1].trim()
+        const rawNum = trailingMatch[2]
+        const targetNum = parseInt(rawNum, 10)
+        const [allCards, setCards] = await Promise.all([
+          window.api.searchCardsAdvanced(`name:"${name}*"`).catch(() => []),
+          window.api.searchCardsAdvanced(`name:"${name}*" set.name:"${rawNum}"`).catch(() => [])
+        ])
+        const seen = new Set(); const matched = []; const rest = []
+        for (const c of allCards) if (parseInt(String(c.number || ''), 10) === targetNum && !seen.has(c.id)) { seen.add(c.id); matched.push(c) }
+        for (const c of setCards) if (!seen.has(c.id)) { seen.add(c.id); rest.push(c) }
+        for (const c of allCards) if (!seen.has(c.id)) { seen.add(c.id); rest.push(c) }
+        setResults(matched.length > 0 && rest.length > 0
+          ? [...matched, { _divider: true, id: '__divider__' }, ...rest]
+          : [...matched, ...rest])
+        return
+      }
+      // Plain text — search by name, set name, and word-split name+set combos in parallel
+      const words = q.split(/\s+/)
+      const allSearches = [
+        window.api.searchCardsAdvanced(`name:"${q}*"`).catch(() => []),
+        window.api.searchCardsAdvanced(`set.name:"${q}"`).catch(() => []),
+      ]
+      for (let i = 1; i < words.length; i++) {
+        const namePart = words.slice(0, i).join(' ')
+        const setPart = words.slice(i).join(' ')
+        allSearches.push(window.api.searchCardsAdvanced(`name:"${namePart}*" set.name:"${setPart}"`).catch(() => []))
+      }
+      const allBatches = await Promise.all(allSearches)
+      const seen = new Set(); const merged = []
+      for (const batch of allBatches) for (const card of batch) if (!seen.has(card.id)) { seen.add(card.id); merged.push(card) }
+      setResults(merged)
     } catch {
       setResults([])
     } finally {
@@ -433,26 +666,37 @@ function TradeSearch({ onAdd, onCancel }) {
               <p className="text-sm">Search to find a card</p>
             </div>
           )}
-          {results.slice(0, 40).map((card) => (
-            <button
-              key={card.id}
-              onClick={() => selectCard(card)}
-              className="w-full flex items-center gap-4 px-4 py-3 hover:bg-surface-700 text-left border-b border-surface-700 last:border-0 transition-colors"
-            >
-              {card.images?.small ? (
-                <img src={card.images.small} alt={card.name} className="w-14 h-[77px] object-contain rounded flex-shrink-0" />
-              ) : (
-                <div className="w-14 h-[77px] bg-surface-700 rounded flex-shrink-0" />
-              )}
-              <div className="flex-1 min-w-0">
-                <p className="text-white text-base font-semibold truncate">
-                  {card.name}{card.number ? <span className="text-slate-400 font-normal"> #{card.number}</span> : ''}
-                </p>
-                <p className="text-slate-400 text-sm mt-0.5">{[card.set?.series, card.set?.name].filter(Boolean).join(' - ')}</p>
-                {card.rarity && <p className="text-slate-500 text-sm mt-0.5">{card.rarity}</p>}
-              </div>
-            </button>
-          ))}
+          {results.slice(0, 40).map((card) => {
+            if (card._divider) {
+              return (
+                <div key="__divider__" className="flex items-center gap-3 px-4 py-2 select-none">
+                  <div className="flex-1 h-px bg-surface-600" />
+                  <span className="text-xs text-slate-500 font-medium">Similar Items</span>
+                  <div className="flex-1 h-px bg-surface-600" />
+                </div>
+              )
+            }
+            return (
+              <button
+                key={card.id}
+                onClick={() => selectCard(card)}
+                className="w-full flex items-center gap-4 px-4 py-3 hover:bg-surface-700 text-left border-b border-surface-700 last:border-0 transition-colors"
+              >
+                {card.images?.small ? (
+                  <img src={card.images.small} alt={card.name} className="w-14 h-[77px] object-contain rounded flex-shrink-0" />
+                ) : (
+                  <div className="w-14 h-[77px] bg-surface-700 rounded flex-shrink-0" />
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-base font-semibold truncate">
+                    {card.name}{card.number ? <span className="text-slate-400 font-normal"> #{card.number}</span> : ''}
+                  </p>
+                  <p className="text-slate-400 text-sm mt-0.5">{[card.set?.series, card.set?.name].filter(Boolean).join(' - ')}</p>
+                  {card.rarity && <p className="text-slate-500 text-sm mt-0.5">{card.rarity}</p>}
+                </div>
+              </button>
+            )
+          })}
         </div>
       ) : (
         <div>
@@ -859,9 +1103,13 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
 
   function toggleDollarChanges(e) { e.stopPropagation(); onToggleDollarChanges?.() }
 
-  const isBuyAlert = card.targetBuyPrice != null && marketPrice != null && marketPrice <= card.targetBuyPrice
-  const isSellAlert = card.targetSellPrice != null && marketPrice != null && marketPrice >= card.targetSellPrice
-  const isAlerted = isBuyAlert || isSellAlert
+  const isUpAlert = card.alertPrice != null && marketPrice != null &&
+    (card.alertPct != null ? card.alertPct > 0 : card.alertPrice > marketPrice) &&
+    marketPrice >= card.alertPrice
+  const isDownAlert = card.alertPrice != null && marketPrice != null &&
+    (card.alertPct != null ? card.alertPct <= 0 : card.alertPrice < marketPrice) &&
+    marketPrice <= card.alertPrice
+  const isAlerted = isUpAlert || isDownAlert
 
   return (
     <div
@@ -884,7 +1132,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
       )}
       {/* Card image */}
       <div className={`w-24 h-36 flex-shrink-0 flex items-center justify-center bg-surface-900 rounded-xl overflow-hidden border-2 ${
-        isSellAlert ? 'border-red-400' : isBuyAlert ? 'border-emerald-400' : 'border-transparent'
+        isDownAlert ? 'border-red-400' : isUpAlert ? 'border-emerald-400' : 'border-transparent'
       }`}>
         {card.imageUrl ? (
           <img src={card.imageUrl} alt={card.name}
@@ -914,20 +1162,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
         })()}
         <InlineDatePicker cardId={card.id} current={card.addedDate} onSaved={onRefresh} />
         <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-          {(card.binder || card.folder) && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onBinderFilter?.(card.binder || card.folder) }}
-              className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full bg-surface-700 hover:bg-surface-600 text-slate-400 hover:text-white border border-surface-600 hover:border-surface-500 transition-colors"
-              title={`Filter by binder "${card.binder || card.folder}"`}
-            >
-              <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                <rect x="2" y="4" width="20" height="16" rx="2" />
-                <path d="M2 9h20" />
-                <path d="M7 4v5" />
-              </svg>
-              {card.binder || card.folder}
-            </button>
-          )}
+          <InlineBinderPicker card={card} onSaved={onRefresh} onBinderFilter={onBinderFilter} />
           <button
             onClick={(e) => { e.stopPropagation(); setNotesOpen(true) }}
             className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border transition-colors ${
@@ -967,8 +1202,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
         <Divider />
 
         <div className="w-36 flex-shrink-0 space-y-2" onClick={(e) => e.stopPropagation()}>
-          <TargetPriceField label="Buy Price Alert" value={card.targetBuyPrice} pctValue={card.targetBuyPct} cardId={card.id} fieldName="targetBuyPrice" onSaved={onRefresh} currentPrice={marketPrice} />
-          <TargetPriceField label="Sell Price Alert" value={card.targetSellPrice} pctValue={card.targetSellPct} cardId={card.id} fieldName="targetSellPrice" onSaved={onRefresh} currentPrice={marketPrice} />
+          <TargetPriceField label="Price Alert" value={card.alertPrice} pctValue={card.alertPct} cardId={card.id} onSaved={onRefresh} currentPrice={marketPrice} />
         </div>
 
         <Divider />
@@ -1034,14 +1268,14 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
         >
           {isAlerted && (
             <div className="absolute top-0 flex flex-col items-center gap-0.5 pt-1">
-              {isBuyAlert && (
+              {isUpAlert && (
                 <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-400/15 border border-emerald-400/50 text-emerald-300 tracking-wide whitespace-nowrap">
-                  BUY
+                  ↑ PRICE ALERT
                 </span>
               )}
-              {isSellAlert && (
+              {isDownAlert && (
                 <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-400/15 border border-red-400/50 text-red-300 tracking-wide whitespace-nowrap">
-                  SELL
+                  ↓ PRICE ALERT
                 </span>
               )}
             </div>

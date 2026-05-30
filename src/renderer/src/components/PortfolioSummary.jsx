@@ -261,8 +261,8 @@ function Widget({ label, chart, gradId, color, chartType = 'area', dataKey = 'va
 const EMPTY_DATA = {
   totalValue: 0, totalDayChange: 0, totalInvested: null,
   totalProfit: null, totalROI: null, portfolioCount: 0,
-  cardsWithPrice: 0, cardsWithCost: 0, buyAlertCount: 0,
-  sellAlertCount: 0, valueHistory: [], investedHistory: [], cardDataCounts: [],
+  cardsWithPrice: 0, cardsWithCost: 0, upAlertCount: 0,
+  downAlertCount: 0, valueHistory: [], investedHistory: [], cardDataCounts: [],
 }
 
 export default function PortfolioSummary({ refreshKey, binderFilter, hideValues, alertFilter, onAlertFilter }) {
@@ -357,25 +357,25 @@ export default function PortfolioSummary({ refreshKey, binderFilter, hideValues,
             </div>
             <div className="w-px self-stretch bg-surface-600 rounded-full mx-1 flex-shrink-0" />
             <button
-              onClick={() => onAlertFilter?.('buy')}
-              disabled={!data.buyAlertCount}
-              className={`flex-1 flex flex-col items-center rounded-lg py-1 transition-colors ${data.buyAlertCount > 0 ? 'cursor-pointer hover:bg-emerald-900/20' : 'cursor-default'} ${alertFilter === 'buy' ? 'ring-1 ring-emerald-500/50 bg-emerald-900/20' : ''}`}
+              onClick={() => onAlertFilter?.('up')}
+              disabled={!data.upAlertCount}
+              className={`flex-1 flex flex-col items-center rounded-lg py-1 transition-colors ${data.upAlertCount > 0 ? 'cursor-pointer hover:bg-emerald-900/20' : 'cursor-default'} ${alertFilter === 'up' ? 'ring-1 ring-emerald-500/50 bg-emerald-900/20' : ''}`}
             >
-              <p className={`text-2xl font-bold leading-tight ${data.buyAlertCount > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
-                {data.buyAlertCount ?? 0}
+              <p className={`text-2xl font-bold leading-tight ${data.upAlertCount > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                {data.upAlertCount ?? 0}
               </p>
-              <p className="text-slate-500 text-xs mt-0.5 text-center">Cards to Buy</p>
+              <p className="text-slate-500 text-xs mt-0.5 text-center">↑ Alerts</p>
             </button>
             <div className="w-px self-stretch bg-surface-600 rounded-full mx-1 flex-shrink-0" />
             <button
-              onClick={() => onAlertFilter?.('sell')}
-              disabled={!data.sellAlertCount}
-              className={`flex-1 flex flex-col items-center rounded-lg py-1 transition-colors ${data.sellAlertCount > 0 ? 'cursor-pointer hover:bg-red-900/20' : 'cursor-default'} ${alertFilter === 'sell' ? 'ring-1 ring-red-500/50 bg-red-900/20' : ''}`}
+              onClick={() => onAlertFilter?.('down')}
+              disabled={!data.downAlertCount}
+              className={`flex-1 flex flex-col items-center rounded-lg py-1 transition-colors ${data.downAlertCount > 0 ? 'cursor-pointer hover:bg-red-900/20' : 'cursor-default'} ${alertFilter === 'down' ? 'ring-1 ring-red-500/50 bg-red-900/20' : ''}`}
             >
-              <p className={`text-2xl font-bold leading-tight ${data.sellAlertCount > 0 ? 'text-red-400' : 'text-slate-500'}`}>
-                {data.sellAlertCount ?? 0}
+              <p className={`text-2xl font-bold leading-tight ${data.downAlertCount > 0 ? 'text-red-400' : 'text-slate-500'}`}>
+                {data.downAlertCount ?? 0}
               </p>
-              <p className="text-slate-500 text-xs mt-0.5 text-center">Cards to Sell</p>
+              <p className="text-slate-500 text-xs mt-0.5 text-center">↓ Alerts</p>
             </button>
           </div>
         </div>

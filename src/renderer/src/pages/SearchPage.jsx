@@ -339,8 +339,7 @@ export function AddModal({ card, section, onAdd, onClose }) {
   const [condition, setCondition] = useState('raw')
   const [binder, setBinder] = useState('')
   const [purchasePrice, setPurchasePrice] = useState('')
-  const [targetBuyPrice, setTargetBuyPrice] = useState('')
-  const [targetSellPrice, setTargetSellPrice] = useState('')
+  const [alertPrice, setAlertPrice] = useState('')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState(null)
   const binderRef = useRef(null)
@@ -363,23 +362,30 @@ export function AddModal({ card, section, onAdd, onClose }) {
         parsedPrice && parsedPrice > 0 ? parsedPrice : null,
         effectiveBinder
       )
-      const parsedBuy  = targetBuyPrice  !== '' ? parseFloat(targetBuyPrice)  : null
-      const parsedSell = targetSellPrice !== '' ? parseFloat(targetSellPrice) : null
+      const parsedAlert = alertPrice !== '' ? parseFloat(alertPrice) : null
       const targets = {}
-      if (parsedBuy  != null && parsedBuy  > 0) targets.targetBuyPrice  = Math.round(parsedBuy  * 100) / 100
-      if (parsedSell != null && parsedSell > 0) targets.targetSellPrice = Math.round(parsedSell * 100) / 100
+      if (parsedAlert != null && parsedAlert > 0) {
+        targets.alertPrice = Math.round(parsedAlert * 100) / 100
+      }
 
-      if (newCard?.id && (!targets.targetBuyPrice || !targets.targetSellPrice)) {
+      if (newCard?.id && !targets.alertPrice) {
         const settings = await window.api.getSettings()
         const history = await window.api.getPriceHistory(newCard.id)
         const latestPrice = history[history.length - 1]?.price
         if (latestPrice != null) {
-          if (!targets.targetBuyPrice && settings.defaultTargetBuyPct != null) {
-            targets.targetBuyPrice = Math.round(latestPrice * (1 + settings.defaultTargetBuyPct / 100) * 100) / 100
+          if (settings.defaultAlertUpPct != null) {
+            targets.alertPrice = Math.round(latestPrice * (1 + settings.defaultAlertUpPct / 100) * 100) / 100
+            targets.alertPct = settings.defaultAlertUpPct
+          } else if (settings.defaultAlertDownPct != null) {
+            targets.alertPrice = Math.round(latestPrice * (1 - settings.defaultAlertDownPct / 100) * 100) / 100
+            targets.alertPct = -settings.defaultAlertDownPct
           }
-          if (!targets.targetSellPrice && settings.defaultTargetSellPct != null) {
-            targets.targetSellPrice = Math.round(latestPrice * (1 + settings.defaultTargetSellPct / 100) * 100) / 100
-          }
+        }
+      } else if (targets.alertPrice && newCard?.id) {
+        const history = await window.api.getPriceHistory(newCard.id)
+        const latestPrice = history[history.length - 1]?.price
+        if (latestPrice != null) {
+          targets.alertPct = Math.round((targets.alertPrice - latestPrice) / latestPrice * 1000) / 10
         }
       }
 
@@ -471,30 +477,16 @@ export function AddModal({ card, section, onAdd, onClose }) {
                 </div>
               )}
 
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-emerald-500 text-sm mb-1.5 block font-medium">Buy Price Alert (optional)</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
-                    <input
-                      type="number" min="0.01" step="0.01" value={targetBuyPrice}
-                      onChange={(e) => setTargetBuyPrice(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-7 pr-3 py-2.5 text-base text-white focus:outline-none focus:border-accent"
-                    />
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <label className="text-red-400 text-sm mb-1.5 block font-medium">Sell Price Alert (optional)</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
-                    <input
-                      type="number" min="0.01" step="0.01" value={targetSellPrice}
-                      onChange={(e) => setTargetSellPrice(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-7 pr-3 py-2.5 text-base text-white focus:outline-none focus:border-accent"
-                    />
-                  </div>
+              <div>
+                <label className="text-accent text-sm mb-1.5 block font-medium">Price Alert (optional)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
+                  <input
+                    type="number" min="0.01" step="0.01" value={alertPrice}
+                    onChange={(e) => setAlertPrice(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-7 pr-3 py-2.5 text-base text-white focus:outline-none focus:border-accent"
+                  />
                 </div>
               </div>
 
@@ -521,8 +513,7 @@ export function AddModal({ card, section, onAdd, onClose }) {
 function SealedAddModal({ product, section, onAdd, onClose }) {
   const [binder, setBinder] = useState('')
   const [purchasePrice, setPurchasePrice] = useState('')
-  const [targetBuyPrice, setTargetBuyPrice] = useState('')
-  const [targetSellPrice, setTargetSellPrice] = useState('')
+  const [alertPrice, setAlertPrice] = useState('')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState(null)
   const binderRef = useRef(null)
@@ -542,11 +533,16 @@ function SealedAddModal({ product, section, onAdd, onClose }) {
         parsedPrice && parsedPrice > 0 ? parsedPrice : null,
         effectiveBinder
       )
-      const parsedBuy  = targetBuyPrice  !== '' ? parseFloat(targetBuyPrice)  : null
-      const parsedSell = targetSellPrice !== '' ? parseFloat(targetSellPrice) : null
+      const parsedAlert = alertPrice !== '' ? parseFloat(alertPrice) : null
       const targets = {}
-      if (parsedBuy  != null && parsedBuy  > 0) targets.targetBuyPrice  = Math.round(parsedBuy  * 100) / 100
-      if (parsedSell != null && parsedSell > 0) targets.targetSellPrice = Math.round(parsedSell * 100) / 100
+      if (parsedAlert != null && parsedAlert > 0) {
+        targets.alertPrice = Math.round(parsedAlert * 100) / 100
+        const history = await window.api.getPriceHistory(newItem.id)
+        const latestPrice = history[history.length - 1]?.price
+        if (latestPrice != null) {
+          targets.alertPct = Math.round((targets.alertPrice - latestPrice) / latestPrice * 1000) / 10
+        }
+      }
       if (Object.keys(targets).length > 0 && newItem?.id) {
         await window.api.updateCard(newItem.id, targets)
       }
@@ -612,30 +608,16 @@ function SealedAddModal({ product, section, onAdd, onClose }) {
                 </div>
               )}
 
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <label className="text-emerald-500 text-sm mb-1.5 block font-medium">Buy Price Alert (optional)</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
-                    <input
-                      type="number" min="0.01" step="0.01" value={targetBuyPrice}
-                      onChange={(e) => setTargetBuyPrice(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-7 pr-3 py-2.5 text-base text-white focus:outline-none focus:border-accent"
-                    />
-                  </div>
-                </div>
-                <div className="flex-1">
-                  <label className="text-red-400 text-sm mb-1.5 block font-medium">Sell Price Alert (optional)</label>
-                  <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
-                    <input
-                      type="number" min="0.01" step="0.01" value={targetSellPrice}
-                      onChange={(e) => setTargetSellPrice(e.target.value)}
-                      placeholder="0.00"
-                      className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-7 pr-3 py-2.5 text-base text-white focus:outline-none focus:border-accent"
-                    />
-                  </div>
+              <div>
+                <label className="text-accent text-sm mb-1.5 block font-medium">Price Alert (optional)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base pointer-events-none">$</span>
+                  <input
+                    type="number" min="0.01" step="0.01" value={alertPrice}
+                    onChange={(e) => setAlertPrice(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-7 pr-3 py-2.5 text-base text-white focus:outline-none focus:border-accent"
+                  />
                 </div>
               </div>
 
@@ -715,6 +697,11 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
   const [cardDetails, setCardDetails] = useState({})
   const [viewMode, setViewMode] = useState('grid')
   const [searchBinderPage, setSearchBinderPage] = useState(0)
+  const [browsedBinderPage, setBrowsedBinderPage] = useState(0)
+  const [binderCardOrder, setBinderCardOrder] = useState(null)
+  const [dragOverIdx, setDragOverIdx] = useState(null)
+  const [confirmDeleteBinder, setConfirmDeleteBinder] = useState(false)
+  const dragSrcRef = useRef(null)
   const setDropdownRef = useRef(null)
   const nameRef = useRef(null)
 
@@ -814,6 +801,16 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     function handlePopState() { setBrowsedBinder(null) }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
+  }, [browsedBinder])
+
+  useEffect(() => {
+    if (!browsedBinder) { setBinderCardOrder(null); setBrowsedBinderPage(0); setConfirmDeleteBinder(false); return }
+    try {
+      const key = `pokeprice-binder-order-${browsedBinder.section}-${encodeURIComponent(browsedBinder.name)}`
+      const saved = JSON.parse(localStorage.getItem(key) || 'null')
+      setBinderCardOrder(saved)
+    } catch { setBinderCardOrder(null) }
+    setBrowsedBinderPage(0)
   }, [browsedBinder])
 
   // Background-fetch full card details (list endpoint omits rarity, artist, series, variants)
@@ -1053,6 +1050,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     const stats = {}
     ownedCards.forEach((c) => {
       if (!c.setName) return
+      if (c.section !== 'collection') return
       if (!stats[c.setName]) stats[c.setName] = { count: 0, value: 0 }
       stats[c.setName].count++
       stats[c.setName].value += c.currentPrice ?? 0
@@ -1121,14 +1119,37 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     const entries = []
     portfolioBinders.forEach((name) => {
       const cards = ownedCards.filter((c) => (c.binder || c.folder) === name && c.section === 'collection')
-      entries.push({ name, section: 'collection', count: cards.length, value: cards.reduce((s, c) => s + (c.currentPrice ?? 0), 0) })
+      const coverImages = cards.map((c) => c.imageUrl).filter(Boolean).slice(0, 4)
+      entries.push({ name, section: 'collection', count: cards.length, value: cards.reduce((s, c) => s + (c.currentPrice ?? 0), 0), coverImages })
     })
     watchlistBinders.forEach((name) => {
       const cards = ownedCards.filter((c) => (c.binder || c.folder) === name && (!c.section || c.section === 'watchlist'))
-      entries.push({ name, section: 'watchlist', count: cards.length, value: cards.reduce((s, c) => s + (c.currentPrice ?? 0), 0) })
+      const coverImages = cards.map((c) => c.imageUrl).filter(Boolean).slice(0, 4)
+      entries.push({ name, section: 'watchlist', count: cards.length, value: cards.reduce((s, c) => s + (c.currentPrice ?? 0), 0), coverImages })
     })
     return entries.sort((a, b) => a.name.localeCompare(b.name) || a.section.localeCompare(b.section))
   }, [portfolioBinders, watchlistBinders, ownedCards])
+
+  const browsedBinderCards = useMemo(() => {
+    if (!browsedBinder) return []
+    return ownedCards
+      .filter((c) => {
+        if ((c.binder || c.folder) !== browsedBinder.name) return false
+        if (browsedBinder.section === 'collection') return c.section === 'collection'
+        return (!c.section || c.section === 'watchlist')
+      })
+      .map((c) => ({ id: c.tcgId, name: c.name, images: { small: c.imageUrl }, set: { name: c.setName }, number: c.number, rarity: c.rarity, _owned: c }))
+  }, [browsedBinder, ownedCards])
+
+  const orderedBinderCards = useMemo(() => {
+    if (!browsedBinder || !binderCardOrder) return browsedBinderCards
+    const posMap = new Map(binderCardOrder.map((id, idx) => [id, idx]))
+    return [...browsedBinderCards].sort((a, b) => {
+      const pa = posMap.has(a._owned?.id) ? posMap.get(a._owned.id) : Infinity
+      const pb = posMap.has(b._owned?.id) ? posMap.get(b._owned.id) : Infinity
+      return pa - pb
+    })
+  }, [browsedBinder, browsedBinderCards, binderCardOrder])
 
   const bindersFiltered = useMemo(() => {
     const q = binderSearch.trim().toLowerCase()
@@ -1144,17 +1165,6 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
         return a.name.localeCompare(b.name) || a.section.localeCompare(b.section)
       })
   }, [allBinders, binderSearch, binderSectionFilter, binderSortOrder])
-
-  const browsedBinderCards = useMemo(() => {
-    if (!browsedBinder) return []
-    return ownedCards
-      .filter((c) => {
-        if ((c.binder || c.folder) !== browsedBinder.name) return false
-        if (browsedBinder.section === 'collection') return c.section === 'collection'
-        return (!c.section || c.section === 'watchlist')
-      })
-      .map((c) => ({ id: c.tcgId, name: c.name, images: { small: c.imageUrl }, set: { name: c.setName }, number: c.number, rarity: c.rarity, _owned: c }))
-  }, [browsedBinder, ownedCards])
 
   const sortCompareFn = (a, b) => {
     if (sortOrder === 'name')         return a.name.localeCompare(b.name)
@@ -1734,32 +1744,61 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
               <p className="text-lg">No binders match "{binderSearch}"</p>
             </div>
           ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5">
               {bindersFiltered.map((binder) => (
                 <button
                   key={`${binder.section}:${binder.name}`}
                   onClick={() => setBrowsedBinder({ name: binder.name, section: binder.section })}
-                  className="bg-surface-800 border border-surface-600 hover:border-accent/50 hover:bg-surface-700 rounded-xl overflow-hidden text-left transition-all group"
+                  className="group relative rounded-2xl overflow-hidden bg-surface-800 border border-surface-700 hover:border-accent/60 transition-all shadow-lg hover:shadow-2xl hover:scale-[1.025] text-left"
                 >
-                  <div className="bg-surface-900 h-24 flex items-center justify-center p-4 relative">
-                    <svg className="w-10 h-10 text-slate-600 group-hover:text-slate-500 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
-                    </svg>
-                    <div className="absolute top-2 right-2">
+                  {/* Cover image area */}
+                  <div className="relative overflow-hidden" style={{ aspectRatio: '3/4' }}>
+                    {binder.coverImages.length === 0 ? (
+                      <div className="w-full h-full bg-surface-900 flex items-center justify-center">
+                        <svg className="w-16 h-16 text-slate-700" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.2} d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                        </svg>
+                      </div>
+                    ) : binder.coverImages.length === 1 ? (
+                      <img
+                        src={binder.coverImages[0]}
+                        alt={binder.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                        onError={(e) => (e.target.style.display = 'none')}
+                      />
+                    ) : (
+                      <div className={`grid h-full ${binder.coverImages.length === 2 ? 'grid-cols-2' : 'grid-cols-2 grid-rows-2'}`}>
+                        {binder.coverImages.slice(0, 4).map((img, idx) => (
+                          <div key={idx} className="overflow-hidden">
+                            <img
+                              src={img}
+                              alt=""
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                              onError={(e) => (e.target.style.display = 'none')}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Bottom gradient */}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/10 to-transparent pointer-events-none" />
+                    {/* Section badge */}
+                    <div className="absolute top-3 right-3">
                       {binder.section === 'collection'
-                        ? <span className="bg-accent/20 text-accent text-[10px] font-bold px-1.5 py-0.5 rounded-full">Collection</span>
-                        : <span className="bg-sky-500/20 text-sky-400 text-[10px] font-bold px-1.5 py-0.5 rounded-full">Watchlist</span>
+                        ? <span className="bg-accent text-black text-[11px] font-bold px-2.5 py-1 rounded-full shadow">Collection</span>
+                        : <span className="bg-sky-500 text-white text-[11px] font-bold px-2.5 py-1 rounded-full shadow">Watchlist</span>
                       }
                     </div>
+                    {/* Card count overlay — bottom left */}
+                    <div className="absolute bottom-3 left-3 right-3">
+                      <p className="text-white font-bold text-base leading-tight truncate drop-shadow-lg">{binder.name}</p>
+                      <p className="text-white/70 text-xs mt-0.5 drop-shadow">{binder.count} {binder.count === 1 ? 'card' : 'cards'}</p>
+                    </div>
                   </div>
-                  <div className="p-3">
-                    <p className="text-white text-sm font-semibold truncate mb-1.5">{binder.name}</p>
-                    <p className="text-slate-400 text-xs mb-0.5">
-                      Cards: <span className="text-white font-medium">{binder.count}</span>
-                    </p>
-                    <p className="text-slate-400 text-xs">
-                      Total Value: <span className="text-accent font-medium">{format(binder.value)}</span>
-                    </p>
+                  {/* Info row */}
+                  <div className="px-4 py-3 flex items-center justify-between gap-2">
+                    <p className="text-slate-400 text-xs truncate">Total value</p>
+                    <p className="text-accent font-bold text-sm flex-shrink-0">{format(binder.value)}</p>
                   </div>
                 </button>
               ))}
@@ -1772,7 +1811,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
       {mode === 'folders' && browsedBinder && (
         <div className="flex items-center gap-4 bg-surface-800 border border-surface-600 rounded-xl p-4 mb-5">
           <button
-            onClick={() => setBrowsedBinder(null)}
+            onClick={() => { setBrowsedBinder(null); setConfirmDeleteBinder(false) }}
             className="flex items-center gap-1.5 text-slate-400 hover:text-white text-sm transition-colors flex-shrink-0"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1793,6 +1832,43 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
             ? <span className="bg-accent/20 text-accent text-xs font-bold px-2 py-1 rounded-full flex-shrink-0">Collection</span>
             : <span className="bg-sky-500/20 text-sky-400 text-xs font-bold px-2 py-1 rounded-full flex-shrink-0">Watchlist</span>
           }
+          {confirmDeleteBinder ? (
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <span className="text-slate-300 text-xs">Delete binder?</span>
+              <button
+                onClick={async () => {
+                  await window.api.deleteBinder(browsedBinder.section, browsedBinder.name)
+                  const [col, watch] = await Promise.all([
+                    window.api.listBinders('collection'),
+                    window.api.listBinders('watchlist'),
+                  ])
+                  setPortfolioBinders(col)
+                  setWatchlistBinders(watch)
+                  setBrowsedBinder(null)
+                  setConfirmDeleteBinder(false)
+                }}
+                className="px-2.5 py-1 bg-red-700 hover:bg-red-600 text-white text-xs font-semibold rounded transition-colors"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setConfirmDeleteBinder(false)}
+                className="px-2.5 py-1 bg-surface-600 hover:bg-surface-500 text-slate-300 text-xs rounded transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDeleteBinder(true)}
+              className="flex-shrink-0 p-1.5 text-slate-600 hover:text-red-400 hover:bg-red-900/20 rounded-lg transition-colors"
+              title="Delete binder"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          )}
         </div>
       )}
 
@@ -2008,103 +2084,117 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
         </div>
       )}
 
-      {/* Binder browse card grid — standalone, no dependency on search state */}
-      {mode === 'folders' && browsedBinder && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
-          {browsedBinderCards.map((card) => {
-            // Use _owned directly when possible; fall back to tcgId search for cross-section entries
-            const collectionEntry = card._owned?.section === 'collection'
-              ? card._owned
-              : (card.id ? ownedCards.find((c) => c.tcgId === card.id && c.section === 'collection') : null)
-            const watchlistEntry = card._owned?.section !== 'collection'
-              ? card._owned
-              : (card.id ? ownedCards.find((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist')) : null)
-            const inPortfolio = !!collectionEntry
-            const inWatchlist = !!watchlistEntry
-            const price = cardPrice(card)
+      {/* Binder browse — binder page view with drag-to-reorder */}
+      {mode === 'folders' && browsedBinder && orderedBinderCards.length > 0 && (() => {
+        const SLOTS = 9
+        const pageCount = Math.ceil(orderedBinderCards.length / SLOTS)
+        const pageSlice = orderedBinderCards.slice(browsedBinderPage * SLOTS, (browsedBinderPage + 1) * SLOTS)
 
-            async function removeEntry(entry) {
-              if (!entry) return
-              await window.api.removeCard(entry.id)
-              onCardAdded()
-              loadOwnedCards()
-            }
+        function handleDragStart(e, absoluteIdx) {
+          dragSrcRef.current = absoluteIdx
+          e.dataTransfer.effectAllowed = 'move'
+        }
 
-            return (
-              <div key={card._owned?.id ?? card.id} className={`relative bg-surface-800 rounded-xl p-3 flex flex-col transition-colors ${inPortfolio || inWatchlist ? 'border-2 border-emerald-500/70 hover:border-emerald-400/80' : 'border border-surface-600 hover:border-surface-500'}`}>
-                {favNames.some((n) => { const cn = (card.name || '').toLowerCase(); const fn = (n || '').toLowerCase(); return fn && (cn === fn || cn.includes(fn)) }) && (
-                  <span className="absolute top-1.5 right-1.5 text-yellow-400 text-sm leading-none pointer-events-none z-10">★</span>
-                )}
-                <div
-                  className="flex justify-center h-36 items-center mb-2 cursor-pointer"
-                  onClick={() => openCardModal(card)}
-                >
-                  {card.images?.small ? (
-                    <img
-                      src={card.images.small} alt={card.name}
-                      className="max-h-full object-contain rounded hover:opacity-90 transition-opacity"
-                      onError={(e) => { e.target.style.display = 'none'; e.target.nextElementSibling.style.display = 'flex' }}
-                    />
-                  ) : null}
-                  <div style={{ display: card.images?.small ? 'none' : 'flex' }} className="flex-col items-center justify-center w-full h-full text-slate-600 gap-1">
-                    <svg width="28" height="36" viewBox="0 0 28 36" fill="none">
-                      <rect x="1" y="1" width="26" height="34" rx="3" stroke="currentColor" strokeWidth="1.5"/>
-                      <circle cx="14" cy="15" r="5" stroke="currentColor" strokeWidth="1.5"/>
-                      <path d="M5 28 Q14 22 23 28" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                    </svg>
-                    <span className="text-xs">No image</span>
-                  </div>
-                </div>
-                <p className="text-white text-sm font-semibold leading-tight mb-0.5 text-center truncate">
-                  {card.name}{card.number ? <span className="text-slate-400 font-normal"> #{card.number}</span> : ''}
-                </p>
-                <p className="text-slate-400 text-xs mb-0.5 text-center truncate">{[card.set?.series, card.set?.name].filter(Boolean).join(' - ')}</p>
-                {price != null && (
-                  <span className="self-start text-xs font-semibold px-1.5 py-0.5 rounded-full bg-surface-700 text-slate-300 mt-1">
-                    {format(price)} RAW
-                  </span>
-                )}
-                <div className="mt-auto flex gap-1.5 pt-2">
-                  {inPortfolio ? (
-                    <div className="flex-1 flex items-center justify-between bg-accent/10 border border-accent/30 rounded-lg px-2.5 py-1.5">
-                      <span className="text-accent text-xs font-bold">✓ Collection</span>
-                      <button
-                        onClick={() => removeEntry(collectionEntry)}
-                        className="text-accent/50 hover:text-red-400 transition-colors text-base leading-none ml-1 flex-shrink-0"
-                        title="Remove from Collection"
-                      >×</button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setAddModal({ card, section: 'collection' })}
-                      className="flex-1 bg-accent hover:bg-accent-hover text-black text-xs font-bold py-1.5 rounded-lg transition-colors"
+        function handleDragOver(e, absoluteIdx) {
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          setDragOverIdx(absoluteIdx)
+        }
+
+        function handleDrop(e, absoluteIdx) {
+          e.preventDefault()
+          const srcIdx = dragSrcRef.current
+          if (srcIdx == null || srcIdx === absoluteIdx) { setDragOverIdx(null); return }
+          const updated = [...orderedBinderCards]
+          const [moved] = updated.splice(srcIdx, 1)
+          updated.splice(absoluteIdx, 0, moved)
+          const orderIds = updated.map((c) => c._owned?.id).filter(Boolean)
+          setBinderCardOrder(orderIds)
+          const key = `pokeprice-binder-order-${browsedBinder.section}-${encodeURIComponent(browsedBinder.name)}`
+          localStorage.setItem(key, JSON.stringify(orderIds))
+          dragSrcRef.current = null
+          setDragOverIdx(null)
+        }
+
+        function handleDragEnd() {
+          dragSrcRef.current = null
+          setDragOverIdx(null)
+        }
+
+        return (
+          <div className="flex flex-col items-center gap-5">
+            <p className="text-slate-600 text-xs self-end">Drag cards to rearrange</p>
+            <div
+              className="bg-surface-900 rounded-2xl border border-surface-700 shadow-2xl p-3"
+              style={{ height: '62vh', aspectRatio: '5/7', maxWidth: '440px' }}
+            >
+              <div className="grid grid-cols-3 grid-rows-3 gap-2 h-full">
+                {Array.from({ length: SLOTS }).map((_, slotIdx) => {
+                  const absoluteIdx = browsedBinderPage * SLOTS + slotIdx
+                  const card = pageSlice[slotIdx]
+                  if (!card) {
+                    return (
+                      <div
+                        key={slotIdx}
+                        className={`rounded-lg border-2 border-dashed transition-colors ${dragOverIdx === absoluteIdx ? 'border-accent/70 bg-accent/5' : 'border-surface-700 bg-surface-800/30'}`}
+                        onDragOver={(e) => { e.preventDefault(); setDragOverIdx(absoluteIdx) }}
+                        onDrop={(e) => handleDrop(e, absoluteIdx)}
+                        onDragLeave={() => setDragOverIdx(null)}
+                      />
+                    )
+                  }
+                  const inPortfolio = ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
+                  const inWatchlist = ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
+                  return (
+                    <div
+                      key={card._owned?.id ?? card.id}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, absoluteIdx)}
+                      onDragOver={(e) => handleDragOver(e, absoluteIdx)}
+                      onDrop={(e) => handleDrop(e, absoluteIdx)}
+                      onDragEnd={handleDragEnd}
+                      onDragLeave={() => setDragOverIdx(null)}
+                      className={`rounded-lg overflow-hidden relative transition-all cursor-grab active:cursor-grabbing select-none bg-surface-800 ring-1 ${
+                        dragOverIdx === absoluteIdx && dragSrcRef.current !== absoluteIdx
+                          ? 'ring-accent scale-[1.04] z-10'
+                          : 'ring-surface-600 hover:ring-accent/50 hover:scale-[1.03] hover:z-10'
+                      }`}
+                      onClick={() => openCardModal(card)}
+                      style={{ opacity: dragSrcRef.current === absoluteIdx ? 0.4 : 1 }}
                     >
-                      + Collection
-                    </button>
-                  )}
-                  {inWatchlist ? (
-                    <div className="flex-1 flex items-center justify-between bg-sky-500/10 border border-sky-500/30 rounded-lg px-2.5 py-1.5">
-                      <span className="text-sky-400 text-xs font-bold">✓ Watchlist</span>
-                      <button
-                        onClick={() => removeEntry(watchlistEntry)}
-                        className="text-sky-400/50 hover:text-red-400 transition-colors text-base leading-none ml-1 flex-shrink-0"
-                        title="Remove from Watchlist"
-                      >×</button>
+                      {card.images?.small
+                        ? <img src={card.images.small} alt={card.name} className="w-full h-full object-cover" onError={(e) => (e.target.style.display = 'none')} />
+                        : <div className="w-full h-full bg-surface-700 flex items-center justify-center text-slate-600 text-[10px]">No img</div>
+                      }
+                      {(inPortfolio || inWatchlist) && (
+                        <div className="absolute top-1 right-1 flex flex-col gap-0.5 pointer-events-none">
+                          {inPortfolio && <span className="text-[7px] font-bold px-1 py-0.5 rounded bg-accent text-black leading-none">Coll.</span>}
+                          {inWatchlist && <span className="text-[7px] font-bold px-1 py-0.5 rounded bg-sky-500 text-white leading-none">Watch.</span>}
+                        </div>
+                      )}
                     </div>
-                  ) : (
-                    <button
-                      onClick={() => setAddModal({ card, section: 'watchlist' })}
-                      className="flex-1 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold py-1.5 rounded-lg transition-colors"
-                    >
-                      + Watchlist
-                    </button>
-                  )}
-                </div>
+                  )
+                })}
               </div>
-            )
-          })}
-        </div>
-      )}
+            </div>
+            {pageCount > 1 && (
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setBrowsedBinderPage((p) => Math.max(0, p - 1))}
+                  disabled={browsedBinderPage === 0}
+                  className="px-4 py-2 rounded-lg border border-surface-600 text-slate-400 hover:text-white hover:border-surface-500 disabled:opacity-30 transition-all text-sm"
+                >← Prev</button>
+                <span className="text-slate-500 text-sm">Page {browsedBinderPage + 1} of {pageCount}</span>
+                <button
+                  onClick={() => setBrowsedBinderPage((p) => Math.min(pageCount - 1, p + 1))}
+                  disabled={browsedBinderPage === pageCount - 1}
+                  className="px-4 py-2 rounded-lg border border-surface-600 text-slate-400 hover:text-white hover:border-surface-500 disabled:opacity-30 transition-all text-sm"
+                >Next →</button>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Cards mode + set browse: view toggle + results */}
       {!loading && baseResults.length > 0 && (mode === 'cards' || browsedSet) && (

@@ -114,11 +114,13 @@ export default function WatchlistSummary({ cards, onRefresh }) {
       .map(([name, { count, setId }]) => ({ name, value: count, setId }))
     const setTotal = setBreakdown.reduce((s, d) => s + d.value, 0)
 
-    // Cards at or under buy price alert
-    const alertCards = cards.filter(c =>
-      c.currentPrice != null && c.targetBuyPrice != null && c.currentPrice <= c.targetBuyPrice
-    )
-    const alertSet = cards.filter(c => c.targetBuyPrice != null).length
+    // Cards with triggered price alerts
+    const alertCards = cards.filter(c => {
+      if (c.alertPrice == null || c.currentPrice == null) return false
+      const isUp = c.alertPct != null ? c.alertPct > 0 : c.alertPrice > c.currentPrice
+      return isUp ? c.currentPrice >= c.alertPrice : c.currentPrice <= c.alertPrice
+    })
+    const alertSet = cards.filter(c => c.alertPrice != null).length
 
     return { itemsOverTime, rawCount, gradedCount, sealedCount, pokemonTop, setBreakdown, setTotal, alertCards, alertSet }
   }, [cards])
@@ -274,11 +276,11 @@ export default function WatchlistSummary({ cards, onRefresh }) {
           </div>
         </div>
 
-        {/* Tile 5 – At or Under Buy Price */}
+        {/* Tile 5 – Price Alerts Active */}
         <div className="bg-surface-800 border border-surface-600 rounded-xl p-2 flex flex-col">
-          <p className="text-slate-500 text-xs uppercase tracking-wider font-medium flex-shrink-0 leading-none">At or Under Buy Price</p>
+          <p className="text-slate-500 text-xs uppercase tracking-wider font-medium flex-shrink-0 leading-none">Price Alerts Active</p>
           {stats.alertCards.length > 0 ? (
-            <p className="text-lg font-bold text-emerald-400 mt-1 mb-1 flex-shrink-0 leading-none">
+            <p className="text-lg font-bold text-accent mt-1 mb-1 flex-shrink-0 leading-none">
               {stats.alertCards.length}
               <span className="text-slate-500 text-sm font-normal ml-1">triggered</span>
             </p>
@@ -286,7 +288,7 @@ export default function WatchlistSummary({ cards, onRefresh }) {
             <p className="text-slate-600 text-xs mt-1 flex-shrink-0">
               {stats.alertSet > 0
                 ? `${stats.alertSet} alert${stats.alertSet !== 1 ? 's' : ''} set · none triggered`
-                : 'No buy alerts set'}
+                : 'No price alerts set'}
             </p>
           )}
           {stats.alertCards.length > 0 && (
@@ -328,7 +330,7 @@ export default function WatchlistSummary({ cards, onRefresh }) {
                       </span>
                       <span className={`w-8 flex-shrink-0 text-[10px] text-right ${pctColor}`}>{pctText}</span>
                       <span className={`w-10 flex-shrink-0 text-[9px] text-right ${weekDollarColor}`}>{weekDollarText}</span>
-                      <span className="w-12 flex-shrink-0 text-emerald-400 text-[10px] font-semibold text-right">
+                      <span className="w-12 flex-shrink-0 text-accent text-[10px] font-semibold text-right">
                         {card.currentPrice != null ? format(card.currentPrice) : '—'}
                       </span>
                     </button>

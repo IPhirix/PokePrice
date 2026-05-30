@@ -31,8 +31,6 @@ export default function NotificationPanel({ isOpen, onClose, anchorRef, alerts =
 
   if (!isOpen) return null
 
-  const buyAlerts = alerts.filter((a) => a.type === 'buy')
-  const sellAlerts = alerts.filter((a) => a.type === 'sell')
   const hasAlerts = alerts.length > 0
 
   function handleCardClick(id) {
@@ -86,40 +84,20 @@ export default function NotificationPanel({ isOpen, onClose, anchorRef, alerts =
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
             </svg>
             <p className="text-slate-400 text-sm">No active price alerts</p>
-            <p className="text-slate-600 text-xs mt-1">Set buy or sell targets on cards to get notified here</p>
+            <p className="text-slate-600 text-xs mt-1">Set price alerts on cards to get notified here</p>
           </div>
         )}
 
-        {buyAlerts.length > 0 && (
+        {hasAlerts && (
           <section>
             <div className="px-4 py-1.5 bg-surface-900 border-b border-surface-600 sticky top-0">
-              <span className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
-                Buy Alerts · {buyAlerts.length}
+              <span className="text-xs font-bold text-accent uppercase tracking-wider">
+                Price Alerts · {alerts.length}
               </span>
             </div>
-            {buyAlerts.map((alert) => (
+            {alerts.map((alert) => (
               <AlertRow
-                key={`buy-${alert.id}`}
-                alert={alert}
-                format={format}
-                isRead={readIds?.has(`${alert.id}-${alert.type}`)}
-                onDismiss={() => onDismiss(alert.id, alert.type)}
-                onClick={() => handleCardClick(alert.id)}
-              />
-            ))}
-          </section>
-        )}
-
-        {sellAlerts.length > 0 && (
-          <section>
-            <div className="px-4 py-1.5 bg-surface-900 border-b border-surface-600 sticky top-0">
-              <span className="text-xs font-bold text-red-400 uppercase tracking-wider">
-                Sell Alerts · {sellAlerts.length}
-              </span>
-            </div>
-            {sellAlerts.map((alert) => (
-              <AlertRow
-                key={`sell-${alert.id}`}
+                key={`${alert.type}-${alert.id}`}
                 alert={alert}
                 format={format}
                 isRead={readIds?.has(`${alert.id}-${alert.type}`)}
@@ -141,7 +119,7 @@ function conditionLabel(condition) {
 
 function AlertRow({ alert, format, isRead, onDismiss, onClick }) {
   const { type, name, setName, number, condition, imageUrl, currentPrice, alertPrice, dollarDiff, pctDiff } = alert
-  const isBuy = type === 'buy'
+  const isUp = type === 'up'
 
   return (
     <div
@@ -166,9 +144,9 @@ function AlertRow({ alert, format, isRead, onDismiss, onClick }) {
           <p className="text-sm font-medium text-slate-200 truncate leading-tight">{name}</p>
           <div className="flex items-center gap-1.5 flex-shrink-0">
             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded leading-tight ${
-              isBuy ? 'bg-emerald-900/70 text-emerald-300' : 'bg-red-900/70 text-red-300'
+              isUp ? 'bg-emerald-900/70 text-emerald-300' : 'bg-red-900/70 text-red-300'
             }`}>
-              {isBuy ? 'BUY' : 'SELL'}
+              {isUp ? '↑ PRICE ALERT' : '↓ PRICE ALERT'}
             </span>
             <button
               onClick={(e) => { e.stopPropagation(); onDismiss() }}
@@ -194,12 +172,12 @@ function AlertRow({ alert, format, isRead, onDismiss, onClick }) {
             <path d="M5 12h14M12 5l7 7-7 7"/>
           </svg>
           <div>
-            <p className="text-[10px] text-slate-500 leading-tight">{isBuy ? 'Buy target' : 'Sell target'}</p>
-            <p className={`text-sm font-semibold ${isBuy ? 'text-emerald-400' : 'text-red-400'}`}>{format(alertPrice)}</p>
+            <p className="text-[10px] text-slate-500 leading-tight">Alert target</p>
+            <p className={`text-sm font-semibold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>{format(alertPrice)}</p>
           </div>
         </div>
-        <p className={`text-xs mt-1.5 font-medium ${isBuy ? 'text-emerald-400' : 'text-red-400'}`}>
-          {format(dollarDiff)} ({pctDiff.toFixed(1)}%) {isBuy ? 'under target' : 'above target'}
+        <p className={`text-xs mt-1.5 font-medium ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
+          {format(dollarDiff)} ({pctDiff.toFixed(1)}%) {isUp ? 'above target' : 'below target'}
         </p>
       </div>
     </div>

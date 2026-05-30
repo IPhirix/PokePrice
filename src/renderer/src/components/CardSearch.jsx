@@ -21,8 +21,7 @@ export default function CardSearch({ section, onAdd, onClose }) {
   const [condition, setCondition] = useState('raw')
   const [binder, setBinder] = useState('')
   const [purchasePrice, setPurchasePrice] = useState('')
-  const [targetBuyPrice, setTargetBuyPrice] = useState('')
-  const [targetSellPrice, setTargetSellPrice] = useState('')
+  const [alertPrice, setAlertPrice] = useState('')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState(null)
   const [displayCount, setDisplayCount] = useState(40)
@@ -148,10 +147,15 @@ export default function CardSearch({ section, onAdd, onClose }) {
         effectiveBinder
       )
       const targets = {}
-      const parsedBuy = targetBuyPrice !== '' ? parseFloat(targetBuyPrice) : null
-      const parsedSell = targetSellPrice !== '' ? parseFloat(targetSellPrice) : null
-      if (parsedBuy != null && parsedBuy > 0) targets.targetBuyPrice = Math.round(parsedBuy * 100) / 100
-      if (parsedSell != null && parsedSell > 0) targets.targetSellPrice = Math.round(parsedSell * 100) / 100
+      const parsedAlert = alertPrice !== '' ? parseFloat(alertPrice) : null
+      if (parsedAlert != null && parsedAlert > 0) {
+        targets.alertPrice = Math.round(parsedAlert * 100) / 100
+        const history = await window.api.getPriceHistory(newCard.id)
+        const latestPrice = history[history.length - 1]?.price
+        if (latestPrice != null) {
+          targets.alertPct = Math.round((targets.alertPrice - latestPrice) / latestPrice * 1000) / 10
+        }
+      }
       if (Object.keys(targets).length > 0 && newCard?.id) {
         await window.api.updateCard(newCard.id, targets)
       }
@@ -367,32 +371,17 @@ export default function CardSearch({ section, onAdd, onClose }) {
                     </div>
                   )}
                 </div>
-                <div className="flex gap-4 mb-4">
-                  <div className="flex-1">
-                    <label className="text-emerald-500 text-sm mb-1.5 block font-medium">Buy Price Alert (optional)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">$</span>
-                      <input
-                        type="number" min="0.01" step="0.01"
-                        value={targetBuyPrice}
-                        onChange={(e) => setTargetBuyPrice(e.target.value)}
-                        placeholder="0.00"
-                        className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-7 pr-3 py-2.5 text-base text-white focus:outline-none focus:border-accent"
-                      />
-                    </div>
-                  </div>
-                  <div className="flex-1">
-                    <label className="text-red-400 text-sm mb-1.5 block font-medium">Sell Price Alert (optional)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">$</span>
-                      <input
-                        type="number" min="0.01" step="0.01"
-                        value={targetSellPrice}
-                        onChange={(e) => setTargetSellPrice(e.target.value)}
-                        placeholder="0.00"
-                        className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-7 pr-3 py-2.5 text-base text-white focus:outline-none focus:border-accent"
-                      />
-                    </div>
+                <div className="mb-4">
+                  <label className="text-accent text-sm mb-1.5 block font-medium">Price Alert (optional)</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">$</span>
+                    <input
+                      type="number" min="0.01" step="0.01"
+                      value={alertPrice}
+                      onChange={(e) => setAlertPrice(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-7 pr-3 py-2.5 text-base text-white focus:outline-none focus:border-accent"
+                    />
                   </div>
                 </div>
                 {error && <p className="text-red-400 text-sm mb-3">{error}</p>}

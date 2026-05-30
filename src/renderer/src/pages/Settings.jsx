@@ -28,12 +28,12 @@ const CONDITIONS = [
 // Keywords for each settings section — used by the search filter
 const SECTION_KEYWORDS = {
   startpage:  ['start', 'page', 'startup', 'landing', 'initial', 'load', 'home', 'collection', 'watchlist', 'pokedex', 'search', 'trade', 'history', 'default page'],
-  api:        ['api', 'token', 'pokemon price tracker', 'ppt', 'pricing data', 'key', 'authentication', 'source'],
   currency:   ['currency', 'exchange', 'rate', 'usd', 'cad', 'eur', 'gbp', 'format', 'dollar', 'money'],
   sort:       ['sort', 'order', 'default sort', 'recently added', 'name', 'set', 'portfolio', 'watchlist'],
   condition:  ['condition', 'grade', 'psa', 'cgc', 'raw', 'ungraded', 'default condition', 'graded', 'adding'],
   targets:    ['target', 'buy', 'sell', 'price', 'percentage', 'pct', 'alert', 'default target', 'auto'],
   alerts:     ['alert', 'notification', 'notify', 'buy alert', 'sell alert', 'price alert', 'enable', 'disable'],
+  email:      ['email', 'resend', 'api key', 'email alert', 'send email', 'notification email', 'email notification'],
   management: ['remove', 'confirm', 'delete', 'management', 'card management', 'portfolio', 'watchlist'],
   refresh:    ['refresh', 'update', 'fetch', 'prices', 'ppt', 'data', 'refresh card'],
   history:    ['history', 'clear', 'reset', 'data', 'historical', 'price history', 'delete history'],
@@ -50,8 +50,6 @@ const START_PAGE_OPTIONS = [
 export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   const navigate = useNavigate()
   const { currency, setCurrency } = useCurrency()
-  const [pptToken, setPptToken] = useState('')
-  const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   const [confirmRemove, setConfirmRemove] = useState(true)
   const [clearingHistory, setClearingHistory] = useState(false)
@@ -63,9 +61,11 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   const [defaultSortBy, setDefaultSortBy] = useState('')
   const [targetApplyMsg, setTargetApplyMsg] = useState('')
   const [clearBuyMsg, setClearBuyMsg] = useState('')
-  const [clearSellMsg, setClearSellMsg] = useState('')
-  const [alertBuyEnabled, setAlertBuyEnabled] = useState(true)
-  const [alertSellEnabled, setAlertSellEnabled] = useState(true)
+  const [alertEnabled, setAlertEnabled] = useState(true)
+  const [emailAlertsEnabled, setEmailAlertsEnabled] = useState(false)
+  const [profileEmail, setProfileEmail] = useState('')
+  const [testEmailMsg, setTestEmailMsg] = useState(null)
+  const [sendingTestEmail, setSendingTestEmail] = useState(false)
   const [refreshSection, setRefreshSection] = useState('all')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [refreshResult, setRefreshResult] = useState(null)
@@ -80,17 +80,16 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
 
   useEffect(() => {
     window.api.getSettings().then((s) => {
-      setPptToken(s.pptToken || '')
       if (s.confirmRemove !== undefined) setConfirmRemove(s.confirmRemove)
-      setDefaultBuyPct(s.defaultTargetBuyPct != null ? String(s.defaultTargetBuyPct) : '')
-      setDefaultSellPct(s.defaultTargetSellPct != null ? String(s.defaultTargetSellPct) : '')
+      setDefaultBuyPct(s.defaultAlertDownPct != null ? String(s.defaultAlertDownPct) : '')
+      setDefaultSellPct(s.defaultAlertUpPct != null ? String(s.defaultAlertUpPct) : '')
       setDefaultCondition(s.defaultCondition || '')
       setDefaultSortBy(s.defaultSortBy || '')
-      setAlertBuyEnabled(s.alertBuyEnabled !== false)
-      setAlertSellEnabled(s.alertSellEnabled !== false)
+      setAlertEnabled(s.alertEnabled !== false)
+      setEmailAlertsEnabled(s.emailAlertsEnabled === true)
+      setProfileEmail(s.profile?.email || '')
       if (s.defaultStartTab) setDefaultStartTab(s.defaultStartTab)
-      setLoading(false)
-    })
+    }).finally(() => setLoading(false))
     window.api.listBinders('collection').then(setPortfolioFolders).catch(() => {})
     window.api.listBinders('watchlist').then(setWatchlistFolders).catch(() => {})
   }, [])
@@ -128,21 +127,12 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
     await window.api.setSettings({ confirmRemove: newVal })
   }
 
-  async function handleSave(e) {
-    e.preventDefault()
-    await window.api.setSettings({
-      pptToken: pptToken.trim()
-    })
-    setSaved(true)
-    setTimeout(() => setSaved(false), 2500)
-  }
-
   async function handleDefaultBuyPct(e) {
     const val = e.target.value
     setDefaultBuyPct(val)
-    await window.api.setSettings({ defaultTargetBuyPct: val !== '' ? parseFloat(val) : null })
+    await window.api.setSettings({ defaultAlertDownPct: val !== '' ? parseFloat(val) : null })
     if (val !== '') {
-      const { updated } = await window.api.applyDefaultTargets({ buyPct: parseFloat(val), sellPct: null, force: true })
+      const { updated } = await window.api.applyDefaultTargets({ downPct: parseFloat(val), force: true })
       if (updated > 0) {
         setTargetApplyMsg(`Applied to ${updated} card${updated !== 1 ? 's' : ''}.`)
         setTimeout(() => setTargetApplyMsg(''), 4000)
@@ -154,9 +144,9 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   async function handleDefaultSellPct(e) {
     const val = e.target.value
     setDefaultSellPct(val)
-    await window.api.setSettings({ defaultTargetSellPct: val !== '' ? parseFloat(val) : null })
+    await window.api.setSettings({ defaultAlertUpPct: val !== '' ? parseFloat(val) : null })
     if (val !== '') {
-      const { updated } = await window.api.applyDefaultTargets({ buyPct: null, sellPct: parseFloat(val), force: true })
+      const { updated } = await window.api.applyDefaultTargets({ upPct: parseFloat(val), force: true })
       if (updated > 0) {
         setTargetApplyMsg(`Applied to ${updated} card${updated !== 1 ? 's' : ''}.`)
         setTimeout(() => setTargetApplyMsg(''), 4000)
@@ -165,30 +155,33 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
     }
   }
 
-  async function handleClearAllBuy() {
-    const { cleared } = await window.api.clearAllTargets('targetBuyPrice')
-    setClearBuyMsg(`Cleared target buy price for ${cleared} card${cleared !== 1 ? 's' : ''}.`)
+  async function handleClearAllAlerts() {
+    const { cleared } = await window.api.clearAllTargets()
+    setClearBuyMsg(`Cleared price alert for ${cleared} card${cleared !== 1 ? 's' : ''}.`)
     setTimeout(() => setClearBuyMsg(''), 4000)
     if (cleared > 0) onCardDataChanged?.()
   }
 
-  async function handleClearAllSell() {
-    const { cleared } = await window.api.clearAllTargets('targetSellPrice')
-    setClearSellMsg(`Cleared target sell price for ${cleared} card${cleared !== 1 ? 's' : ''}.`)
-    setTimeout(() => setClearSellMsg(''), 4000)
-    if (cleared > 0) onCardDataChanged?.()
+  async function handleToggleAlert() {
+    const newVal = !alertEnabled
+    setAlertEnabled(newVal)
+    await window.api.setSettings({ alertEnabled: newVal })
   }
 
-  async function handleToggleAlertBuy() {
-    const newVal = !alertBuyEnabled
-    setAlertBuyEnabled(newVal)
-    await window.api.setSettings({ alertBuyEnabled: newVal })
+  async function handleToggleEmailAlerts() {
+    const newVal = !emailAlertsEnabled
+    setEmailAlertsEnabled(newVal)
+    await window.api.setSettings({ emailAlertsEnabled: newVal })
   }
 
-  async function handleToggleAlertSell() {
-    const newVal = !alertSellEnabled
-    setAlertSellEnabled(newVal)
-    await window.api.setSettings({ alertSellEnabled: newVal })
+
+  async function handleSendTestEmail() {
+    setSendingTestEmail(true)
+    setTestEmailMsg(null)
+    const result = await window.api.sendTestEmail()
+    setTestEmailMsg(result)
+    setSendingTestEmail(false)
+    setTimeout(() => setTestEmailMsg(null), 6000)
   }
 
   async function handleDefaultSortBy(e) {
@@ -285,39 +278,6 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
           </div>
         )}
 
-        {/* Pokemon Price Tracker API */}
-        {shows('api') && (
-          <form onSubmit={handleSave} className="mb-4">
-            <div className="bg-surface-800 border border-surface-600 rounded-xl p-5 space-y-4">
-              <div>
-                <h2 className="text-white font-semibold text-sm mb-1">Pokemon Price Tracker API</h2>
-                <p className="text-slate-500 text-xs mb-3">
-                  All pricing data is sourced from pokemonpricetracker.com. Enter your API token below.
-                  You can find your token in your Pokemon Price Tracker account settings.
-                </p>
-                <label className="text-slate-400 text-xs block mb-1.5">API Token</label>
-                <input
-                  type="text"
-                  value={pptToken}
-                  onChange={(e) => setPptToken(e.target.value)}
-                  placeholder="Your Pokemon Price Tracker Bearer token"
-                  className="w-full bg-surface-700 border border-surface-500 rounded px-3 py-2 text-sm text-white font-mono placeholder-slate-600 focus:outline-none focus:border-accent"
-                  spellCheck={false}
-                />
-              </div>
-              <div className="flex items-center gap-3 pt-1">
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-accent hover:bg-accent-hover text-black text-sm font-semibold rounded-lg transition-colors"
-                >
-                  Save
-                </button>
-                {saved && <span className="text-emerald-400 text-sm">Saved</span>}
-              </div>
-            </div>
-          </form>
-        )}
-
         {/* Currency */}
         {shows('currency') && (
           <div className="mb-4 bg-surface-800 border border-surface-600 rounded-xl p-5">
@@ -378,61 +338,50 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
         {/* Default Target Prices */}
         {shows('targets') && (
           <div className="mb-4 bg-surface-800 border border-surface-600 rounded-xl p-5">
-            <h2 className="text-white font-semibold text-sm mb-1">Default Target Prices</h2>
+            <h2 className="text-white font-semibold text-sm mb-1">Default Price Alert</h2>
             <p className="text-slate-500 text-xs mb-4">
-              Automatically set target buy and sell prices when a card is added, based on a percent change from its current price. Changing a value here will also apply it to any existing cards that have no target set for that field.
+              Automatically set a price alert when a card is added, based on a percent change from its current price. Changing a value here will also apply it to any existing cards that have no alert set. Only one default applies — price-up takes priority if both are set.
             </p>
             {targetApplyMsg && <p className="text-emerald-400 text-xs mb-3">{targetApplyMsg}</p>}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-emerald-500 text-xs font-medium block mb-1.5">Default Buy Price Alert %</label>
-                <select
-                  value={defaultBuyPct}
-                  onChange={handleDefaultBuyPct}
-                  className="w-full bg-surface-700 border border-surface-500 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
-                >
-                  <option value="">None</option>
-                  {PCT_OPTIONS.map((p) => (
-                    <option key={p} value={p}>{p > 0 ? `+${p}%` : `${p}%`}</option>
-                  ))}
-                </select>
-                {clearBuyMsg
-                  ? <p className="text-emerald-400 text-xs mt-2">{clearBuyMsg}</p>
-                  : (
-                    <button
-                      onClick={handleClearAllBuy}
-                      className="mt-2 text-xs text-slate-500 hover:text-red-400 transition-colors underline"
-                    >
-                      Clear all target buy prices
-                    </button>
-                  )
-                }
-              </div>
-              <div>
-                <label className="text-red-400 text-xs font-medium block mb-1.5">Default Sell Price Alert %</label>
+                <label className="text-emerald-400 text-xs font-medium block mb-1.5">↑ Default Price-Up Alert %</label>
                 <select
                   value={defaultSellPct}
                   onChange={handleDefaultSellPct}
                   className="w-full bg-surface-700 border border-surface-500 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
                 >
                   <option value="">None</option>
-                  {PCT_OPTIONS.map((p) => (
-                    <option key={p} value={p}>{p > 0 ? `+${p}%` : `${p}%`}</option>
+                  {PCT_OPTIONS.filter((p) => p > 0).map((p) => (
+                    <option key={p} value={p}>+{p}%</option>
                   ))}
                 </select>
-                {clearSellMsg
-                  ? <p className="text-emerald-400 text-xs mt-2">{clearSellMsg}</p>
-                  : (
-                    <button
-                      onClick={handleClearAllSell}
-                      className="mt-2 text-xs text-slate-500 hover:text-red-400 transition-colors underline"
-                    >
-                      Clear all target sell prices
-                    </button>
-                  )
-                }
+              </div>
+              <div>
+                <label className="text-red-400 text-xs font-medium block mb-1.5">↓ Default Price-Down Alert %</label>
+                <select
+                  value={defaultBuyPct}
+                  onChange={handleDefaultBuyPct}
+                  className="w-full bg-surface-700 border border-surface-500 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-accent"
+                >
+                  <option value="">None</option>
+                  {PCT_OPTIONS.filter((p) => p > 0).map((p) => (
+                    <option key={p} value={p}>{p}%</option>
+                  ))}
+                </select>
               </div>
             </div>
+            {clearBuyMsg
+              ? <p className="text-emerald-400 text-xs mt-3">{clearBuyMsg}</p>
+              : (
+                <button
+                  onClick={handleClearAllAlerts}
+                  className="mt-3 text-xs text-slate-500 hover:text-red-400 transition-colors underline"
+                >
+                  Clear all price alerts
+                </button>
+              )
+            }
           </div>
         )}
 
@@ -441,33 +390,62 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
           <div className="mb-4 bg-surface-800 border border-surface-600 rounded-xl p-5">
             <h2 className="text-white font-semibold text-sm mb-1">Alert Notifications</h2>
             <p className="text-slate-500 text-xs mb-4">
-              Choose which types of price alerts appear in the notification panel. Disabling a type hides those alerts from the bell icon.
+              Show price alerts in the notification panel when a card's price reaches its target. Disabling this hides all alerts from the bell icon.
             </p>
-            <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-slate-300 text-sm font-medium">Price alerts</p>
+                <p className="text-slate-500 text-xs mt-0.5">Notify when a card's price reaches its alert target.</p>
+              </div>
+              <button
+                onClick={handleToggleAlert}
+                className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors ${alertEnabled ? 'bg-accent' : 'bg-surface-600'}`}
+              >
+                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${alertEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Email Alerts */}
+        {shows('email') && (
+          <div className="mb-4 bg-surface-800 border border-surface-600 rounded-xl p-5">
+            <h2 className="text-white font-semibold text-sm mb-1">Email Alerts</h2>
+            <p className="text-slate-500 text-xs mb-4">
+              Receive an email when a card's price reaches its alert target after a price refresh. Powered by Resend — API key is configured via the <span className="text-slate-300">.env</span> file.
+            </p>
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-slate-300 text-sm font-medium">Buy price alerts</p>
-                  <p className="text-slate-500 text-xs mt-0.5">Notify when a card's price is at or below your buy target.</p>
+                  <p className="text-slate-300 text-sm font-medium">Enable email alerts</p>
+                  <p className="text-slate-500 text-xs mt-0.5">Send emails when price alerts trigger after a refresh.</p>
                 </div>
                 <button
-                  onClick={handleToggleAlertBuy}
-                  className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors ${alertBuyEnabled ? 'bg-emerald-600' : 'bg-surface-600'}`}
+                  onClick={handleToggleEmailAlerts}
+                  className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors ${emailAlertsEnabled ? 'bg-accent' : 'bg-surface-600'}`}
                 >
-                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${alertBuyEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${emailAlertsEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
                 </button>
               </div>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-slate-300 text-sm font-medium">Sell price alerts</p>
-                  <p className="text-slate-500 text-xs mt-0.5">Notify when a card's price is at or above your sell target.</p>
-                </div>
-                <button
-                  onClick={handleToggleAlertSell}
-                  className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors ${alertSellEnabled ? 'bg-red-600' : 'bg-surface-600'}`}
-                >
-                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${alertSellEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
-                </button>
-              </div>
+              {profileEmail ? (
+                <p className="text-slate-500 text-xs">
+                  Alerts will be sent to <span className="text-slate-300">{profileEmail}</span>. Update in your Account profile.
+                </p>
+              ) : (
+                <p className="text-amber-500 text-xs">No email address set. Add one in your Account profile to enable email alerts.</p>
+              )}
+              {testEmailMsg && (
+                <p className={`text-sm ${testEmailMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {testEmailMsg.ok ? 'Test email sent! Check your inbox.' : `Failed: ${testEmailMsg.error}`}
+                </p>
+              )}
+              <button
+                onClick={handleSendTestEmail}
+                disabled={sendingTestEmail || !profileEmail}
+                className="px-4 py-2 bg-surface-700 hover:bg-surface-600 disabled:opacity-40 border border-surface-500 text-slate-300 text-sm font-medium rounded-lg transition-colors"
+              >
+                {sendingTestEmail ? 'Sending…' : 'Send test email'}
+              </button>
             </div>
           </div>
         )}

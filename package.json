@@ -2,6 +2,7 @@
   "name": "pokeprice",
   "version": "1.0.0",
   "description": "Pokemon card price tracker",
+  "author": "Jason Wilson",
   "main": "src/main/index.js",
   "scripts": {
     "dev": "concurrently -k -n VITE,ELECTRON -c cyan,yellow \"vite\" \"wait-on http://localhost:5173 && node scripts/start-electron.js\"",
@@ -12,7 +13,10 @@
   "dependencies": {
     "axios": "^1.7.2",
     "cheerio": "^1.2.0",
+    "dotenv": "^17.4.2",
     "node-cron": "^3.0.3",
+    "pg": "^8.21.0",
+    "resend": "^6.12.4",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
@@ -33,14 +37,16 @@
   "build": {
     "appId": "com.pokeprice.app",
     "productName": "PokePrice",
-    "asar": false,
+    "asar": true,
     "files": [
       "src/main/**/*",
       "dist/web/**/*",
-      "src/preload/**/*"
+      "src/preload/**/*",
+      "assets/**/*"
     ],
     "extraResources": [],
     "win": {
+      "icon": "assets/icon.ico",
       "executableName": "PokePrice",
       "target": [
         {

@@ -7,6 +7,8 @@ const fs = require('fs')
 const path = require('path')
 const axios = require('axios')
 const cron = require('node-cron')
+const { Resend } = require('resend')
+require('dotenv').config()
 
 // Force consistent userData path across dev and production builds (productName
 // capitalisation differs, so pin it explicitly to 'pokeprice').
@@ -85,6 +87,54 @@ function migratePortfolioToCollection() {
   if (!needsMigration) return
   const migrated = cards.map((c) => c.section === 'portfolio' ? { ...c, section: 'collection' } : c)
   writeCards(migrated)
+}
+
+function migrateAlertFields() {
+  const cards = readCards()
+  const needsMigration = cards.some((c) => 'targetBuyPrice' in c || 'targetSellPrice' in c)
+  if (!needsMigration) return
+  const migrated = cards.map((c) => {
+    if (!('targetBuyPrice' in c) && !('targetSellPrice' in c)) return c
+    let alertPrice = null, alertPct = null
+    if (c.targetSellPrice != null) {
+      alertPrice = c.targetSellPrice
+      alertPct = c.targetSellPct ?? (c.currentPrice != null
+        ? Math.round((c.targetSellPrice - c.currentPrice) / c.currentPrice * 1000) / 10 : null)
+    } else if (c.targetBuyPrice != null) {
+      alertPrice = c.targetBuyPrice
+      alertPct = c.targetBuyPct ?? (c.currentPrice != null
+        ? Math.round((c.targetBuyPrice - c.currentPrice) / c.currentPrice * 1000) / 10 : null)
+    }
+    const { targetBuyPrice, targetSellPrice, targetBuyPct, targetSellPct, ...rest } = c
+    return { ...rest, alertPrice, alertPct }
+  })
+  writeCards(migrated)
+}
+
+function migrateAlertSettings() {
+  const s = readSettings()
+  const updates = {}
+  let changed = false
+  if ('alertBuyEnabled' in s || 'alertSellEnabled' in s) {
+    updates.alertEnabled = s.alertBuyEnabled !== false || s.alertSellEnabled !== false
+    changed = true
+  }
+  if ('emailAlertBuyEnabled' in s || 'emailAlertSellEnabled' in s) {
+    updates.emailAlertEnabled = s.emailAlertBuyEnabled !== false || s.emailAlertSellEnabled !== false
+    changed = true
+  }
+  if ('defaultTargetBuyPct' in s) {
+    updates.defaultAlertDownPct = s.defaultTargetBuyPct != null ? Math.abs(s.defaultTargetBuyPct) : null
+    changed = true
+  }
+  if ('defaultTargetSellPct' in s) {
+    updates.defaultAlertUpPct = s.defaultTargetSellPct
+    changed = true
+  }
+  if (changed) {
+    const { alertBuyEnabled, alertSellEnabled, emailAlertBuyEnabled, emailAlertSellEnabled, defaultTargetBuyPct, defaultTargetSellPct, ...rest } = s
+    writeSettings({ ...rest, ...updates })
+  }
 }
 
 function tradesFile() { return path.join(getDataDir(), 'trades.json') }
@@ -319,7 +369,7 @@ async function pptRateLimit() {
 }
 
 async function searchPPT(name, setName, number) {
-  const { pptToken } = readSettings()
+  const pptToken = process.env.POKEPRICE_KEY || ''
   if (!pptToken) return []
   await pptRateLimit()
   const query = [name, setName, number].filter(Boolean).join(' ')
@@ -361,7 +411,7 @@ function nameMatches(pptName, ourName) {
 
 // Resolves an app card to a PPT card object via name+set+number search.
 async function resolveCardToPPT(card) {
-  const { pptToken } = readSettings()
+  const pptToken = process.env.POKEPRICE_KEY || ''
   if (!pptToken || !card.name) return null
 
   // Name search, disambiguate by set + card number
@@ -413,7 +463,7 @@ async function findPPTCard(name, setName, number) {
 }
 
 async function fetchPPTCardById(pptId, includeEbay = false) {
-  const { pptToken } = readSettings()
+  const pptToken = process.env.POKEPRICE_KEY || ''
   if (!pptToken) throw new Error('PPT token not configured')
   await pptRateLimit()
   const params = { tcgPlayerId: pptId }
@@ -487,6 +537,95 @@ async function refreshAllPrices(onProgress) {
   }
 }
 
+async function sendAlertEmails() {
+  const settings = readSettings()
+  if (!settings.emailAlertsEnabled) return
+  const resendApiKey = process.env.RESEND_KEY || ''
+  const toEmail = (settings.profile?.email || '').trim().toLowerCase()
+  if (!resendApiKey || !toEmail) return
+
+  const emailAlertEnabled = settings.emailAlertEnabled !== false
+  const emailedAlerts = settings.emailedAlerts || {}
+
+  const cards = readCards()
+  const newAlerts = []
+  const updatedEmailed = { ...emailedAlerts }
+
+  for (const card of cards) {
+    const history = readPrices(card.id)
+    const price = history[history.length - 1]?.price ?? null
+    if (price == null) continue
+
+    const state = { alert: updatedEmailed[card.id]?.alert ?? null }
+
+    if (emailAlertEnabled && card.alertPrice != null) {
+      const isUpAlert = card.alertPct != null ? card.alertPct > 0 : card.alertPrice > price
+      const triggered = isUpAlert ? price >= card.alertPrice : price <= card.alertPrice
+      if (triggered) {
+        if (state.alert == null) {
+          const dollarDiff = isUpAlert
+            ? Math.round((price - card.alertPrice) * 100) / 100
+            : Math.round((card.alertPrice - price) * 100) / 100
+          const pctDiff = Math.round((dollarDiff / card.alertPrice) * 1000) / 10
+          newAlerts.push({ type: isUpAlert ? 'up' : 'down', name: card.name, setName: card.setName, condition: card.condition, currentPrice: price, alertPrice: card.alertPrice, dollarDiff, pctDiff })
+          state.alert = card.alertPrice
+        }
+      } else {
+        state.alert = null
+      }
+    }
+
+    updatedEmailed[card.id] = state
+  }
+
+  writeSettings({ ...readSettings(), emailedAlerts: updatedEmailed })
+  if (newAlerts.length === 0) return
+
+  try {
+    const resend = new Resend(resendApiKey)
+    const COND_LABEL = { raw: 'Raw', psa10: 'PSA 10', psa9: 'PSA 9', psa8: 'PSA 8', cgc10: 'CGC 10', cgc9: 'CGC 9', sealed: 'Sealed' }
+    const rows = newAlerts.map((a) => `
+      <tr style="border-bottom:1px solid #2a2d36">
+        <td style="padding:10px 12px;color:#e2e8f0">${a.name}${a.setName ? ` <span style="color:#94a3b8;font-size:12px">(${a.setName})</span>` : ''}</td>
+        <td style="padding:10px 12px;color:#94a3b8;font-size:12px">${COND_LABEL[a.condition] || a.condition}</td>
+        <td style="padding:10px 12px;color:${a.type === 'up' ? '#34d399' : '#f87171'};font-weight:600">${a.type === 'up' ? '↑ PRICE ALERT' : '↓ PRICE ALERT'}</td>
+        <td style="padding:10px 12px;color:#e2e8f0">$${a.currentPrice.toFixed(2)}</td>
+        <td style="padding:10px 12px;color:#e2e8f0">$${a.alertPrice.toFixed(2)}</td>
+        <td style="padding:10px 12px;color:${a.type === 'buy' ? '#34d399' : '#f87171'}">$${a.dollarDiff.toFixed(2)} (${a.pctDiff}%)</td>
+      </tr>`).join('')
+
+    const html = `<div style="background:#0f1117;color:#e2e8f0;font-family:sans-serif;padding:32px;max-width:640px;margin:0 auto;border-radius:12px">
+      <p style="font-size:11px;letter-spacing:0.15em;color:#64748b;text-transform:uppercase;margin:0 0 8px">PokePrice</p>
+      <h1 style="margin:0 0 8px;font-size:20px;color:#f8fafc">${newAlerts.length} price alert${newAlerts.length !== 1 ? 's' : ''} triggered</h1>
+      <p style="color:#94a3b8;font-size:14px;margin:0 0 24px">The following cards crossed your target prices in the latest refresh.</p>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #2a2d36;border-radius:8px;overflow:hidden">
+        <thead>
+          <tr style="background:#1e2130">
+            <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:0.1em">Card</th>
+            <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:0.1em">Condition</th>
+            <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:0.1em">Type</th>
+            <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:0.1em">Current</th>
+            <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:0.1em">Target</th>
+            <th style="padding:10px 12px;text-align:left;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:0.1em">Difference</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+      <p style="color:#475569;font-size:12px;margin:24px 0 0">Open PokePrice to view your portfolio and manage your alerts.</p>
+    </div>`
+
+    const { error: sendErr } = await resend.emails.send({
+      from: 'PokePrice <onboarding@resend.dev>',
+      to: toEmail,
+      subject: `PokePrice — ${newAlerts.length} price alert${newAlerts.length !== 1 ? 's' : ''} triggered`,
+      html
+    })
+    if (sendErr) console.warn('Resend alert email failed:', sendErr.message)
+  } catch (err) {
+    console.error('Email alert send failed:', err.message)
+  }
+}
+
 // ── Electron Window ───────────────────────────────────────────────────────────
 
 let mainWindow
@@ -501,6 +640,7 @@ function createWindow() {
     autoHideMenuBar: true,
     frame: false,
     backgroundColor: '#0f1117',
+    icon: path.join(__dirname, '../../assets/icon.ico'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -548,12 +688,15 @@ async function checkAndRefreshPrices() {
   updated.forEach((c) => { c.lastPriceUpdate = today })
   writeCards(updated)
   writeSettings({ ...readSettings(), lastRefreshed: new Date().toISOString() })
+  await sendAlertEmails()
   mainWindow?.webContents.send('prices:refreshed')
 }
 
 app.whenReady().then(() => {
   app.setAppUserModelId('com.pokeprice')
   migratePortfolioToCollection()
+  migrateAlertFields()
+  migrateAlertSettings()
   const initS = readSettings()
   if (!initS.dateJoined) writeSettings({ ...initS, dateJoined: new Date().toISOString().split('T')[0] })
   createWindow()
@@ -816,10 +959,8 @@ ipcMain.handle('cards:sell', (_, cardId, soldInfo) => {
       imageUrlLarge: tc.imageUrlLarge || '',
       addedDate: today,
       lastPriceUpdate: mp ? today : null,
-      targetBuyPrice: null,
-      targetSellPrice: null,
-      targetBuyPct: null,
-      targetSellPct: null,
+      alertPrice: null,
+      alertPct: null,
     }
   })
 
@@ -1199,13 +1340,12 @@ ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, pur
       const settings = readSettings()
       const changes = { lastPriceUpdate: newCard.lastPriceUpdate }
       if (!isReAdd) {
-        if (settings.defaultTargetBuyPct != null) {
-          changes.targetBuyPrice = Math.round(currentResult.price * (1 + settings.defaultTargetBuyPct / 100) * 100) / 100
-          changes.targetBuyPct = settings.defaultTargetBuyPct
-        }
-        if (settings.defaultTargetSellPct != null) {
-          changes.targetSellPrice = Math.round(currentResult.price * (1 + settings.defaultTargetSellPct / 100) * 100) / 100
-          changes.targetSellPct = settings.defaultTargetSellPct
+        if (settings.defaultAlertUpPct != null) {
+          changes.alertPrice = Math.round(currentResult.price * (1 + settings.defaultAlertUpPct / 100) * 100) / 100
+          changes.alertPct = settings.defaultAlertUpPct
+        } else if (settings.defaultAlertDownPct != null) {
+          changes.alertPrice = Math.round(currentResult.price * (1 - settings.defaultAlertDownPct / 100) * 100) / 100
+          changes.alertPct = -settings.defaultAlertDownPct
         }
       }
       const idx = allCards.findIndex((c) => c.id === newCard.id)
@@ -1218,7 +1358,7 @@ ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, pur
   if (newCard.pptId) {
     ;(async () => {
       try {
-        const { pptToken } = readSettings()
+        const pptToken = process.env.POKEPRICE_KEY || ''
         if (!pptToken) return
         await pptRateLimit()
         const res = await axios.get(`${PPT_BASE}/cards`, {
@@ -1253,13 +1393,11 @@ ipcMain.handle('cards:update', (_, cardId, updates) => {
   const cards = readCards()
   const idx = cards.findIndex((c) => c.id === cardId)
   if (idx === -1) return false
-  if (updates.targetBuyPrice === null) updates.targetBuyPct = null
-  if (updates.targetSellPrice === null) updates.targetSellPct = null
+  if (updates.alertPrice === null) updates.alertPct = null
   const prevCard = cards[idx]
   cards[idx] = { ...prevCard, ...updates }
   writeCards(cards)
-  if (updates.targetBuyPrice != null) appendActivity({ type: 'alert_set', message: `Buy alert on ${prevCard.name}`, cardId: prevCard.id, detail: `Target: $${Number(updates.targetBuyPrice).toFixed(2)} · ${prevCard.setName || ''}` })
-  if (updates.targetSellPrice != null) appendActivity({ type: 'alert_set', message: `Sell alert on ${prevCard.name}`, cardId: prevCard.id, detail: `Target: $${Number(updates.targetSellPrice).toFixed(2)} · ${prevCard.setName || ''}` })
+  if (updates.alertPrice != null) appendActivity({ type: 'alert_set', message: `Price alert on ${prevCard.name}`, cardId: prevCard.id, detail: `Target: $${Number(updates.alertPrice).toFixed(2)} · ${prevCard.setName || ''}` })
   return cards[idx]
 })
 
@@ -1297,6 +1435,7 @@ ipcMain.handle('prices:refresh', async (_, cardId, section) => {
   })
   writeCards(updated)
   writeSettings({ ...readSettings(), lastRefreshed: new Date().toISOString() })
+  await sendAlertEmails()
   mainWindow?.webContents.send('prices:refreshed')
   return true
 })
@@ -1381,7 +1520,7 @@ ipcMain.handle('prices:portfolio', (_, binder) => {
   }))
 
   let totalValue = 0, totalDayChange = 0, totalInvested = 0, cardsWithPrice = 0, cardsWithCost = 0
-  let buyAlertCount = 0, sellAlertCount = 0
+  let upAlertCount = 0, downAlertCount = 0
   portfolioData.forEach(({ card, history }) => {
     const latest = history[history.length - 1], yesterday = history[history.length - 2]
     if (latest?.price) {
@@ -1394,8 +1533,11 @@ ipcMain.handle('prices:portfolio', (_, binder) => {
       cardsWithCost++
     }
     const price = latest?.price ?? null
-    if (price != null && card.targetBuyPrice != null && price <= card.targetBuyPrice) buyAlertCount++
-    if (price != null && card.targetSellPrice != null && price >= card.targetSellPrice) sellAlertCount++
+    if (price != null && card.alertPrice != null) {
+      const isUpAlert = card.alertPct != null ? card.alertPct > 0 : card.alertPrice > price
+      if (isUpAlert && price >= card.alertPrice) upAlertCount++
+      else if (!isUpAlert && price <= card.alertPrice) downAlertCount++
+    }
   })
 
   const totalProfit = cardsWithCost > 0 ? totalValue - totalInvested : null
@@ -1485,8 +1627,8 @@ ipcMain.handle('prices:portfolio', (_, binder) => {
     portfolioCount: portfolioCards.length,
     cardsWithPrice,
     cardsWithCost,
-    buyAlertCount,
-    sellAlertCount,
+    upAlertCount,
+    downAlertCount,
     valueHistory,
     investedHistory,
     cardDataCounts,
@@ -1509,25 +1651,22 @@ ipcMain.handle('prices:setManual', (_, cardId, price) => {
   return true
 })
 
-ipcMain.handle('cards:applyDefaultTargets', (_, { buyPct, sellPct, force }) => {
+ipcMain.handle('cards:applyDefaultTargets', (_, { upPct, downPct, force }) => {
   const cards = readCards()
   let updated = 0
   for (const card of cards) {
     if (card.section === 'sold') continue
+    if (!force && card.alertPrice != null) continue
     const history = readPrices(card.id)
     const latestPrice = history[history.length - 1]?.price
     if (latestPrice == null) continue
-    const changes = {}
-    if (buyPct != null && (force || card.targetBuyPrice == null)) {
-      changes.targetBuyPrice = Math.round(latestPrice * (1 + buyPct / 100) * 100) / 100
-      changes.targetBuyPct = buyPct
-    }
-    if (sellPct != null && (force || card.targetSellPrice == null)) {
-      changes.targetSellPrice = Math.round(latestPrice * (1 + sellPct / 100) * 100) / 100
-      changes.targetSellPct = sellPct
-    }
-    if (Object.keys(changes).length > 0) {
-      Object.assign(card, changes)
+    if (upPct != null) {
+      card.alertPrice = Math.round(latestPrice * (1 + upPct / 100) * 100) / 100
+      card.alertPct = upPct
+      updated++
+    } else if (downPct != null) {
+      card.alertPrice = Math.round(latestPrice * (1 - downPct / 100) * 100) / 100
+      card.alertPct = -downPct
       updated++
     }
   }
@@ -1535,15 +1674,14 @@ ipcMain.handle('cards:applyDefaultTargets', (_, { buyPct, sellPct, force }) => {
   return { updated }
 })
 
-ipcMain.handle('cards:clearAllTargets', (_, field) => {
+ipcMain.handle('cards:clearAllTargets', () => {
   const cards = readCards()
-  const pctField = field === 'targetBuyPrice' ? 'targetBuyPct' : field === 'targetSellPrice' ? 'targetSellPct' : null
   let cleared = 0
   for (const card of cards) {
     if (card.section === 'sold') continue
-    if (card[field] != null) {
-      card[field] = null
-      if (pctField) card[pctField] = null
+    if (card.alertPrice != null) {
+      card.alertPrice = null
+      card.alertPct = null
       cleared++
     }
   }
@@ -1553,50 +1691,61 @@ ipcMain.handle('cards:clearAllTargets', (_, field) => {
 
 ipcMain.handle('alerts:getTriggered', () => {
   const settings = readSettings()
-  const alertBuyEnabled = settings.alertBuyEnabled !== false
-  const alertSellEnabled = settings.alertSellEnabled !== false
+  const alertEnabled = settings.alertEnabled !== false
   const cards = readCards()
   const alerts = []
   for (const card of cards) {
+    if (!alertEnabled || card.alertPrice == null) continue
     const history = readPrices(card.id)
     const price = history[history.length - 1]?.price ?? null
     if (price == null) continue
-    if (alertBuyEnabled && card.targetBuyPrice != null && price <= card.targetBuyPrice) {
-      const dollarDiff = Math.round((card.targetBuyPrice - price) * 100) / 100
-      const pctDiff = Math.round((dollarDiff / card.targetBuyPrice) * 1000) / 10
-      alerts.push({
-        type: 'buy',
-        id: card.id,
-        name: card.name,
-        setName: card.setName,
-        number: card.number,
-        condition: card.condition,
-        imageUrl: card.imageUrl,
-        currentPrice: price,
-        alertPrice: card.targetBuyPrice,
-        dollarDiff,
-        pctDiff
-      })
-    }
-    if (alertSellEnabled && card.targetSellPrice != null && price >= card.targetSellPrice) {
-      const dollarDiff = Math.round((price - card.targetSellPrice) * 100) / 100
-      const pctDiff = Math.round((dollarDiff / card.targetSellPrice) * 1000) / 10
-      alerts.push({
-        type: 'sell',
-        id: card.id,
-        name: card.name,
-        setName: card.setName,
-        number: card.number,
-        condition: card.condition,
-        imageUrl: card.imageUrl,
-        currentPrice: price,
-        alertPrice: card.targetSellPrice,
-        dollarDiff,
-        pctDiff
-      })
-    }
+    const isUpAlert = card.alertPct != null ? card.alertPct > 0 : card.alertPrice > price
+    const triggered = isUpAlert ? price >= card.alertPrice : price <= card.alertPrice
+    if (!triggered) continue
+    const dollarDiff = isUpAlert
+      ? Math.round((price - card.alertPrice) * 100) / 100
+      : Math.round((card.alertPrice - price) * 100) / 100
+    const pctDiff = Math.round((dollarDiff / card.alertPrice) * 1000) / 10
+    alerts.push({
+      type: isUpAlert ? 'up' : 'down',
+      id: card.id,
+      name: card.name,
+      setName: card.setName,
+      number: card.number,
+      condition: card.condition,
+      imageUrl: card.imageUrl,
+      currentPrice: price,
+      alertPrice: card.alertPrice,
+      dollarDiff,
+      pctDiff
+    })
   }
   return alerts
+})
+
+ipcMain.handle('email:test', async () => {
+  const settings = readSettings()
+  const resendApiKey = process.env.RESEND_KEY || ''
+  const toEmail = (settings.profile?.email || '').trim().toLowerCase()
+  if (!resendApiKey) return { ok: false, error: 'No Resend API key configured.' }
+  if (!toEmail) return { ok: false, error: 'No email address set in your account profile.' }
+  try {
+    const resend = new Resend(resendApiKey)
+    const { error: sendErr } = await resend.emails.send({
+      from: 'PokePrice <onboarding@resend.dev>',
+      to: toEmail,
+      subject: 'PokePrice — Email alerts are working!',
+      html: `<div style="background:#0f1117;color:#e2e8f0;font-family:sans-serif;padding:32px;max-width:480px;margin:0 auto;border-radius:12px">
+        <p style="font-size:11px;letter-spacing:0.15em;color:#64748b;text-transform:uppercase;margin:0 0 8px">PokePrice</p>
+        <h1 style="margin:0 0 8px;font-size:20px;color:#f8fafc">Email alerts are working!</h1>
+        <p style="color:#94a3b8;font-size:14px;margin:0">You'll receive an email like this whenever a card crosses your buy or sell price target.</p>
+      </div>`
+    })
+    if (sendErr) return { ok: false, error: sendErr.message }
+    return { ok: true }
+  } catch (err) {
+    return { ok: false, error: err.message }
+  }
 })
 
 function setsCacheFile() { return path.join(getDataDir(), 'sets-cache.json') }
@@ -1658,7 +1807,7 @@ ipcMain.handle('sets:list', async () => {
 })
 
 ipcMain.handle('sealed:search', async (_, query) => {
-  const { pptToken } = readSettings()
+  const pptToken = process.env.POKEPRICE_KEY || ''
   if (!pptToken) return { error: 'no_token', products: [] }
   await pptRateLimit()
   try {
@@ -1704,7 +1853,7 @@ ipcMain.handle('sealed:add', async (_, product, section, purchasePrice, binder) 
 
   if (newItem.pptId) {
     try {
-      const { pptToken } = readSettings()
+      const pptToken = process.env.POKEPRICE_KEY || ''
       await pptRateLimit()
       const res = await axios.get(`${PPT_BASE}/sealed-products`, {
         params: { tcgPlayerId: newItem.pptId },
@@ -1789,7 +1938,7 @@ const PPT_CONDITION_MAP = {
 ipcMain.handle('prices:fetchPPTHistory', async (_, cardId) => {
   const card = readCards().find((c) => c.id === cardId)
   if (!card?.pptId) return readPrices(cardId)
-  const { pptToken } = readSettings()
+  const pptToken = process.env.POKEPRICE_KEY || ''
   if (!pptToken) return readPrices(cardId)
   try {
     await pptRateLimit()

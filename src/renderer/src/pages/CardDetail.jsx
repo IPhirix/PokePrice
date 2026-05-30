@@ -74,9 +74,9 @@ const COND_TO_GRADE = { raw: 'Ungraded', psa10: 'PSA 10', psa9: 'PSA 9', psa8: '
 const TABS = [
   { id: 'collection', label: 'Collection',         color: 'text-emerald-400', activeBg: 'bg-emerald-900/30 border-emerald-500' },
   { id: 'watchlist', label: 'Watchlist',         color: 'text-sky-400',     activeBg: 'bg-sky-900/30 border-sky-500' },
-  { id: 'history',   label: 'Historical Prices', color: 'text-violet-400',  activeBg: 'bg-violet-900/30 border-violet-500' },
   { id: 'trade',     label: 'Trade Analyzer',    color: 'text-yellow-300',  activeBg: 'bg-yellow-900/20 border-yellow-400' },
   { id: 'pokedex',   label: 'Pokédex',           color: 'text-red-400',     activeBg: 'bg-red-900/20 border-red-500' },
+  { id: 'cardshows', label: 'Card Shows',        color: 'text-violet-400',  activeBg: 'bg-violet-900/30 border-violet-500' },
   { id: 'search',    label: 'Search',            color: 'text-accent',      activeBg: 'bg-amber-900/20 border-accent' },
 ]
 
@@ -96,12 +96,6 @@ const TAB_ICONS = {
       <polyline points="14 2 14 8 20 8" />
       <line x1="8" y1="13" x2="16" y2="13" />
       <line x1="8" y1="17" x2="13" y2="17" />
-    </svg>
-  ),
-  history: (
-    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="12" y1="1" x2="12" y2="23" />
-      <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
     </svg>
   ),
   trade: (
@@ -124,6 +118,14 @@ const TAB_ICONS = {
     <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="11" cy="11" r="8" />
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  ),
+  cardshows: (
+    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   ),
 }
@@ -313,10 +315,8 @@ export default function CardDetail() {
   const [addedDateInput, setAddedDateInput] = useState('')
   const [purchasePriceInput, setPurchasePriceInput] = useState('')
   const [priceSaved, setPriceSaved] = useState(false)
-  const [targetBuyInput, setTargetBuyInput] = useState('')
-  const [targetSellInput, setTargetSellInput] = useState('')
-  const [targetBuyPct, setTargetBuyPct] = useState('')
-  const [targetSellPct, setTargetSellPct] = useState('')
+  const [alertInput, setAlertInput] = useState('')
+  const [alertPct, setAlertPct] = useState('')
   const [portfolioCount, setPortfolioCount] = useState(0)
   const [watchlistCount, setWatchlistCount] = useState(0)
   const [portfolioSibling, setPortfolioSibling] = useState(null)
@@ -356,10 +356,8 @@ export default function CardDetail() {
     }
     setAddedDateInput(found.addedDate ? (() => { try { return new Date(found.addedDate).toISOString().split('T')[0] } catch { return '' } })() : '')
     setPurchasePriceInput(found.purchasePrice != null ? String(found.purchasePrice) : '')
-    setTargetBuyInput(found.targetBuyPrice != null ? String(found.targetBuyPrice) : '')
-    setTargetSellInput(found.targetSellPrice != null ? String(found.targetSellPrice) : '')
-    setTargetBuyPct(found.targetBuyPct != null ? String(found.targetBuyPct) : '')
-    setTargetSellPct(found.targetSellPct != null ? String(found.targetSellPct) : '')
+    setAlertInput(found.alertPrice != null ? String(found.alertPrice) : '')
+    setAlertPct(found.alertPct != null ? String(found.alertPct) : '')
     const h = await window.api.getPriceHistory(id)
     setHistory(h)
     setPriceLoading(false)
@@ -434,22 +432,16 @@ export default function CardDetail() {
     setCard((c) => ({ ...c, addedDate: updated.addedDate }))
   }
 
-  async function handleUpdateTargetBuyPrice() {
-    const parsed = parseFloat(targetBuyInput)
+  async function handleUpdateAlertPrice() {
+    const parsed = parseFloat(alertInput)
     const newVal = !isNaN(parsed) && parsed > 0 ? Math.round(parsed * 100) / 100 : null
-    if (newVal === (card.targetBuyPrice ?? null)) return
-    setTargetBuyPct('')
-    const updated = await window.api.updateCard(id, { targetBuyPrice: newVal, targetBuyPct: null })
-    setCard((c) => ({ ...c, targetBuyPrice: updated.targetBuyPrice, targetBuyPct: null }))
-  }
-
-  async function handleUpdateTargetSellPrice() {
-    const parsed = parseFloat(targetSellInput)
-    const newVal = !isNaN(parsed) && parsed > 0 ? Math.round(parsed * 100) / 100 : null
-    if (newVal === (card.targetSellPrice ?? null)) return
-    setTargetSellPct('')
-    const updated = await window.api.updateCard(id, { targetSellPrice: newVal, targetSellPct: null })
-    setCard((c) => ({ ...c, targetSellPrice: updated.targetSellPrice, targetSellPct: null }))
+    if (newVal === (card.alertPrice ?? null)) return
+    const newPct = newVal != null && latest?.price != null
+      ? Math.round((newVal - latest.price) / latest.price * 1000) / 10
+      : null
+    setAlertPct(newPct != null ? String(newPct) : '')
+    const updated = await window.api.updateCard(id, { alertPrice: newVal, alertPct: newPct })
+    setCard((c) => ({ ...c, alertPrice: updated.alertPrice, alertPct: updated.alertPct }))
   }
 
   async function handleRemove() {
@@ -575,7 +567,7 @@ export default function CardDetail() {
             >
               {TAB_ICONS[tab.id]}
               {tab.label}
-              {tab.id !== 'search' && tab.id !== 'history' && tab.id !== 'trade' && tab.id !== 'pokedex' && (
+              {tab.id !== 'search' && tab.id !== 'trade' && tab.id !== 'pokedex' && tab.id !== 'cardshows' && (
                 <span className={`text-xs px-1.5 py-0.5 rounded-full ${tab.id === fromTab ? 'bg-surface-600' : 'bg-surface-700'} text-slate-400`}>
                   {tab.id === 'watchlist' ? watchlistCount : portfolioCount}
                 </span>
@@ -838,94 +830,56 @@ export default function CardDetail() {
               </div>
             )}
             <div>
-              <label className="text-emerald-500 text-xs font-medium block mb-1">Buy Price Alert</label>
+              <label className="text-accent text-xs font-medium block mb-1 flex items-center gap-1">
+                {card.alertPrice != null && card.alertPct != null && (
+                  <span className={card.alertPct >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                    {card.alertPct >= 0 ? '↑' : '↓'}
+                  </span>
+                )}
+                Price Alert
+              </label>
               <div className="flex items-center gap-2">
-                {latest?.price != null && (
-                  <select
-                    value={targetBuyPct}
-                    onChange={async (e) => {
-                      const val = e.target.value
-                      setTargetBuyPct(val)
-                      if (val === '') {
-                        setTargetBuyInput('')
-                        await window.api.updateCard(id, { targetBuyPrice: null, targetBuyPct: null })
-                        setCard((c) => ({ ...c, targetBuyPrice: null, targetBuyPct: null }))
-                      } else {
-                        const p = parseFloat(val)
-                        if (!isNaN(p)) {
+                <select
+                  value={alertPct}
+                  onChange={async (e) => {
+                    const val = e.target.value
+                    setAlertPct(val)
+                    if (val === '') {
+                      setAlertInput('')
+                      await window.api.updateCard(id, { alertPrice: null, alertPct: null })
+                      setCard((c) => ({ ...c, alertPrice: null, alertPct: null }))
+                    } else {
+                      const p = parseFloat(val)
+                      if (!isNaN(p)) {
+                        if (latest?.price != null) {
                           const calc = Math.round(latest.price * (1 + p / 100) * 100) / 100
-                          setTargetBuyInput(String(calc))
-                          const updated = await window.api.updateCard(id, { targetBuyPrice: calc, targetBuyPct: p })
-                          setCard((c) => ({ ...c, targetBuyPrice: updated.targetBuyPrice, targetBuyPct: p }))
+                          setAlertInput(String(calc))
+                          const updated = await window.api.updateCard(id, { alertPrice: calc, alertPct: p })
+                          setCard((c) => ({ ...c, alertPrice: updated.alertPrice, alertPct: p }))
+                        } else {
+                          await window.api.updateCard(id, { alertPrice: null, alertPct: p })
+                          setCard((c) => ({ ...c, alertPrice: null, alertPct: p }))
                         }
                       }
-                    }}
-                    className="flex-shrink-0 w-16 text-xs bg-surface-600 border border-surface-500 rounded px-1 py-1.5 text-slate-400 focus:outline-none focus:border-accent"
-                  >
-                    <option value="">%</option>
-                    {PCT_OPTIONS.map((p) => (
-                      <option key={p} value={p}>{p > 0 ? `+${p}%` : `${p}%`}</option>
-                    ))}
-                  </select>
-                )}
+                    }
+                  }}
+                  className="flex-shrink-0 w-16 text-xs bg-surface-600 border border-surface-500 rounded px-1 py-1.5 text-slate-400 focus:outline-none focus:border-accent"
+                >
+                  <option value="">%</option>
+                  {PCT_OPTIONS.map((p) => (
+                    <option key={p} value={p}>{p > 0 ? `+${p}%` : `${p}%`}</option>
+                  ))}
+                </select>
                 <div className="relative flex-1">
                   <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
                   <input
                     type="number" min="0.01" step="0.01"
-                    value={targetBuyInput}
-                    onChange={(e) => { setTargetBuyInput(e.target.value); setTargetBuyPct('') }}
-                    onBlur={handleUpdateTargetBuyPrice}
+                    value={alertInput}
+                    onChange={(e) => { setAlertInput(e.target.value); setAlertPct('') }}
+                    onBlur={handleUpdateAlertPrice}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') e.target.blur()
-                      if (e.key === 'Escape') setTargetBuyInput(card.targetBuyPrice != null ? String(card.targetBuyPrice) : '')
-                    }}
-                    placeholder="—"
-                    className="w-full bg-surface-700 border border-surface-500 rounded pl-7 pr-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent"
-                  />
-                </div>
-              </div>
-            </div>
-            <div>
-              <label className="text-red-400 text-xs font-medium block mb-1">Sell Price Alert</label>
-              <div className="flex items-center gap-2">
-                {latest?.price != null && (
-                  <select
-                    value={targetSellPct}
-                    onChange={async (e) => {
-                      const val = e.target.value
-                      setTargetSellPct(val)
-                      if (val === '') {
-                        setTargetSellInput('')
-                        await window.api.updateCard(id, { targetSellPrice: null, targetSellPct: null })
-                        setCard((c) => ({ ...c, targetSellPrice: null, targetSellPct: null }))
-                      } else {
-                        const p = parseFloat(val)
-                        if (!isNaN(p)) {
-                          const calc = Math.round(latest.price * (1 + p / 100) * 100) / 100
-                          setTargetSellInput(String(calc))
-                          const updated = await window.api.updateCard(id, { targetSellPrice: calc, targetSellPct: p })
-                          setCard((c) => ({ ...c, targetSellPrice: updated.targetSellPrice, targetSellPct: p }))
-                        }
-                      }
-                    }}
-                    className="flex-shrink-0 w-16 text-xs bg-surface-600 border border-surface-500 rounded px-1 py-1.5 text-slate-400 focus:outline-none focus:border-accent"
-                  >
-                    <option value="">%</option>
-                    {PCT_OPTIONS.map((p) => (
-                      <option key={p} value={p}>{p > 0 ? `+${p}%` : `${p}%`}</option>
-                    ))}
-                  </select>
-                )}
-                <div className="relative flex-1">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
-                  <input
-                    type="number" min="0.01" step="0.01"
-                    value={targetSellInput}
-                    onChange={(e) => { setTargetSellInput(e.target.value); setTargetSellPct('') }}
-                    onBlur={handleUpdateTargetSellPrice}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') e.target.blur()
-                      if (e.key === 'Escape') setTargetSellInput(card.targetSellPrice != null ? String(card.targetSellPrice) : '')
+                      if (e.key === 'Escape') setAlertInput(card.alertPrice != null ? String(card.alertPrice) : '')
                     }}
                     placeholder="—"
                     className="w-full bg-surface-700 border border-surface-500 rounded pl-7 pr-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent"
