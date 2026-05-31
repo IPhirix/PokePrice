@@ -90,6 +90,9 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   const [newWatchlistFolder, setNewWatchlistFolder] = useState('')
   const [newPortfolioFolderError, setNewPortfolioFolderError] = useState(false)
   const [newWatchlistFolderError, setNewWatchlistFolderError] = useState(false)
+  const [selectedPortfolioFolder, setSelectedPortfolioFolder] = useState('')
+  const [selectedWatchlistFolder, setSelectedWatchlistFolder] = useState('')
+  const [binderDeleteConfirm, setBinderDeleteConfirm] = useState(null)
 
   // Security section
   const [stayLoggedIn, setStayLoggedIn] = useState(true)
@@ -278,6 +281,7 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   if (loading) return null
 
   return (
+    <>
     <div className="py-4 flex flex-col items-center">
       <div className="w-full max-w-lg">
         <div className="flex items-start justify-between mb-6">
@@ -575,33 +579,32 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
           </p>
           <div className="grid grid-cols-2 gap-6">
             {[
-              { label: 'Collection', section: 'collection', folders: portfolioFolders, setFolders: setPortfolioFolders, newVal: newPortfolioFolder, setNew: setNewPortfolioFolder, dupError: newPortfolioFolderError, setDupError: setNewPortfolioFolderError },
-              { label: 'Watchlist', section: 'watchlist', folders: watchlistFolders, setFolders: setWatchlistFolders, newVal: newWatchlistFolder, setNew: setNewWatchlistFolder, dupError: newWatchlistFolderError, setDupError: setNewWatchlistFolderError },
-            ].map(({ label, section, folders, setFolders, newVal, setNew, dupError, setDupError }) => (
-              <div key={section}>
-                <p className="text-slate-400 text-xs font-medium mb-2">{label} binders</p>
-                <div className="space-y-1.5 mb-3">
-                  {folders.length === 0 && (
-                    <p className="text-slate-600 text-xs">No binders yet</p>
+              { label: 'Collection', section: 'collection', folders: portfolioFolders, setFolders: setPortfolioFolders, newVal: newPortfolioFolder, setNew: setNewPortfolioFolder, dupError: newPortfolioFolderError, setDupError: setNewPortfolioFolderError, selected: selectedPortfolioFolder, setSelected: setSelectedPortfolioFolder },
+              { label: 'Watchlist', section: 'watchlist', folders: watchlistFolders, setFolders: setWatchlistFolders, newVal: newWatchlistFolder, setNew: setNewWatchlistFolder, dupError: newWatchlistFolderError, setDupError: setNewWatchlistFolderError, selected: selectedWatchlistFolder, setSelected: setSelectedWatchlistFolder },
+            ].map(({ label, section, folders, setFolders, newVal, setNew, dupError, setDupError, selected, setSelected }) => (
+              <div key={section} className="flex flex-col gap-3">
+                <p className="text-slate-400 text-xs font-medium">{label} Binders</p>
+                <div className="flex gap-2">
+                  <select
+                    value={selected}
+                    onChange={(e) => setSelected(e.target.value)}
+                    className="flex-1 bg-surface-700 border border-surface-500 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-accent"
+                  >
+                    <option value="">{folders.length === 0 ? 'No binders yet' : 'Select a binder…'}</option>
+                    {folders.map((f) => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                  {selected && (
+                    <button
+                      onClick={() => setBinderDeleteConfirm({ section, name: selected, setFolders, setSelected })}
+                      className="px-3 py-1.5 text-slate-500 hover:text-red-400 hover:bg-red-900/20 border border-surface-500 rounded-lg text-xs transition-colors flex-shrink-0"
+                      title="Remove binder"
+                    >
+                      Delete
+                    </button>
                   )}
-                  {folders.map((f) => (
-                    <div key={f} className="flex items-center justify-between bg-surface-700 border border-surface-600 rounded-lg px-3 py-1.5">
-                      <span className="text-white text-sm">{f}</span>
-                      <button
-                        onClick={async () => {
-                          await window.api.deleteBinder(section, f)
-                          setFolders((prev) => prev.filter((x) => x !== f))
-                        }}
-                        className="text-slate-600 hover:text-red-400 text-xs transition-colors ml-2"
-                        title="Delete binder"
-                      >
-                        ✕
-                      </button>
-                    </div>
-                  ))}
                 </div>
                 <div className="flex flex-col gap-1">
-                  <div className="flex gap-2">
+                  <div className="relative">
                     <input
                       value={newVal}
                       onChange={(e) => { setNew(e.target.value); setDupError(false) }}
@@ -616,7 +619,7 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
                         }
                       }}
                       placeholder="New binder name…"
-                      className={`flex-1 bg-surface-700 border rounded-lg px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none ${dupError ? 'border-red-500 focus:border-red-500' : 'border-surface-500 focus:border-accent'}`}
+                      className={`w-full bg-surface-700 border rounded-lg pl-9 pr-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none ${dupError ? 'border-red-500 focus:border-red-500' : 'border-surface-500 focus:border-accent'}`}
                     />
                     <button
                       onClick={async () => {
@@ -629,12 +632,15 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
                         setDupError(false)
                       }}
                       disabled={!newVal.trim()}
-                      className="px-3 py-1.5 bg-accent disabled:opacity-40 text-black text-sm font-semibold rounded-lg transition-colors"
+                      className="absolute left-2 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center text-slate-400 hover:text-accent disabled:opacity-30 transition-colors"
+                      title="Add binder"
                     >
-                      Add
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
                     </button>
                   </div>
-                  {dupError && <p className="text-red-400 text-xs">A binder with this name already exists in this section.</p>}
+                  {dupError && <p className="text-red-400 text-xs">A binder with this name already exists.</p>}
                 </div>
               </div>
             ))}
@@ -822,5 +828,38 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
 
       </div>
     </div>
+
+    {/* Binder delete confirmation popup */}
+
+    {binderDeleteConfirm && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+        <div className="bg-surface-800 border border-surface-600 rounded-xl p-6 w-80 shadow-2xl">
+          <h3 className="text-white font-semibold text-sm mb-2">Remove Binder</h3>
+          <p className="text-slate-400 text-sm mb-5">
+            Are you sure you want to remove <span className="text-white font-medium">"{binderDeleteConfirm.name}"</span>? Cards in this binder will not be deleted.
+          </p>
+          <div className="flex gap-3">
+            <button
+              onClick={async () => {
+                await window.api.deleteBinder(binderDeleteConfirm.section, binderDeleteConfirm.name)
+                binderDeleteConfirm.setFolders((prev) => prev.filter((x) => x !== binderDeleteConfirm.name))
+                binderDeleteConfirm.setSelected('')
+                setBinderDeleteConfirm(null)
+              }}
+              className="flex-1 py-2 bg-red-600 hover:bg-red-500 text-white text-sm font-semibold rounded-lg transition-colors"
+            >
+              Remove
+            </button>
+            <button
+              onClick={() => setBinderDeleteConfirm(null)}
+              className="flex-1 py-2 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 text-sm font-medium rounded-lg transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

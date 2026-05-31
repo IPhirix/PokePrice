@@ -2,7 +2,9 @@
 
 const { app, shell, BrowserWindow, ipcMain, dialog, Menu } = require('electron')
 const { join } = require('path')
-const { randomUUID, pbkdf2Sync, randomBytes } = require('crypto')
+const { randomUUID, pbkdf2, randomBytes } = require('crypto')
+const { promisify } = require('util')
+const pbkdf2Async = promisify(pbkdf2)
 const fs = require('fs')
 const path = require('path')
 const axios = require('axios')
@@ -22,9 +24,38 @@ function getDataDir() {
   return dataDir
 }
 
-function cardsFile() { return path.join(getDataDir(), 'cards.json') }
-function priceFile(id) { return path.join(getDataDir(), `prices-${id}.json`) }
-function settingsFile() { return path.join(getDataDir(), 'settings.json') }
+let _currentUser = null
+
+function getUserDir() {
+  if (!_currentUser) throw new Error('No authenticated user')
+  const dir = path.join(getDataDir(), 'users', _currentUser)
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+  return dir
+}
+
+function migrateUserData(username) {
+  const userDir = path.join(getDataDir(), 'users', username)
+  if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true })
+  if (fs.existsSync(path.join(userDir, 'cards.json'))) return
+  for (const file of ['cards.json', 'cards.json.bak', 'trades.json', 'activity.json', 'settings.json', 'upcoming-shows.json']) {
+    const src = path.join(getDataDir(), file)
+    const dst = path.join(userDir, file)
+    if (fs.existsSync(src) && !fs.existsSync(dst)) { try { fs.copyFileSync(src, dst) } catch {} }
+  }
+  try {
+    for (const file of fs.readdirSync(getDataDir())) {
+      if (file.startsWith('prices-') && file.endsWith('.json')) {
+        const src = path.join(getDataDir(), file)
+        const dst = path.join(userDir, file)
+        if (!fs.existsSync(dst)) fs.copyFileSync(src, dst)
+      }
+    }
+  } catch {}
+}
+
+function cardsFile() { return path.join(getUserDir(), 'cards.json') }
+function priceFile(id) { return path.join(getUserDir(), `prices-${id}.json`) }
+function settingsFile() { return path.join(getUserDir(), 'settings.json') }
 function csvCacheDir() { return path.join(getDataDir(), 'csv-cache') }
 
 function readCards() {
@@ -137,7 +168,17 @@ function migrateAlertSettings() {
   }
 }
 
-function tradesFile() { return path.join(getDataDir(), 'trades.json') }
+function runUserMigrations() {
+  try { migratePortfolioToCollection() } catch {}
+  try { migrateAlertFields() } catch {}
+  try { migrateAlertSettings() } catch {}
+  try {
+    const s = readSettings()
+    if (!s.dateJoined) writeSettings({ ...s, dateJoined: new Date().toISOString().split('T')[0] })
+  } catch {}
+}
+
+function tradesFile() { return path.join(getUserDir(), 'trades.json') }
 function readTrades() {
   const f = tradesFile()
   if (!fs.existsSync(f)) return []
@@ -147,7 +188,7 @@ function writeTrades(trades) {
   fs.writeFileSync(tradesFile(), JSON.stringify(trades, null, 2))
 }
 
-function activityFile() { return path.join(getDataDir(), 'activity.json') }
+function activityFile() { return path.join(getUserDir(), 'activity.json') }
 function readActivity() {
   const f = activityFile()
   if (!fs.existsSync(f)) return []
@@ -517,6 +558,7 @@ async function linkAndPricePPT(card) {
 let cronTask = null
 
 async function refreshAllPrices(onProgress) {
+  if (!_currentUser) return
   const cards = readCards()
   for (let i = 0; i < cards.length; i++) {
     const card = cards[i]
@@ -676,6 +718,7 @@ function createWindow() {
 }
 
 async function checkAndRefreshPrices() {
+  if (!_currentUser) return
   const cards = readCards()
   if (!cards.length) return
   const today = new Date().toISOString().split('T')[0]
@@ -694,11 +737,6 @@ async function checkAndRefreshPrices() {
 
 app.whenReady().then(() => {
   app.setAppUserModelId('com.pokeprice')
-  migratePortfolioToCollection()
-  migrateAlertFields()
-  migrateAlertSettings()
-  const initS = readSettings()
-  if (!initS.dateJoined) writeSettings({ ...initS, dateJoined: new Date().toISOString().split('T')[0] })
   createWindow()
 
   cronTask = cron.schedule('0 8 * * *', async () => {
@@ -726,7 +764,20 @@ ipcMain.handle('app:version', () => app.getVersion())
 ipcMain.handle('app:locale', () => app.getLocale())
 
 ipcMain.handle('settings:get', () => readSettings())
-ipcMain.handle('settings:set', (_, s) => { writeSettings({ ...readSettings(), ...s }); return true })
+ipcMain.handle('settings:set', (_, s) => {
+  writeSettings({ ...readSettings(), ...s })
+  if (s.profile) {
+    const auth = readAuth()
+    if (auth && auth.sessionUsername) {
+      const idx = auth.users.findIndex(u => u.username === auth.sessionUsername)
+      if (idx >= 0) {
+        auth.users[idx].profile = { ...auth.users[idx].profile, ...s.profile }
+        writeAuth(auth)
+      }
+    }
+  }
+  return true
+})
 
 ipcMain.handle('account:getStats', () => {
   const cards = readCards()
@@ -754,6 +805,7 @@ ipcMain.handle('account:getStats', () => {
 ipcMain.handle('account:appendActivity', (_, entry) => { appendActivity(entry); return true })
 
 ipcMain.handle('account:clear', (_, target) => {
+  if (!_currentUser) return true
   const cards = readCards()
   const sections = target === 'all' ? ['collection', 'watchlist'] : [target]
   if (target === 'trades' || target === 'all') writeTrades([])
@@ -769,16 +821,21 @@ ipcMain.handle('account:clear', (_, target) => {
 })
 
 ipcMain.handle('account:delete', () => {
-  const dir = getDataDir()
-  try {
-    fs.readdirSync(dir)
-      .filter((f) => f.startsWith('prices-') && f.endsWith('.json'))
-      .forEach((f) => { try { fs.unlinkSync(path.join(dir, f)) } catch {} })
-  } catch {}
-  writeCards([])
-  writeTrades([])
-  writeSettings({})
-  try { fs.writeFileSync(activityFile(), JSON.stringify([], null, 2)) } catch {}
+  const auth = readAuth()
+  const username = _currentUser || _memorySessionUser || (auth && auth.sessionUsername) || null
+  if (username) {
+    const userDir = path.join(getDataDir(), 'users', username)
+    try { fs.rmSync(userDir, { recursive: true, force: true }) } catch {}
+  }
+  if (auth) {
+    if (username) auth.users = auth.users.filter(u => u.username !== username)
+    auth.sessionToken = null
+    auth.sessionUsername = null
+    writeAuth(auth)
+  }
+  _currentUser = null
+  _memorySessionToken = null
+  _memorySessionUser = null
   return true
 })
 
@@ -1003,6 +1060,11 @@ ipcMain.handle('cards:sell', (_, cardId, soldInfo) => {
           updated[i].currentPrice = result.price
           updated[i].priceSource = 'ppt'
           updated[i].lastPriceUpdate = today
+          // One-time: if purchasePrice wasn't set during the trade (PPT lookup failed),
+          // use the first successful price fetch as the baseline so P&L starts at $0.
+          if (updated[i].isTrade && updated[i].purchasePrice == null) {
+            updated[i].purchasePrice = result.price
+          }
           appendPrice(nc.id, { price: result.price, source: 'ppt' })
         }
         writeCards(updated)
@@ -1034,7 +1096,16 @@ ipcMain.handle('cards:listSold', () => {
 
 ipcMain.handle('binders:list', (_, section) => {
   const s = readSettings()
-  return section === 'collection' ? (s.portfolioBinders || s.portfolioFolders || []) : (s.watchlistBinders || s.watchlistFolders || [])
+  const key = section === 'collection' ? 'portfolioBinders' : 'watchlistBinders'
+  const fallbackKey = section === 'collection' ? 'portfolioFolders' : 'watchlistFolders'
+  const stored = s[key] || s[fallbackKey] || []
+  // Recover any binder names referenced by cards but missing from settings
+  const fromCards = readCards()
+    .filter((c) => c.section === section && c.folder)
+    .map((c) => c.folder)
+  const merged = [...new Set([...stored, ...fromCards])].sort()
+  if (merged.length > stored.length) writeSettings({ ...s, [key]: merged })
+  return merged
 })
 
 ipcMain.handle('binders:add', (_, section, name) => {
@@ -2215,7 +2286,7 @@ ipcMain.handle('geocode:batch', async (event, { zip, cities }) => {
 
 // ── Upcoming shows ────────────────────────────────────────────────────────────
 
-function upcomingShowsFile() { return path.join(getDataDir(), 'upcoming-shows.json') }
+function upcomingShowsFile() { return path.join(getUserDir(), 'upcoming-shows.json') }
 function readUpcomingShows() {
   try { return JSON.parse(fs.readFileSync(upcomingShowsFile(), 'utf8')) } catch { return [] }
 }
@@ -2240,109 +2311,210 @@ ipcMain.handle('upcoming:remove', (_, showId) => {
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
 function authFile() { return path.join(getDataDir(), 'auth.json') }
+
+function generateSalt() { return randomBytes(32).toString('hex') }
+async function hashPassword(password, salt) {
+  const buf = await pbkdf2Async(password, salt, 100000, 64, 'sha512')
+  return buf.toString('hex')
+}
+function generateToken() { return randomBytes(32).toString('hex') }
+
+// Migrate old single-user auth.json to multi-user format
+function migrateAuth(data) {
+  if (!data || data.users) return data
+  return {
+    users: [{
+      username: data.username,
+      passwordHash: data.passwordHash,
+      salt: data.salt,
+      securityQuestion: data.securityQuestion || '',
+      securityAnswerHash: data.securityAnswerHash || '',
+      securityAnswerSalt: data.securityAnswerSalt || '',
+      profile: {},
+    }],
+    sessionUsername: data.username,
+    sessionToken: data.sessionToken || null,
+    stayLoggedIn: data.stayLoggedIn !== false,
+  }
+}
+
 function readAuth() {
   const f = authFile()
   if (!fs.existsSync(f)) return null
-  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return null }
+  try {
+    const data = JSON.parse(fs.readFileSync(f, 'utf8'))
+    const migrated = migrateAuth(data)
+    if (!data.users && migrated) fs.writeFileSync(f, JSON.stringify(migrated, null, 2))
+    return migrated
+  } catch { return null }
 }
 function writeAuth(data) {
   fs.writeFileSync(authFile(), JSON.stringify(data, null, 2))
 }
-
-function generateSalt() { return randomBytes(32).toString('hex') }
-function hashPassword(password, salt) {
-  return pbkdf2Sync(password, salt, 100000, 64, 'sha512').toString('hex')
+function getCurrentUser(auth) {
+  if (!auth || !auth.sessionUsername) return null
+  return auth.users.find(u => u.username === auth.sessionUsername) || null
 }
-function generateToken() { return randomBytes(32).toString('hex') }
 
-// In-memory session token (used when stayLoggedIn is false)
+// In-memory session (used when stayLoggedIn is false)
 let _memorySessionToken = null
+let _memorySessionUser = null
 
-// In-memory store for email reset codes: { code, expiry, email }
+// In-memory email reset code: { code, username, expiry }
 let _emailResetCode = null
 
-// In-memory store for temp reset tokens (granted after passing security/email check)
-const _resetTokens = new Set()
+// In-memory reset tokens: Map<token, username>
+const _resetTokens = new Map()
 
-ipcMain.handle('auth:isSetup', () => fs.existsSync(authFile()))
+ipcMain.handle('auth:isSetup', () => {
+  const auth = readAuth()
+  return !!(auth && auth.users && auth.users.length > 0)
+})
 
 ipcMain.handle('auth:isSessionValid', () => {
   const auth = readAuth()
   if (!auth) return false
-  if (auth.stayLoggedIn && auth.sessionToken) return true
-  if (!auth.stayLoggedIn && _memorySessionToken) return true
+  if (auth.stayLoggedIn && auth.sessionToken && auth.sessionUsername) {
+    _currentUser = auth.sessionUsername
+    migrateUserData(auth.sessionUsername)
+    runUserMigrations()
+    return true
+  }
+  if (!auth.stayLoggedIn && _memorySessionToken && _memorySessionUser) {
+    _currentUser = _memorySessionUser
+    runUserMigrations()
+    return true
+  }
   return false
 })
 
-ipcMain.handle('auth:setup', (_, { username, password, securityQuestion, securityAnswer, stayLoggedIn }) => {
-  const salt = generateSalt()
-  const passwordHash = hashPassword(password, salt)
-  const secAnswerSalt = generateSalt()
-  const securityAnswerHash = hashPassword(securityAnswer.trim().toLowerCase(), secAnswerSalt)
-  const token = generateToken()
-  const auth = {
-    username,
-    passwordHash,
-    salt,
-    securityQuestion,
-    securityAnswerHash,
-    securityAnswerSalt: secAnswerSalt,
-    stayLoggedIn: stayLoggedIn !== false,
-    sessionToken: stayLoggedIn !== false ? token : null,
+ipcMain.handle('auth:createUser', async (_, { username, password, securityQuestion, securityAnswer, stayLoggedIn, profile }) => {
+  const auth = readAuth() || { users: [], sessionUsername: null, sessionToken: null, stayLoggedIn: true }
+  const normalizedUsername = username.trim().toLowerCase()
+  if (auth.users.find(u => u.username === normalizedUsername)) {
+    return { ok: false, error: 'That username is already taken.' }
   }
+  const salt = generateSalt()
+  const secAnswerSalt = generateSalt()
+  const [passwordHash, securityAnswerHash] = await Promise.all([
+    hashPassword(password, salt),
+    hashPassword((securityAnswer || '').trim().toLowerCase(), secAnswerSalt),
+  ])
+  const token = generateToken()
+  const userProfile = { ...(profile || {}), username: normalizedUsername, dateJoined: new Date().toISOString() }
+  const newUser = { username: normalizedUsername, passwordHash, salt, securityQuestion: securityQuestion || '', securityAnswerHash, securityAnswerSalt: secAnswerSalt, profile: userProfile }
+  auth.users.push(newUser)
+  auth.sessionUsername = normalizedUsername
+  auth.stayLoggedIn = stayLoggedIn !== false
+  auth.sessionToken = auth.stayLoggedIn ? token : null
   writeAuth(auth)
-  if (!auth.stayLoggedIn) _memorySessionToken = token
+  if (!auth.stayLoggedIn) { _memorySessionToken = token; _memorySessionUser = normalizedUsername }
+  _currentUser = normalizedUsername
+  runUserMigrations()
+  const settings = readSettings()
+  writeSettings({ ...settings, profile: userProfile, currency: userProfile.currency || settings.currency || 'USD', dateJoined: userProfile.dateJoined })
   return { ok: true }
 })
 
-ipcMain.handle('auth:login', (_, { username, password }) => {
+ipcMain.handle('auth:login', async (_, { username, password }) => {
   const auth = readAuth()
-  if (!auth) return { ok: false, error: 'No account set up.' }
-  if (auth.username !== username) return { ok: false, error: 'Invalid username or password.' }
-  const hash = hashPassword(password, auth.salt)
-  if (hash !== auth.passwordHash) return { ok: false, error: 'Invalid username or password.' }
+  if (!auth || !auth.users || auth.users.length === 0) return { ok: false, error: 'No account set up.' }
+  const normalizedUsername = username.trim().toLowerCase()
+  const user = auth.users.find(u => u.username === normalizedUsername)
+  if (!user) return { ok: false, error: 'Invalid username or password.' }
+  const hash = await hashPassword(password, user.salt)
+  if (hash !== user.passwordHash) return { ok: false, error: 'Invalid username or password.' }
   const token = generateToken()
+  auth.sessionUsername = normalizedUsername
   if (auth.stayLoggedIn) {
-    writeAuth({ ...auth, sessionToken: token })
+    auth.sessionToken = token
+    writeAuth(auth)
   } else {
     _memorySessionToken = token
+    _memorySessionUser = normalizedUsername
+    writeAuth(auth)
+  }
+  _currentUser = normalizedUsername
+  migrateUserData(normalizedUsername)
+  runUserMigrations()
+  const settings = readSettings()
+  const existingProfile = settings.profile || {}
+  const mergedProfile = { ...existingProfile, ...(user.profile || {}), username: normalizedUsername }
+  writeSettings({ ...settings, profile: mergedProfile, currency: mergedProfile.currency || settings.currency || 'USD' })
+  // Persist the merged profile back to auth.json so future logins have it
+  const idx = auth.users.findIndex(u => u.username === normalizedUsername)
+  if (idx >= 0 && JSON.stringify(auth.users[idx].profile) !== JSON.stringify(mergedProfile)) {
+    auth.users[idx].profile = mergedProfile
+    writeAuth(auth)
   }
   return { ok: true }
 })
 
 ipcMain.handle('auth:logout', () => {
   const auth = readAuth()
-  if (!auth) return
+  _currentUser = null
   _memorySessionToken = null
-  if (auth.sessionToken) writeAuth({ ...auth, sessionToken: null })
+  _memorySessionUser = null
+  if (auth) { auth.sessionToken = null; auth.sessionUsername = null; writeAuth(auth) }
 })
 
 ipcMain.handle('auth:getUsername', () => {
   const auth = readAuth()
-  return auth ? auth.username : null
+  if (!auth) return null
+  return auth.stayLoggedIn ? auth.sessionUsername : _memorySessionUser
 })
 
+ipcMain.handle('auth:getUserList', () => {
+  const auth = readAuth()
+  if (!auth || !auth.users) return []
+  return auth.users.map(u => ({ username: u.username, firstName: u.profile?.firstName || '' }))
+})
+
+ipcMain.handle('auth:getSecurityQuestionForUser', (_, { username }) => {
+  const auth = readAuth()
+  if (!auth) return null
+  const user = auth.users.find(u => u.username === username.trim().toLowerCase())
+  return user ? user.securityQuestion : null
+})
+
+// Kept for backward compat (Settings page uses this for logged-in user)
 ipcMain.handle('auth:getSecurityQuestion', () => {
   const auth = readAuth()
-  return auth ? auth.securityQuestion : null
+  const user = getCurrentUser(auth)
+  return user ? user.securityQuestion : null
 })
 
-ipcMain.handle('auth:verifySecurityAnswer', (_, { answer }) => {
+ipcMain.handle('auth:verifySecurityAnswerForUser', async (_, { username, answer }) => {
   const auth = readAuth()
   if (!auth) return { ok: false }
-  const hash = hashPassword(answer.trim().toLowerCase(), auth.securityAnswerSalt)
-  if (hash !== auth.securityAnswerHash) return { ok: false, error: 'Incorrect answer.' }
+  const user = auth.users.find(u => u.username === username.trim().toLowerCase())
+  if (!user) return { ok: false, error: 'User not found.' }
+  const hash = await hashPassword(answer.trim().toLowerCase(), user.securityAnswerSalt)
+  if (hash !== user.securityAnswerHash) return { ok: false, error: 'Incorrect answer.' }
   const token = generateToken()
-  _resetTokens.add(token)
+  _resetTokens.set(token, user.username)
   setTimeout(() => _resetTokens.delete(token), 15 * 60 * 1000)
   return { ok: true, resetToken: token }
 })
 
-ipcMain.handle('auth:sendResetEmail', async (_, { email }) => {
+// Kept for backward compat (Settings page)
+ipcMain.handle('auth:verifySecurityAnswer', async (_, { answer }) => {
+  const auth = readAuth()
+  const user = getCurrentUser(auth)
+  if (!user) return { ok: false }
+  const hash = await hashPassword(answer.trim().toLowerCase(), user.securityAnswerSalt)
+  if (hash !== user.securityAnswerHash) return { ok: false, error: 'Incorrect answer.' }
+  const token = generateToken()
+  _resetTokens.set(token, user.username)
+  setTimeout(() => _resetTokens.delete(token), 15 * 60 * 1000)
+  return { ok: true, resetToken: token }
+})
+
+ipcMain.handle('auth:sendResetEmail', async (_, { username, email }) => {
   const resendApiKey = process.env.RESEND_KEY || ''
   if (!resendApiKey) return { ok: false, error: 'Email service not configured. Use the security question instead.' }
   const code = String(Math.floor(100000 + Math.random() * 900000))
-  _emailResetCode = { code, email: email.trim().toLowerCase(), expiry: Date.now() + 15 * 60 * 1000 }
+  _emailResetCode = { code, username: (username || '').trim().toLowerCase(), email: email.trim().toLowerCase(), expiry: Date.now() + 15 * 60 * 1000 }
   try {
     const resend = new Resend(resendApiKey)
     const { error: sendErr } = await resend.emails.send({
@@ -2358,55 +2530,65 @@ ipcMain.handle('auth:sendResetEmail', async (_, { email }) => {
     })
     if (sendErr) return { ok: false, error: 'Failed to send email. Check your Resend API key.' }
     return { ok: true }
-  } catch (err) {
-    return { ok: false, error: 'Failed to send email.' }
-  }
+  } catch { return { ok: false, error: 'Failed to send email.' } }
 })
 
 ipcMain.handle('auth:verifyEmailCode', (_, { code }) => {
-  if (!_emailResetCode) return { ok: false, error: 'No reset code found. Please request a new one.' }
-  if (Date.now() > _emailResetCode.expiry) {
-    _emailResetCode = null
-    return { ok: false, error: 'Reset code has expired. Please request a new one.' }
-  }
+  if (!_emailResetCode) return { ok: false, error: 'No reset code found. Request a new one.' }
+  if (Date.now() > _emailResetCode.expiry) { _emailResetCode = null; return { ok: false, error: 'Code has expired. Request a new one.' } }
   if (code.trim() !== _emailResetCode.code) return { ok: false, error: 'Incorrect code.' }
+  const { username } = _emailResetCode
   _emailResetCode = null
   const token = generateToken()
-  _resetTokens.add(token)
+  _resetTokens.set(token, username)
   setTimeout(() => _resetTokens.delete(token), 15 * 60 * 1000)
   return { ok: true, resetToken: token }
 })
 
-ipcMain.handle('auth:resetPassword', (_, { resetToken, newPassword }) => {
-  if (!_resetTokens.has(resetToken)) return { ok: false, error: 'Invalid or expired reset token.' }
+ipcMain.handle('auth:resetPassword', async (_, { resetToken, newPassword }) => {
+  const username = _resetTokens.get(resetToken)
+  if (!username) return { ok: false, error: 'Invalid or expired reset token.' }
   const auth = readAuth()
   if (!auth) return { ok: false, error: 'No account found.' }
+  const idx = auth.users.findIndex(u => u.username === username)
+  if (idx < 0) return { ok: false, error: 'User not found.' }
   _resetTokens.delete(resetToken)
   const salt = generateSalt()
-  const passwordHash = hashPassword(newPassword, salt)
-  writeAuth({ ...auth, passwordHash, salt })
+  const passwordHash = await hashPassword(newPassword, salt)
+  auth.users[idx].passwordHash = passwordHash
+  auth.users[idx].salt = salt
+  writeAuth(auth)
   return { ok: true }
 })
 
-ipcMain.handle('auth:changePassword', (_, { currentPassword, newPassword }) => {
+ipcMain.handle('auth:changePassword', async (_, { currentPassword, newPassword }) => {
   const auth = readAuth()
-  if (!auth) return { ok: false, error: 'No account found.' }
-  const hash = hashPassword(currentPassword, auth.salt)
-  if (hash !== auth.passwordHash) return { ok: false, error: 'Current password is incorrect.' }
+  const user = getCurrentUser(auth)
+  if (!user) return { ok: false, error: 'No account found.' }
+  const hash = await hashPassword(currentPassword, user.salt)
+  if (hash !== user.passwordHash) return { ok: false, error: 'Current password is incorrect.' }
   const salt = generateSalt()
-  const passwordHash = hashPassword(newPassword, salt)
-  writeAuth({ ...auth, passwordHash, salt })
+  const passwordHash = await hashPassword(newPassword, salt)
+  const idx = auth.users.findIndex(u => u.username === auth.sessionUsername)
+  auth.users[idx].passwordHash = passwordHash
+  auth.users[idx].salt = salt
+  writeAuth(auth)
   return { ok: true }
 })
 
-ipcMain.handle('auth:updateSecurityQuestion', (_, { currentPassword, securityQuestion, securityAnswer }) => {
+ipcMain.handle('auth:updateSecurityQuestion', async (_, { currentPassword, securityQuestion, securityAnswer }) => {
   const auth = readAuth()
-  if (!auth) return { ok: false, error: 'No account found.' }
-  const hash = hashPassword(currentPassword, auth.salt)
-  if (hash !== auth.passwordHash) return { ok: false, error: 'Current password is incorrect.' }
+  const user = getCurrentUser(auth)
+  if (!user) return { ok: false, error: 'No account found.' }
+  const hash = await hashPassword(currentPassword, user.salt)
+  if (hash !== user.passwordHash) return { ok: false, error: 'Current password is incorrect.' }
   const secAnswerSalt = generateSalt()
-  const securityAnswerHash = hashPassword(securityAnswer.trim().toLowerCase(), secAnswerSalt)
-  writeAuth({ ...auth, securityQuestion, securityAnswerHash, securityAnswerSalt: secAnswerSalt })
+  const securityAnswerHash = await hashPassword(securityAnswer.trim().toLowerCase(), secAnswerSalt)
+  const idx = auth.users.findIndex(u => u.username === auth.sessionUsername)
+  auth.users[idx].securityQuestion = securityQuestion
+  auth.users[idx].securityAnswerHash = securityAnswerHash
+  auth.users[idx].securityAnswerSalt = secAnswerSalt
+  writeAuth(auth)
   return { ok: true }
 })
 
@@ -2414,15 +2596,20 @@ ipcMain.handle('auth:setStayLoggedIn', (_, stayLoggedIn) => {
   const auth = readAuth()
   if (!auth) return
   if (stayLoggedIn) {
-    // Persist the current memory token (or generate new one) into the file
     const token = _memorySessionToken || generateToken()
-    _memorySessionToken = null
-    writeAuth({ ...auth, stayLoggedIn: true, sessionToken: token })
+    const user = _memorySessionUser || auth.sessionUsername
+    _memorySessionToken = null; _memorySessionUser = null
+    auth.sessionUsername = user
+    auth.stayLoggedIn = true
+    auth.sessionToken = token
+    writeAuth(auth)
   } else {
-    // Move persisted token to memory
     const token = auth.sessionToken || generateToken()
-    _memorySessionToken = token
-    writeAuth({ ...auth, stayLoggedIn: false, sessionToken: null })
+    const user = auth.sessionUsername
+    _memorySessionToken = token; _memorySessionUser = user
+    auth.stayLoggedIn = false
+    auth.sessionToken = null
+    writeAuth(auth)
   }
   return true
 })

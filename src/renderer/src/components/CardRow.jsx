@@ -303,12 +303,12 @@ function InlineBinderPicker({ card, onSaved, onBinderFilter }) {
         <button
           onClick={(e) => { e.stopPropagation(); setOpen((v) => !v) }}
           className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border border-dashed border-surface-500 text-slate-600 hover:text-slate-400 hover:border-surface-400 transition-colors"
-          title="Add to binder"
+          title="Add to Binder"
         >
           <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
           </svg>
-          Add to binder
+          Add to Binder
         </button>
       )}
 

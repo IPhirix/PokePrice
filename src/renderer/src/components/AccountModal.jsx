@@ -104,7 +104,7 @@ export default function AccountModal({ onClose }) {
   const { format, currency, setCurrency } = useCurrency()
   const { logout } = useAuth()
   const navigate = useNavigate()
-  const [profile, setProfile] = useState({ firstName: '', username: '', country: '', state: '', email: '', zipCode: '' })
+  const [profile, setProfile] = useState({ firstName: '', username: '', state: '', email: '', zipCode: '' })
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState({})
   const [stats, setStats] = useState(null)
@@ -122,10 +122,10 @@ export default function AccountModal({ onClose }) {
       setProfile({
         firstName: p.firstName || '',
         username: p.username || '',
-        country: p.country || p.city || '',
         state: p.state || '',
         email: p.email || '',
         zipCode: p.zipCode || '',
+        profilePicture: p.profilePicture || null,
       })
       setDateJoined(s.dateJoined || null)
     })
@@ -155,50 +155,53 @@ export default function AccountModal({ onClose }) {
     setProfile(draft)
     if (draft.currency) {
       setCurrency(draft.currency)
-    } else if (draft.country) {
-      const detected = COUNTRY_TO_CURRENCY[draft.country.toLowerCase().trim()]
-      if (detected && detected !== currency) setCurrency(detected)
     }
     setEditing(false)
   }
 
-  function handleCountryChange(country) {
-    const statesForCountry = STATE_PROVINCES[country] || []
-    const currentState = draft.state || ''
-    setDraft((d) => ({
-      ...d,
-      country,
-      state: statesForCountry.includes(currentState) ? currentState : '',
-    }))
-  }
 
   async function handleClear() {
     if (!confirmClearTarget) return
     setBusy(true)
-    if (confirmClearTarget === 'favorites' || confirmClearTarget === 'all') {
+    try {
       localStorage.removeItem('pokeprice-favorites')
+      if (confirmClearTarget === 'all') {
+        // "Clear Everything" — treat as a full account delete
+        await window.api.deleteAccount()
+        setConfirmClearTarget(null)
+        onClose()
+        logout()
+        return
+      }
+      if (confirmClearTarget !== 'favorites') {
+        await window.api.clearAccountData(confirmClearTarget)
+      }
+      setConfirmClearTarget(null)
+      await loadStats()
+      await loadActivity()
+    } catch {
+      setConfirmClearTarget(null)
+    } finally {
+      setBusy(false)
     }
-    if (confirmClearTarget !== 'favorites') {
-      await window.api.clearAccountData(confirmClearTarget)
-    }
-    setConfirmClearTarget(null)
-    setBusy(false)
-    await loadStats()
-    await loadActivity()
   }
 
   async function handleDelete() {
     if (deleteInput !== 'DELETE') return
     setBusy(true)
-    localStorage.removeItem('pokeprice-favorites')
-    await window.api.deleteAccount()
-    onClose()
-    window.location.reload()
+    try {
+      localStorage.removeItem('pokeprice-favorites')
+      await window.api.deleteAccount()
+      onClose()
+      logout()
+    } catch {
+      setBusy(false)
+    }
   }
 
   const initials = profile.firstName ? profile.firstName.slice(0, 2).toUpperCase() : '?'
   const confirmOpt = CLEAR_OPTIONS.find((o) => o.key === confirmClearTarget)
-  const stateOptions = STATE_PROVINCES[draft.country] || []
+  const stateOptions = STATE_PROVINCES['United States'] || []
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -261,18 +264,6 @@ export default function AccountModal({ onClose }) {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={logout}
-              className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 hover:text-white rounded-lg transition-colors"
-              title="Sign Out"
-            >
-              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-              Sign Out
-            </button>
-            <button
               onClick={onClose}
               className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-surface-700 transition-colors"
             >
@@ -290,8 +281,11 @@ export default function AccountModal({ onClose }) {
               {/* Avatar + Member Since */}
               <div className="flex flex-col items-center gap-2 flex-shrink-0 w-[120px] bg-surface-700 rounded-xl py-6 px-5">
                 <div className="relative">
-                  <div className="w-20 h-20 rounded-full bg-accent/20 border-2 border-accent/40 flex items-center justify-center">
-                    <span className="text-accent font-bold text-2xl">{initials}</span>
+                  <div className="w-20 h-20 rounded-full bg-accent/20 border-2 border-accent/40 flex items-center justify-center overflow-hidden">
+                    {profile.profilePicture
+                      ? <img src={profile.profilePicture} alt="Profile" className="w-full h-full object-cover" />
+                      : <span className="text-accent font-bold text-2xl">{initials}</span>
+                    }
                   </div>
                   <button
                     title="Add profile picture"
@@ -314,16 +308,16 @@ export default function AccountModal({ onClose }) {
 
               <div className="flex-1 min-w-0">
                 {!editing ? (
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+                  <div className="grid grid-cols-2 gap-x-16 gap-y-2 ml-[20px]">
                     <ProfileField label="Name" value={profile.firstName} />
                     <ProfileField label="Username" value={profile.username ? `@${profile.username}` : ''} />
                     <ProfileField label="Email Address" value={profile.email} />
                     <ProfileField label="Currency" value={currency} />
-                    <ProfileField label="Country" value={profile.country} />
-                    <ProfileField label="State & Zip Code" value={[profile.state, profile.zipCode].filter(Boolean).join(', ')} />
+                    <ProfileField label="State" value={profile.state} />
+                    <ProfileField label="Zip Code" value={profile.zipCode} />
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-x-16 gap-y-2 ml-[20px]">
                     <div className="col-span-2">
                       <label className="block text-xs text-slate-400 mb-1">Name</label>
                       <input
@@ -353,52 +347,27 @@ export default function AccountModal({ onClose }) {
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Country</label>
+                      <label className="block text-xs text-slate-400 mb-1">State</label>
                       <select
-                        value={draft.country || ''}
-                        onChange={(e) => handleCountryChange(e.target.value)}
+                        value={draft.state || ''}
+                        onChange={(e) => setDraft((d) => ({ ...d, state: e.target.value }))}
                         className={SELECT_CLS}
                       >
                         <option value="">— Select —</option>
-                        {COUNTRIES.map((c) => (
-                          <option key={c} value={c}>{c}</option>
+                        {stateOptions.map((s) => (
+                          <option key={s} value={s}>{s}</option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">State &amp; Zip Code</label>
-                      <div className="flex gap-2">
-                        <div className="flex-1">
-                          {stateOptions.length > 0 ? (
-                            <select
-                              value={draft.state || ''}
-                              onChange={(e) => setDraft((d) => ({ ...d, state: e.target.value }))}
-                              className={SELECT_CLS}
-                            >
-                              <option value="">— Select —</option>
-                              {stateOptions.map((s) => (
-                                <option key={s} value={s}>{s}</option>
-                              ))}
-                            </select>
-                          ) : (
-                            <input
-                              value={draft.state || ''}
-                              onChange={(e) => setDraft((d) => ({ ...d, state: e.target.value }))}
-                              placeholder="State / Province"
-                              className="w-full px-3 py-1.5 bg-surface-700 border border-surface-500 rounded-lg text-white text-sm focus:outline-none focus:border-accent"
-                            />
-                          )}
-                        </div>
-                        <div className="w-24 flex-shrink-0">
-                          <input
-                            value={draft.zipCode || ''}
-                            onChange={(e) => setDraft((d) => ({ ...d, zipCode: e.target.value.replace(/\D/g, '').slice(0, 5) }))}
-                            placeholder="Zip"
-                            maxLength={5}
-                            className="w-full px-3 py-1.5 bg-surface-700 border border-surface-500 rounded-lg text-white text-sm focus:outline-none focus:border-accent"
-                          />
-                        </div>
-                      </div>
+                      <label className="block text-xs text-slate-400 mb-1">Zip Code</label>
+                      <input
+                        value={draft.zipCode || ''}
+                        onChange={(e) => setDraft((d) => ({ ...d, zipCode: e.target.value.replace(/\D/g, '').slice(0, 5) }))}
+                        placeholder="12345"
+                        maxLength={5}
+                        className="w-full px-3 py-1.5 bg-surface-700 border border-surface-500 rounded-lg text-white text-sm focus:outline-none focus:border-accent"
+                      />
                     </div>
                   </div>
                 )}

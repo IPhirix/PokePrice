@@ -280,35 +280,40 @@ print(f"Compressed: {gz_filename.name}")
 # GOOGLE DRIVE UPLOAD
 # -------------------------
 
-print("Uploading to Google Drive...")
+try:
+    print("Uploading to Google Drive...")
 
-service_account_info = json.loads(
-    GOOGLE_SERVICE_ACCOUNT_JSON
-)
+    service_account_info = json.loads(
+        GOOGLE_SERVICE_ACCOUNT_JSON
+    )
 
-credentials = service_account.Credentials.from_service_account_info(
-    service_account_info,
-    scopes=["https://www.googleapis.com/auth/drive"]
-)
+    credentials = service_account.Credentials.from_service_account_info(
+        service_account_info,
+        scopes=["https://www.googleapis.com/auth/drive"]
+    )
 
-service = build("drive", "v3", credentials=credentials)
+    service = build("drive", "v3", credentials=credentials)
 
-media = MediaFileUpload(
-    str(gz_filename),
-    mimetype="application/gzip"
-)
+    media = MediaFileUpload(
+        str(gz_filename),
+        mimetype="application/gzip"
+    )
 
-service.files().create(
-    body={
-        "name": gz_filename.name,
-        "parents": [GOOGLE_DRIVE_FOLDER_ID]
-    },
-    media_body=media,
-    supportsAllDrives=True,
-    fields="id"
-).execute()
+    service.files().create(
+        body={
+            "name": gz_filename.name,
+            "parents": [GOOGLE_DRIVE_FOLDER_ID]
+        },
+        media_body=media,
+        supportsAllDrives=True,
+        fields="id"
+    ).execute()
 
-print("Upload complete")
+    print("Upload complete")
+
+except Exception as e:
+    print("Google Drive upload failed")
+    print(e)
 
 # -------------------------
 # CLEANUP

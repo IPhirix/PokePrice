@@ -194,6 +194,29 @@ const VARIANT_LABELS = [
   { key: 'wPromo',       label: 'W Promo',   cls: 'bg-emerald-700/80 text-emerald-100' },
 ]
 
+function isPocketCard(card) {
+  const series = (card.set?.series || '').toLowerCase()
+  if (series === 'pocket') return true
+  // Pocket set IDs are A1, A1a, A2, A2a, PROMO-A, etc.
+  return /^(A\d|PROMO-A)/i.test(card.set?.id || '')
+}
+
+function CardImage({ src, alt, className }) {
+  const [failed, setFailed] = useState(false)
+  if (failed || !src) {
+    return (
+      <div className={`${className} flex items-center justify-center bg-surface-700`}>
+        <svg className="w-1/2 h-1/2 text-slate-500 opacity-60" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+          <rect x="3" y="2" width="18" height="20" rx="2" strokeWidth="1.5" />
+          <circle cx="12" cy="11" r="3.5" strokeWidth="1.5" />
+          <path strokeLinecap="round" strokeWidth="1.5" d="M8.5 11h-2M17.5 11h-2" />
+        </svg>
+      </div>
+    )
+  }
+  return <img src={src} alt={alt} className={className} onError={() => setFailed(true)} />
+}
+
 function VariantBadges({ variants, className = '' }) {
   const active = variants ? VARIANT_LABELS.filter((v) => variants[v.key]) : []
   return (
@@ -240,13 +263,15 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
   useEffect(() => {
     setLoadingCards(true)
     setCards([])
-    const query = `name:"${pokemon.displayName}*"`
+    const searchName = pokemon.displayName.replace(/ (Male|Female)$/, '').trim()
+    const query = `name:"${searchName}*"`
     window.api
       .searchCardsAdvanced(query)
       .then((results) => {
-        const lower = pokemon.displayName.toLowerCase()
-        const filtered = results.filter((c) => c.name.toLowerCase().startsWith(lower))
-        setCards(filtered.length > 0 ? filtered : results)
+        const physical = results.filter((c) => !isPocketCard(c))
+        const lower = searchName.toLowerCase()
+        const filtered = physical.filter((c) => c.name.toLowerCase().startsWith(lower))
+        setCards(filtered.length > 0 ? filtered : physical)
       })
       .catch(() => setCards([]))
       .finally(() => setLoadingCards(false))
@@ -341,14 +366,18 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
     if (filterArtist) base = base.filter((c) => c.artist === filterArtist)
     if (filterSet)    base = base.filter((c) => c.set?.id === filterSet)
     return [...base].sort((a, b) => {
+      if (sortBy === 'released') {
+        const da = a.set?.releaseDate || ''
+        const db = b.set?.releaseDate || ''
+        if (!da && !db) return 0
+        if (!da) return 1
+        if (!db) return -1
+        const dateCmp = da.localeCompare(db) || parseCardNum(a.number) - parseCardNum(b.number)
+        return sortDir === 'asc' ? dateCmp : -dateCmp
+      }
       let cmp = 0
       if (sortBy === 'number') cmp = parseCardNum(a.number) - parseCardNum(b.number)
       else if (sortBy === 'price') cmp = (rawPrice(a) ?? -Infinity) - (rawPrice(b) ?? -Infinity)
-      else if (sortBy === 'released') {
-        const da = a.set?.releaseDate || ''
-        const db = b.set?.releaseDate || ''
-        cmp = da.localeCompare(db) || parseCardNum(a.number) - parseCardNum(b.number)
-      }
       return sortDir === 'asc' ? cmp : -cmp
     })
   }, [cards, cardDetails, sortBy, sortDir, binderFilter, filterRarity, filterArtist, filterSet, ownedCards])
@@ -399,24 +428,22 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
 
       {/* ── HEADER ── */}
       <div
-        className="flex-shrink-0 border-b border-surface-700"
+        className="relative flex-shrink-0 border-b border-surface-700"
         style={{ background: `linear-gradient(to bottom, ${heroBg}99, #0f172a)` }}
       >
-        {/* Breadcrumb */}
-        <div className="px-6 pt-3">
-          <button
-            onClick={onBack}
-            className="flex items-center gap-1 text-slate-400 hover:text-white text-xs transition-colors"
-          >
-            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-            Pokédex
-          </button>
-        </div>
+        {/* Back button — top right */}
+        <button
+          onClick={onBack}
+          className="absolute top-4 right-5 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/15 text-slate-300 hover:text-white hover:border-white/30 hover:bg-white/5 text-xs font-medium transition-all z-10"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+          Pokédex
+        </button>
 
         {/* Hero: sprite + name/number/types/fav */}
-        <div className="flex items-end gap-5 px-6 pt-2 pb-5">
+        <div className="flex items-end gap-5 px-6 pt-5 pb-5">
           <img
             src={animatedSprite(pokemon.id)}
             alt={pokemon.displayName}
@@ -621,11 +648,10 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
                     </div>
                   )}
                   <div className="relative w-full aspect-[2.5/3.5] mb-1.5">
-                    <img
+                    <CardImage
                       src={card.images?.small}
                       alt={card.name}
                       className="absolute inset-0 w-full h-full object-contain rounded"
-                      onError={(e) => (e.target.style.display = 'none')}
                     />
                   </div>
                   <div className="flex items-baseline justify-center gap-1 w-full px-1">
@@ -678,7 +704,7 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
                     >
                       <td className="py-2 pr-4">
                         <div className="flex items-center gap-3">
-                          <img src={card.images?.small} alt={card.name} className="w-16 h-[90px] object-contain rounded flex-shrink-0" onError={(e) => (e.target.style.display = 'none')} />
+                          <CardImage src={card.images?.small} alt={card.name} className="w-16 h-[90px] object-contain rounded flex-shrink-0" />
                           <div>
                             <div className="flex items-baseline gap-1.5">
                               <p className="text-white text-base font-medium leading-tight">{card.name}</p>
@@ -732,11 +758,10 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
                         onClick={() => handleCardClick(card)}
                         className="rounded overflow-hidden relative transition-all hover:scale-[1.03] hover:z-10 bg-surface-800 ring-1 ring-surface-600 hover:ring-red-500/60"
                       >
-                        <img
+                        <CardImage
                           src={card.images?.small}
                           alt={card.name}
                           className="w-full h-full object-cover"
-                          onError={(e) => (e.target.style.display = 'none')}
                         />
                         {(inPortfolio || inWatchlist) && (
                           <div className="absolute top-1 right-1 flex flex-col gap-0.5 z-10 pointer-events-none">
@@ -906,6 +931,12 @@ export default function Pokedex({ resetKey }) {
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
   }, [selectedPokemon])
+
+  function handleRandom() {
+    const source = allPokemon.length > 0 ? allPokemon : pokemonList
+    if (!source.length) return
+    selectPokemon(source[Math.floor(Math.random() * source.length)])
+  }
 
   async function loadOwnedCards() {
     try {
@@ -1077,23 +1108,31 @@ export default function Pokedex({ resetKey }) {
             </div>
           </div>
 
-          {/* Search — grows to fill available space */}
-          <div className="relative flex-1 min-w-0">
-            <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            <input
-              value={pokemonSearch}
-              onChange={(e) => setPokemonSearch(e.target.value)}
-              placeholder="Search Pokédex"
-              className="w-full bg-surface-800 border border-surface-600 rounded-xl pl-9 pr-8 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-red-500/60"
-            />
-            {pokemonSearch && (
-              <button
-                onClick={() => setPokemonSearch('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors text-lg leading-none"
-              >×</button>
-            )}
+          {/* Search + Random — grows to fill available space */}
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="relative flex-1 min-w-0">
+              <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                value={pokemonSearch}
+                onChange={(e) => setPokemonSearch(e.target.value)}
+                placeholder="Search Pokédex"
+                className="w-full bg-surface-800 border border-surface-600 rounded-xl pl-9 pr-8 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-red-500/60"
+              />
+              {pokemonSearch && (
+                <button
+                  onClick={() => setPokemonSearch('')}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors text-lg leading-none"
+                >×</button>
+              )}
+            </div>
+            <button
+              onClick={handleRandom}
+              className="px-4 py-2.5 rounded-xl bg-surface-800 border border-surface-600 text-slate-300 text-sm font-semibold hover:bg-red-900/30 hover:border-red-500/50 hover:text-red-400 transition-all flex-shrink-0"
+            >
+              Random
+            </button>
           </div>
 
           {/* Right-aligned controls */}

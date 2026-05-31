@@ -25,9 +25,9 @@ const TABS = [
   { id: 'collection', label: 'Collection',         color: 'text-emerald-400',  activeBg: 'bg-emerald-900/30 border-emerald-500' },
   { id: 'watchlist', label: 'Watchlist',         color: 'text-sky-400',      activeBg: 'bg-sky-900/30 border-sky-500' },
   { id: 'trade',     label: 'Trade Analyzer',    color: 'text-yellow-300',   activeBg: 'bg-yellow-900/20 border-yellow-400' },
-  { id: 'pokedex',   label: 'Pokédex',           color: 'text-red-400',      activeBg: 'bg-red-900/20 border-red-500' },
   { id: 'cardshows', label: 'Card Shows',        color: 'text-violet-400',   activeBg: 'bg-violet-900/30 border-violet-500' },
-  { id: 'search',    label: 'Search',            color: 'text-accent',       activeBg: 'bg-amber-900/20 border-accent' },
+  { id: 'pokedex',   label: 'Pokédex',           color: 'text-red-400',      activeBg: 'bg-red-900/20 border-red-500' },
+  { id: 'search',    label: 'Advanced Search',   color: 'text-accent',       activeBg: 'bg-amber-900/20 border-accent' },
 ]
 
 const TAB_ICONS = {
@@ -564,6 +564,7 @@ export default function Dashboard() {
   const { logout } = useAuth()
   const [selectedCards, setSelectedCards] = useState(new Set())
   const [showBulkBinderPicker, setShowBulkBinderPicker] = useState(false)
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false)
   const [soldCards, setSoldCards] = useState([])
   const [soldCollapsed, setSoldCollapsed] = useState(false)
   const [editingSoldCard, setEditingSoldCard] = useState(null)
@@ -769,7 +770,9 @@ export default function Dashboard() {
   const watchlistCount = cards.filter((c) => (c.section || 'watchlist') === 'watchlist').length
   const portfolioCount = cards.filter((c) => (c.section || 'watchlist') === 'collection').length
 
-  const binderFiltered = binderFilter
+  const binderFiltered = binderFilter === '__none__'
+    ? tabCards.filter((c) => !(c.binder || c.folder))
+    : binderFilter
     ? tabCards.filter((c) => (c.binder || c.folder) === binderFilter)
     : tabCards
   const filteredCards = alertFilter === 'up'
@@ -810,7 +813,7 @@ export default function Dashboard() {
                   if (tab.id === 'pokedex') setPokedexResetKey((k) => k + 1)
                 }}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
-                  activeTab === tab.id
+                  !showSettings && activeTab === tab.id
                     ? `${tab.activeBg} ${tab.color}`
                     : 'border-transparent text-slate-500 hover:text-slate-300'
                 }`}
@@ -827,14 +830,14 @@ export default function Dashboard() {
               </button>
             ))}
             {/* Inline search field to the right of the Search tab */}
-            <div className="flex items-center ml-1">
+            <div className="flex items-center ml-6">
               <input
                 type="text"
                 value={bannerSearch}
                 onChange={(e) => setBannerSearch(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleBannerSearch()}
-                placeholder="Search cards…"
-                className="h-[34px] px-3 text-sm bg-surface-800 border border-surface-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-accent hover:border-surface-500 transition-colors w-44"
+                placeholder="Search Items..."
+                className="h-[34px] px-3 text-sm bg-surface-800 border border-surface-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-accent hover:border-surface-500 transition-colors w-64"
               />
             </div>
           </div>
@@ -876,7 +879,7 @@ export default function Dashboard() {
 
           {/* Sign Out */}
           <button
-            onClick={logout}
+            onClick={() => setShowSignOutConfirm(true)}
             className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 hover:text-white text-sm font-medium rounded-lg transition-colors"
             title="Sign Out"
           >
@@ -907,8 +910,12 @@ export default function Dashboard() {
 
           {/* Settings gear */}
           <button
-            onClick={() => setShowSettings(true)}
-            className="flex-shrink-0 p-2 text-slate-400 hover:text-white rounded-lg hover:bg-surface-700 transition-colors"
+            onClick={() => setShowSettings((v) => !v)}
+            className={`flex-shrink-0 p-2 rounded-lg transition-colors ${
+              showSettings
+                ? 'text-accent bg-amber-900/30 border border-amber-700/40'
+                : 'text-slate-400 hover:text-white hover:bg-surface-700'
+            }`}
             title="Settings"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -956,10 +963,11 @@ export default function Dashboard() {
               className="w-44 bg-surface-700 border border-surface-500 rounded px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-accent"
             >
               <option value="">All Binders</option>
+              <option value="__none__">No Binder Assigned</option>
               {availableBinders.map((f) => <option key={f} value={f}>{f}</option>)}
               <option value="__add__">+ Add binder…</option>
             </select>
-            {binderFilter && (
+            {binderFilter && binderFilter !== '__none__' && (
               <>
                 <button
                   onClick={() => { setRenameValue(binderFilter); setRenamingBinder(true) }}
@@ -1229,19 +1237,22 @@ export default function Dashboard() {
                     </span>
                     <div className="flex-1 h-px bg-surface-700" />
                   </button>
-                  {!soldCollapsed && soldCards
-                    .slice()
-                    .sort((a, b) => (b.soldInfo?.saleDate || '').localeCompare(a.soldInfo?.saleDate || ''))
-                    .map((card) => (
-                      <SoldCardRow
-                        key={card.id}
-                        card={card}
-                        onRemove={handleRemove}
-                        onUndo={handleUndoSold}
-                        onEdit={setEditingSoldCard}
-                      />
-                    ))
-                  }
+                  {!soldCollapsed && (
+                    soldCards.length === 0
+                      ? <p className="text-slate-600 text-sm text-center py-4">Once you make a trade or a sale, your cards will appear here.</p>
+                      : soldCards
+                          .slice()
+                          .sort((a, b) => (b.soldInfo?.saleDate || '').localeCompare(a.soldInfo?.saleDate || ''))
+                          .map((card) => (
+                            <SoldCardRow
+                              key={card.id}
+                              card={card}
+                              onRemove={handleRemove}
+                              onUndo={handleUndoSold}
+                              onEdit={setEditingSoldCard}
+                            />
+                          ))
+                  )}
                 </div>
               )}
             </>
@@ -1287,6 +1298,29 @@ export default function Dashboard() {
 
       {showAccount && (
         <AccountModal onClose={() => setShowAccount(false)} />
+      )}
+
+      {showSignOutConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-surface-800 border border-surface-600 rounded-xl p-6 w-80 shadow-2xl">
+            <h3 className="text-white font-semibold text-sm mb-2">Sign Out</h3>
+            <p className="text-slate-400 text-sm mb-5">Are you sure you want to sign out?</p>
+            <div className="flex gap-3">
+              <button
+                onClick={logout}
+                className="flex-1 py-2 bg-red-600 hover:bg-red-500 text-white text-sm font-semibold rounded-lg transition-colors"
+              >
+                Sign Out
+              </button>
+              <button
+                onClick={() => setShowSignOutConfirm(false)}
+                className="flex-1 py-2 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 text-sm font-medium rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {editingSoldCard && (

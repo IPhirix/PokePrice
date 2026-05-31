@@ -873,6 +873,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     setLoading(true)
     setError(null)
     setHasSearched(true)
+    setSealedResults([])
     try {
       let merged = []
 
@@ -957,6 +958,8 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
 
       if (rar) merged = merged.filter((c) => c._divider || c.rarity === rar)
       setResults(merged)
+      // Always search sealed products in parallel when there's a name query
+      if (q) runSealedSearch(q, true)
     } catch {
       setError('Search failed. Check your internet connection.')
     } finally {
@@ -991,17 +994,21 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     if (e.key === 'Enter') runSearch()
   }
 
-  async function runSealedSearch() {
-    if (!sealedQuery.trim()) return
+  async function runSealedSearch(queryOverride, isSilent = false) {
+    const q = (queryOverride ?? sealedQuery).trim()
+    if (!q) return
     setSealedLoading(true)
     setSealedResults([])
-    setError(null)
+    if (!isSilent) setError(null)
     try {
-      const { products, error: err } = await window.api.searchSealed(sealedQuery.trim())
-      if (err === 'no_token') setError('PriceCharting API token required — add it in Settings.')
-      else setSealedResults(products || [])
+      const { products, error: err } = await window.api.searchSealed(q)
+      if (err === 'no_token') {
+        if (!isSilent) setError('PriceCharting API token required — add it in Settings.')
+      } else {
+        setSealedResults(products || [])
+      }
     } catch {
-      setError('Sealed product search failed.')
+      if (!isSilent) setError('Sealed product search failed.')
     } finally {
       setSealedLoading(false)
     }
@@ -2054,10 +2061,15 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
 
 
       {mode === 'cards' && !binderFilter && hasSearched && !loading && results.length === 0 && !error && (
-        <div className="flex flex-col items-center justify-center py-16 text-slate-600">
-          <p className="text-lg">No cards found</p>
-          <p className="text-sm mt-1">Try adjusting your search terms</p>
-        </div>
+        !sealedLoading && sealedResults.length === 0
+          ? (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-600">
+              <p className="text-lg">No results found</p>
+              <p className="text-sm mt-1">Try adjusting your search terms</p>
+            </div>
+          ) : (
+            <p className="text-slate-500 text-sm mb-2">No cards found</p>
+          )
       )}
       {mode === 'cards' && binderFilter && !loading && binderResults.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-slate-600">
@@ -2390,6 +2402,68 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
             )
           })()}
         </>
+      )}
+
+      {/* ── Sealed Products section — always shown in Items mode when results exist ── */}
+      {mode === 'cards' && (sealedLoading || sealedResults.length > 0) && nameQuery.trim() && (
+        <div className="mt-6">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="flex-1 h-px bg-surface-700" />
+            <span className="text-slate-500 text-xs font-medium uppercase tracking-wider flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+              Sealed Products
+            </span>
+            <div className="flex-1 h-px bg-surface-700" />
+          </div>
+          {sealedLoading && (
+            <div className="flex items-center justify-center py-6 gap-2.5 text-slate-500">
+              <div className="w-4 h-4 rounded-full border-2 border-transparent border-t-emerald-500 animate-spin flex-shrink-0" />
+              <span className="text-sm">Searching sealed products…</span>
+            </div>
+          )}
+          {!sealedLoading && (
+            <div className="flex flex-col gap-2">
+              {sealedResults.map((product) => {
+                const productName = product.name || product['product-name'] || 'Unknown'
+                const category = product.setName || product['console-name'] || 'Sealed Product'
+                const displayPrice = product.prices?.market ?? null
+                const alreadyOwned = ownedCards.some((c) => c.pptId === product.tcgPlayerId)
+                const imgSrc = product.imageUrl || product.image || product.img || product['image-url'] || product.thumbnail
+                return (
+                  <div
+                    key={product.tcgPlayerId || product.id}
+                    className={`bg-surface-800 border rounded-xl px-4 py-3 flex items-center gap-4 ${alreadyOwned ? 'border-emerald-500/50' : 'border-surface-600'}`}
+                  >
+                    <div className="w-14 h-14 flex-shrink-0 bg-surface-700 rounded-lg overflow-hidden relative flex items-center justify-center">
+                      <svg className="w-7 h-7 text-slate-500 absolute" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                      </svg>
+                      {imgSrc && (
+                        <img src={imgSrc} alt={productName} className="w-full h-full object-contain relative z-10" onError={(e) => e.target.remove()} />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-semibold text-sm truncate">{productName}</p>
+                      <p className="text-slate-500 text-xs">{category}</p>
+                    </div>
+                    {displayPrice != null && (
+                      <p className="text-accent font-bold text-sm flex-shrink-0">{format(displayPrice)}</p>
+                    )}
+                    {alreadyOwned && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex-shrink-0">Owned</span>
+                    )}
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button onClick={() => setSealedAddModal({ product, section: 'collection' })} className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-black text-xs font-bold rounded-lg transition-colors whitespace-nowrap">+ Collection</button>
+                      <button onClick={() => setSealedAddModal({ product, section: 'watchlist' })} className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg transition-colors whitespace-nowrap">+ Watchlist</button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
       )}
 
       {addModal && (

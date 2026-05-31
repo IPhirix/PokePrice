@@ -9,10 +9,7 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     async function check() {
       const setup = await window.api.auth.isSetup()
-      if (!setup) {
-        setIsSetup(false)
-        return
-      }
+      if (!setup) { setIsSetup(false); return }
       setIsSetup(true)
       const valid = await window.api.auth.isSessionValid()
       setIsAuthenticated(valid)
@@ -26,12 +23,9 @@ export function AuthProvider({ children }) {
     return result
   }
 
-  async function setupAuth(data) {
-    const result = await window.api.auth.setup(data)
-    if (result.ok) {
-      setIsSetup(true)
-      setIsAuthenticated(true)
-    }
+  async function createAccount(data) {
+    const result = await window.api.auth.createUser(data)
+    if (result.ok) { setIsSetup(true); setIsAuthenticated(true) }
     return result
   }
 
@@ -41,7 +35,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ isSetup, isAuthenticated, login, setupAuth, logout }}>
+    <AuthContext.Provider value={{ isSetup, isAuthenticated, login, createAccount, logout }}>
       {children}
     </AuthContext.Provider>
   )

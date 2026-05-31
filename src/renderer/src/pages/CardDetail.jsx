@@ -75,9 +75,9 @@ const TABS = [
   { id: 'collection', label: 'Collection',         color: 'text-emerald-400', activeBg: 'bg-emerald-900/30 border-emerald-500' },
   { id: 'watchlist', label: 'Watchlist',         color: 'text-sky-400',     activeBg: 'bg-sky-900/30 border-sky-500' },
   { id: 'trade',     label: 'Trade Analyzer',    color: 'text-yellow-300',  activeBg: 'bg-yellow-900/20 border-yellow-400' },
-  { id: 'pokedex',   label: 'Pokédex',           color: 'text-red-400',     activeBg: 'bg-red-900/20 border-red-500' },
   { id: 'cardshows', label: 'Card Shows',        color: 'text-violet-400',  activeBg: 'bg-violet-900/30 border-violet-500' },
-  { id: 'search',    label: 'Search',            color: 'text-accent',      activeBg: 'bg-amber-900/20 border-accent' },
+  { id: 'pokedex',   label: 'Pokédex',           color: 'text-red-400',     activeBg: 'bg-red-900/20 border-red-500' },
+  { id: 'search',    label: 'Advanced Search',   color: 'text-accent',      activeBg: 'bg-amber-900/20 border-accent' },
 ]
 
 const TAB_ICONS = {
@@ -580,14 +580,14 @@ export default function CardDetail() {
               if (!bannerSearch.trim()) return
               navigate('/', { state: { tab: 'search', searchQuery: bannerSearch.trim() } })
             }}
-            className="flex items-center ml-1"
+            className="flex items-center ml-6"
           >
             <input
               type="text"
               value={bannerSearch}
               onChange={(e) => setBannerSearch(e.target.value)}
-              placeholder="Search cards…"
-              className="h-[34px] px-3 text-sm bg-surface-800 border border-surface-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-accent hover:border-surface-500 transition-colors w-44"
+              placeholder="Search Items..."
+              className="h-[34px] px-3 text-sm bg-surface-800 border border-surface-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-accent hover:border-surface-500 transition-colors w-64"
             />
           </form>
         </div>
