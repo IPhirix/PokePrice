@@ -28,7 +28,7 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 PRICECHARTING_URL = os.getenv("PRICECHARTING_URL")
 GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
-GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
+GOOGLE_TOKEN_JSON = os.getenv("GOOGLE_TOKEN_JSON")
 
 if not DATABASE_URL:
     raise Exception("DATABASE_URL missing")
@@ -39,8 +39,8 @@ if not PRICECHARTING_URL:
 if not GOOGLE_DRIVE_FOLDER_ID:
     raise Exception("GOOGLE_DRIVE_FOLDER_ID missing")
 
-if not GOOGLE_SERVICE_ACCOUNT_JSON:
-    raise Exception("GOOGLE_SERVICE_ACCOUNT_JSON missing")
+if not GOOGLE_TOKEN_JSON:
+    raise Exception("GOOGLE_TOKEN_JSON missing")
 
 today = datetime.now().strftime("%Y-%m-%d")
 snapshot_date = datetime.today().date()
