@@ -76,8 +76,6 @@ function cardPrice(card) {
     ?? null
 }
 
-const pptPriceCache = {}
-
 const FAV_KEY = 'pokeprice-favorites'
 function getFavs() { try { return JSON.parse(localStorage.getItem(FAV_KEY) || '{}') } catch { return {} } }
 function saveFavs(f) { localStorage.setItem(FAV_KEY, JSON.stringify(f)); window.dispatchEvent(new Event('pokeprice-favs')) }
@@ -106,32 +104,35 @@ export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, on
   const [inspecting, setInspecting] = useState(false)
   const [inspectTilt, setInspectTilt] = useState({ x: 0, y: 0 })
   const [priceHistory, setPriceHistory] = useState([])
+  const [sbPrice, setSbPrice] = useState(null)
+  const [sbHistory, setSbHistory] = useState([])
   const [chartRange, setChartRange] = useState(90)
-  const [pptPrice, setPptPrice] = useState(null)
   const imgRef = useRef(null)
   const inspectImgRef = useRef(null)
 
   const inPortfolio = ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
   const inWatchlist = ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
   const ownedEntry = ownedCards.find((c) => c.tcgId === card.id)
-  const price = cardPrice(card) ?? pptPrice ?? (ownedEntry?.currentPrice ?? null)
+  const price = cardPrice(card) ?? (ownedEntry?.currentPrice ?? sbPrice ?? null)
+  const displayHistory = ownedEntry?.id ? priceHistory : sbHistory
 
   useEffect(() => {
+    setSbPrice(null)
+    setSbHistory([])
     if (ownedEntry?.id) {
       window.api.getPriceHistory(ownedEntry.id).then(setPriceHistory).catch(() => {})
     } else {
       setPriceHistory([])
+      if (card.name && card.number) {
+        window.api.getPriceForTcgCard({ name: card.name, number: card.number, setName: card.set?.name })
+          .then(({ current, history }) => {
+            setSbPrice(current?.['Ungraded'] ?? null)
+            setSbHistory(history ?? [])
+          })
+          .catch(() => {})
+      }
     }
-  }, [ownedEntry?.id])
-
-  useEffect(() => {
-    if (!card.name) return
-    const cacheKey = `${card.name}|${card.set?.name || ''}`
-    if (pptPriceCache[cacheKey] !== undefined) { setPptPrice(pptPriceCache[cacheKey]); return }
-    window.api.fetchMarketPrice(card.name, card.set?.name || '')
-      .then((p) => { pptPriceCache[cacheKey] = p ?? null; setPptPrice(p ?? null) })
-      .catch(() => {})
-  }, [card.name, card.set?.name])
+  }, [ownedEntry?.id, card.id])
 
   function handleMouseMove(e) {
     if (!imgRef.current) return
@@ -249,7 +250,7 @@ export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, on
               <div className="bg-surface-900/60 border border-surface-700 rounded-xl p-4">
                 <div style={{ height: 200 }}>
                   <PriceChart
-                    history={priceHistory}
+                    history={displayHistory}
                     range={chartRange}
                     onRangeChange={setChartRange}
                     showRangeButtons
@@ -1992,7 +1993,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                 const name = product.name || product['product-name'] || 'Unknown'
                 const category = product.setName || product['console-name'] || 'Sealed Product'
                 const displayPrice = product.prices?.market ?? null
-                const alreadyOwned = ownedCards.some((c) => c.pptId === product.tcgPlayerId)
+                const alreadyOwned = ownedCards.some((c) => c.name === (product.name || product['product-name']))
                 return (
                   <div
                     key={product.tcgPlayerId || product.id}
@@ -2429,7 +2430,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                 const productName = product.name || product['product-name'] || 'Unknown'
                 const category = product.setName || product['console-name'] || 'Sealed Product'
                 const displayPrice = product.prices?.market ?? null
-                const alreadyOwned = ownedCards.some((c) => c.pptId === product.tcgPlayerId)
+                const alreadyOwned = ownedCards.some((c) => c.name === (product.name || product['product-name']))
                 const imgSrc = product.imageUrl || product.image || product.img || product['image-url'] || product.thumbnail
                 return (
                   <div

@@ -262,7 +262,7 @@ function SoldEditModal({ card, onClose, onSaved }) {
     card.soldInfo?.salePrice != null ? String(card.soldInfo.salePrice) : ''
   )
   const [purchasePrice, setPurchasePrice] = useState(
-    card.purchasePrice != null ? String(card.purchasePrice) : ''
+    card.purchasePrice != null ? card.purchasePrice.toFixed(2) : ''
   )
   const [saleDate, setSaleDate] = useState(
     card.soldInfo?.saleDate || new Date().toISOString().split('T')[0]
@@ -549,6 +549,7 @@ export default function Dashboard() {
   const [showDollarChanges, setShowDollarChanges] = useState(false)
   const [binderFilter, setBinderFilter] = useState('')
   const [alertFilter, setAlertFilter] = useState('')
+  const [nameSearch, setNameSearch] = useState('')
   const [availableBinders, setAvailableBinders] = useState([])
   const [showAddBinderModal, setShowAddBinderModal] = useState(false)
   const [newBinderName, setNewBinderName] = useState('')
@@ -572,6 +573,7 @@ export default function Dashboard() {
 
   const cardListRef = useRef(null)
   const scrollTimerRef = useRef(null)
+  const pendingScrollRestoreRef = useRef(null)
 
   function handleCardListScroll() {
     const el = cardListRef.current
@@ -579,6 +581,12 @@ export default function Dashboard() {
     el.classList.add('is-scrolling')
     clearTimeout(scrollTimerRef.current)
     scrollTimerRef.current = setTimeout(() => el.classList.remove('is-scrolling'), 1000)
+  }
+
+  function handleCardClick(card) {
+    const el = cardListRef.current
+    if (el) sessionStorage.setItem(`dashScroll:${card.section || 'watchlist'}`, String(el.scrollTop))
+    navigate(`/card/${card.id}`, { state: { fromTab: card.section || 'watchlist' } })
   }
 
   // Push a browser history entry when Settings opens so the mouse back button closes it
@@ -602,6 +610,14 @@ export default function Dashboard() {
     if (location.state?.artistFilter) {
       setGlobalArtistFilter(location.state.artistFilter)
       setActiveTab('search')
+    }
+    if (location.state?.searchQuery) {
+      setGlobalSearchQuery(location.state.searchQuery)
+      setActiveTab('search')
+    }
+    if (location.state?.fromCard && location.state?.tab) {
+      const saved = sessionStorage.getItem(`dashScroll:${location.state.tab}`)
+      if (saved != null) pendingScrollRestoreRef.current = parseFloat(saved)
     }
   }, [location.state])
 
@@ -763,6 +779,7 @@ export default function Dashboard() {
       setAlertFilter('')
       window.api.listBinders(activeTab).then(setAvailableBinders).catch(() => {})
     }
+    setNameSearch('')
     setListCollapsed(false)
   }, [activeTab])
 
@@ -775,16 +792,31 @@ export default function Dashboard() {
     : binderFilter
     ? tabCards.filter((c) => (c.binder || c.folder) === binderFilter)
     : tabCards
+  const nameFiltered = nameSearch.trim()
+    ? binderFiltered.filter((c) => {
+        const q = nameSearch.trim().toLowerCase()
+        return (c.name || '').toLowerCase().includes(q) || (c.setName || '').toLowerCase().includes(q)
+      })
+    : binderFiltered
   const filteredCards = alertFilter === 'up'
-    ? binderFiltered.filter((c) => c.alertPrice != null && c.currentPrice != null &&
+    ? nameFiltered.filter((c) => c.alertPrice != null && c.currentPrice != null &&
         (c.alertPct != null ? c.alertPct > 0 : c.alertPrice > c.currentPrice) &&
         c.currentPrice >= c.alertPrice)
     : alertFilter === 'down'
-    ? binderFiltered.filter((c) => c.alertPrice != null && c.currentPrice != null &&
+    ? nameFiltered.filter((c) => c.alertPrice != null && c.currentPrice != null &&
         (c.alertPct != null ? c.alertPct <= 0 : c.alertPrice < c.currentPrice) &&
         c.currentPrice <= c.alertPrice)
-    : binderFiltered
+    : nameFiltered
   const sorted = applySort(filteredCards, sortBy, setDateMap)
+
+  useEffect(() => {
+    if (pendingScrollRestoreRef.current == null) return
+    const scrollTop = pendingScrollRestoreRef.current
+    pendingScrollRestoreRef.current = null
+    requestAnimationFrame(() => {
+      if (cardListRef.current) cardListRef.current.scrollTop = scrollTop
+    })
+  }, [sorted])
 
   const activeTabCfg = TABS.find((t) => t.id === activeTab)
 
@@ -1082,7 +1114,22 @@ export default function Dashboard() {
 
           <div className="flex-1" />
 
-          {/* Right: alerts, sort, export, share */}
+          {/* Right: name search, alerts, sort, export, share */}
+          <div className="relative">
+            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+            </svg>
+            <input
+              type="text"
+              value={nameSearch}
+              onChange={(e) => setNameSearch(e.target.value)}
+              placeholder="Filter by name…"
+              className="pl-8 pr-7 py-1.5 text-sm bg-surface-700 border border-surface-500 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-accent transition-colors w-44"
+            />
+            {nameSearch && (
+              <button onClick={() => setNameSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors text-xs">✕</button>
+            )}
+          </div>
           <span className="text-slate-500 text-sm whitespace-nowrap">Alerts</span>
           <select
             value={alertFilter}
@@ -1204,6 +1251,7 @@ export default function Dashboard() {
                   <CardRow
                     key={card.id}
                     card={card}
+                    onCardClick={handleCardClick}
                     onRemove={handleRemove}
                     onRefresh={loadCards}
                     confirmRemove={confirmRemove}
@@ -1423,7 +1471,6 @@ export default function Dashboard() {
                     }
                     await window.api.addBinder(activeTab, newBinderName.trim())
                     await reloadBinders()
-                    setBinderFilter(newBinderName.trim())
                     setNewBinderName('')
                     setNewBinderError(false)
                     setShowAddBinderModal(false)
@@ -1445,7 +1492,6 @@ export default function Dashboard() {
                   }
                   await window.api.addBinder(activeTab, newBinderName.trim())
                   await reloadBinders()
-                  setBinderFilter(newBinderName.trim())
                   setNewBinderName('')
                   setNewBinderError(false)
                   setShowAddBinderModal(false)

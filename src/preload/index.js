@@ -4,8 +4,8 @@ contextBridge.exposeInMainWorld('api', {
   searchCards: (query) => ipcRenderer.invoke('cards:search', query),
   searchCardsAdvanced: (query) => ipcRenderer.invoke('cards:search-advanced', query),
   listCards: () => ipcRenderer.invoke('cards:list'),
-  addCard: (tcgCard, condition, quantity, section, purchasePrice, binder) =>
-    ipcRenderer.invoke('cards:add', tcgCard, condition, quantity, section, purchasePrice, binder),
+  addCard: (tcgCard, condition, quantity, section, purchasePrice, binder, addedDate) =>
+    ipcRenderer.invoke('cards:add', tcgCard, condition, quantity, section, purchasePrice, binder, addedDate),
   removeCard: (id) => ipcRenderer.invoke('cards:remove', id),
   updateCard: (id, updates) => ipcRenderer.invoke('cards:update', id, updates),
   getPriceHistory: (cardId) => ipcRenderer.invoke('prices:history', cardId),
@@ -39,8 +39,6 @@ contextBridge.exposeInMainWorld('api', {
   searchSealed: (query) => ipcRenderer.invoke('sealed:search', query),
   addSealedProduct: (product, section, purchasePrice, binder) => ipcRenderer.invoke('sealed:add', product, section, purchasePrice, binder),
 
-  fetchPPTHistory: (cardId) => ipcRenderer.invoke('prices:fetchPPTHistory', cardId),
-
   getAccountStats: () => ipcRenderer.invoke('account:getStats'),
   clearAccountData: (target) => ipcRenderer.invoke('account:clear', target),
   deleteAccount: () => ipcRenderer.invoke('account:delete'),
@@ -53,10 +51,9 @@ contextBridge.exposeInMainWorld('api', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (s) => ipcRenderer.invoke('settings:set', s),
   sendTestEmail: () => ipcRenderer.invoke('email:test'),
-  searchPriceCharting: (query) => ipcRenderer.invoke('ppt:search', query),
-  searchPPT: (query) => ipcRenderer.invoke('ppt:search', query),
   getAllConditionPrices: (cardId) => ipcRenderer.invoke('prices:allConditions', cardId),
-  fetchMarketPrice: (name, setName) => ipcRenderer.invoke('prices:searchAndFetchRaw', name, setName),
+  getPriceForTcgCard: (opts) => ipcRenderer.invoke('prices:forTcgCard', opts),
+  getCardVariations: (name, number, setName) => ipcRenderer.invoke('cards:getVariations', name, number, setName),
 
   onPricesRefreshing: (cb) => ipcRenderer.on('prices:refreshing', cb),
   onPricesProgress: (cb) => ipcRenderer.on('prices:progress', (_e, data) => cb(data)),

@@ -405,13 +405,17 @@ function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing, jumpTo
                     <span className={`text-xs ${dayNumCls}`}>{day}</span>
                   </div>
 
-                  {dayShows.slice(0, 4).map((show, i) => (
-                    <div key={show.id || i} className={`text-[10px] leading-tight mb-0.5 rounded px-1 py-0.5 overflow-hidden ${
-                      isPast ? 'bg-surface-700/50 text-slate-500' : 'bg-violet-900/50 text-violet-100'
-                    }`}>
-                      <div className="font-medium truncate">{show.name}</div>
-                    </div>
-                  ))}
+                  {dayShows.slice(0, 4).map((show, i) => {
+                    const isClose = typeof distances[show.cityState] === 'number' && distances[show.cityState] <= 10
+                    return (
+                      <div key={show.id || i} className={`text-[10px] leading-tight mb-0.5 rounded px-1 py-0.5 overflow-hidden flex items-center gap-1 ${
+                        isPast ? 'bg-surface-700/50 text-slate-500' : 'bg-violet-900/50 text-violet-100'
+                      }`}>
+                        {isClose && <span className="w-1.5 h-1.5 flex-shrink-0 rounded-full bg-yellow-400" />}
+                        <div className="font-medium truncate">{show.name}</div>
+                      </div>
+                    )
+                  })}
                   {dayShows.length > 4 && (
                     <div className="text-[10px] text-slate-500 pl-1">+{dayShows.length - 4}</div>
                   )}

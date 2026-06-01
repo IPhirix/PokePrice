@@ -171,7 +171,7 @@ function PricesByGrade({ cardId, dayChangeMap = {}, fillHeight = false, onPrices
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-medium text-slate-300">Current Prices by Grade</h3>
         <span className="text-slate-600 text-xs">
-          {loading ? 'Loading...' : 'pokemonpricetracker.com'}
+          {loading ? 'Loading...' : 'pricecharting.com'}
         </span>
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
@@ -213,93 +213,6 @@ function PricesByGrade({ cardId, dayChangeMap = {}, fillHeight = false, onPrices
   )
 }
 
-function PPTLinker({ card, onLinked }) {
-  const [editing, setEditing] = useState(false)
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState([])
-  const [searching, setSearching] = useState(false)
-  const [saving, setSaving] = useState(false)
-
-  async function handleSearch(e) {
-    e.preventDefault()
-    if (!query.trim()) return
-    setSearching(true)
-    setResults([])
-    try {
-      const r = await window.api.searchPPT(query.trim())
-      setResults(r)
-    } finally {
-      setSearching(false)
-    }
-  }
-
-  async function handleSelect(product) {
-    setSaving(true)
-    await window.api.updateCard(card.id, {
-      pptId: product.tcgPlayerId,
-      pptName: product.name
-    })
-    onLinked()
-    setEditing(false)
-    setSaving(false)
-  }
-
-  if (!editing) {
-    return (
-      <div>
-        <label className="text-slate-500 text-xs block mb-1">Pokémon Card</label>
-        <div className="flex items-center gap-1.5">
-          <div className="flex-1 bg-surface-700 border border-surface-500 rounded px-2 py-1.5 text-sm min-w-0">
-            {card.pptId ? (
-              <span className="text-slate-300 truncate block">{card.pptName || card.pptId}</span>
-            ) : (
-              <span className="text-slate-600 italic">Not linked</span>
-            )}
-          </div>
-          <button
-            onClick={() => { setEditing(true); setQuery(card.pptName || card.name || '') }}
-            className="text-sm py-1.5 rounded bg-accent hover:bg-accent-hover text-black font-semibold transition-colors flex-shrink-0 w-20 text-center"
-          >
-            {card.pptId ? 'Change' : 'Link'}
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <label className="text-slate-500 text-xs">Search Pokemon Price Tracker</label>
-        <button onClick={() => setEditing(false)} className="text-xs text-slate-500 hover:text-white">Cancel</button>
-      </div>
-      <form onSubmit={handleSearch} className="flex gap-1 mb-2">
-        <input
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="e.g. Charizard Base Set"
-          className="flex-1 bg-surface-700 border border-surface-500 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-accent"
-        />
-        <button type="submit" disabled={searching}
-          className="bg-surface-600 hover:bg-surface-500 text-white text-xs px-2 rounded disabled:opacity-50">
-          {searching ? '…' : 'Search'}
-        </button>
-      </form>
-      {results.length > 0 && (
-        <div className="max-h-36 overflow-y-auto border border-surface-600 rounded bg-surface-900">
-          {results.map((p) => (
-            <button key={p.tcgPlayerId || p.id} onClick={() => handleSelect(p)} disabled={saving}
-              className="w-full text-left px-2 py-1.5 hover:bg-surface-700 transition-colors disabled:opacity-50">
-              <p className="text-white text-xs">{p.name}</p>
-              <p className="text-slate-500 text-xs">{p.setName}</p>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
 
 export default function CardDetail() {
   const { id } = useParams()
@@ -313,6 +226,7 @@ export default function CardDetail() {
   const [range, setRange] = useState(30)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [addedDateInput, setAddedDateInput] = useState('')
+  const [pcIdInput, setPcIdInput] = useState('')
   const [purchasePriceInput, setPurchasePriceInput] = useState('')
   const [priceSaved, setPriceSaved] = useState(false)
   const [alertInput, setAlertInput] = useState('')
@@ -347,29 +261,22 @@ export default function CardDetail() {
     if ((found.section || 'watchlist') === 'watchlist') {
       const sibling = cards.find((c) =>
         c.section === 'collection' &&
-        ((found.pptId && c.pptId === found.pptId) ||
-         (found.tcgId && c.tcgId === found.tcgId))
+        (found.tcgId && c.tcgId === found.tcgId)
       ) || null
       setPortfolioSibling(sibling)
     } else {
       setPortfolioSibling(null)
     }
-    setAddedDateInput(found.addedDate ? (() => { try { return new Date(found.addedDate).toISOString().split('T')[0] } catch { return '' } })() : '')
-    setPurchasePriceInput(found.purchasePrice != null ? String(found.purchasePrice) : '')
+    setAddedDateInput(found.addedDate ? found.addedDate.split('T')[0] : '')
+    setPcIdInput(found.pricechartingId != null ? String(found.pricechartingId) : '')
+    setPurchasePriceInput(found.purchasePrice != null ? found.purchasePrice.toFixed(2) : '')
     setAlertInput(found.alertPrice != null ? String(found.alertPrice) : '')
     setAlertPct(found.alertPct != null ? String(found.alertPct) : '')
     const h = await window.api.getPriceHistory(id)
     setHistory(h)
     setPriceLoading(false)
     setHistoryCondition(found.condition)
-    const sibMap = {}
-    if (found.pptId) {
-      cards.forEach((c) => {
-        if (c.pptId === found.pptId) sibMap[c.condition] = c.id
-      })
-    } else {
-      sibMap[found.condition] = found.id
-    }
+    const sibMap = { [found.condition]: found.id }
     setSiblings(sibMap)
     const newCache = { [found.condition]: h }
     await Promise.all(
@@ -382,15 +289,6 @@ export default function CardDetail() {
     )
     setHistoryCache(newCache)
 
-    // For raw cards: fetch 6-month PPT history in the background and update the chart
-    if (found.condition === 'raw' && found.pptId) {
-      window.api.fetchPPTHistory(found.id).then((enriched) => {
-        if (enriched && enriched.length > h.length) {
-          setHistory(enriched)
-          setHistoryCache((prev) => ({ ...prev, [found.condition]: enriched }))
-        }
-      }).catch(() => {})
-    }
   }
 
   async function handleSwitchHistoryCondition(cond) {
@@ -412,6 +310,10 @@ export default function CardDetail() {
   async function handleUpdateCondition(condition) {
     const updated = await window.api.updateCard(id, { condition })
     setCard((c) => ({ ...c, condition: updated.condition }))
+    // Trigger a full price refresh — refreshPrices always writes today's price via
+    // appendPrice (which force-overwrites the date), then load() re-fetches everything.
+    // This is the same flow as clicking "Refresh Price" and is the reliable path.
+    await handleRefresh()
   }
 
   async function handleUpdatePurchasePrice() {
@@ -427,7 +329,7 @@ export default function CardDetail() {
   }
 
   async function handleUpdateAddedDate() {
-    if (!addedDateInput || addedDateInput === (card.addedDate ? (() => { try { return new Date(card.addedDate).toISOString().split('T')[0] } catch { return '' } })() : '')) return
+    if (!addedDateInput || addedDateInput === (card.addedDate ? card.addedDate.split('T')[0] : '')) return
     const updated = await window.api.updateCard(id, { addedDate: addedDateInput })
     setCard((c) => ({ ...c, addedDate: updated.addedDate }))
   }
@@ -558,7 +460,7 @@ export default function CardDetail() {
           {TABS.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => navigate('/', { state: { tab: tab.id } })}
+              onClick={() => navigate('/', { state: { tab: tab.id, ...(tab.id === fromTab ? { fromCard: id } : {}) } })}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition-all ${
                 tab.id === fromTab
                   ? `${tab.activeBg} ${tab.color}`
@@ -635,7 +537,7 @@ export default function CardDetail() {
         </button>
 
         <button
-          onClick={() => navigate('/', { state: { tab: fromTab } })}
+          onClick={() => navigate('/', { state: { tab: fromTab, fromCard: id } })}
           className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 hover:text-white text-sm font-medium rounded-lg transition-colors"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -680,14 +582,25 @@ export default function CardDetail() {
                     {CONDITION_LABEL[card.condition] || card.condition}
                   </span>
                 </div>
-                {card.rarity && <p className="text-slate-500 text-xs text-center mt-0.5 flex-shrink-0">{card.rarity}</p>}
+                {(() => {
+                  const variant = (card.pricechartingName || '').match(/\[([^\]]+)\]/)?.[1]
+                  const parts = [variant, card.rarity].filter(Boolean)
+                  return parts.length > 0
+                    ? <p className="text-xs text-center mt-0.5 flex-shrink-0">
+                        {variant && <span className="text-accent font-medium">{variant}</span>}
+                        {variant && card.rarity && <span className="text-slate-600"> · </span>}
+                        {card.rarity && <span className="text-slate-500">{card.rarity}</span>}
+                      </p>
+                    : null
+                })()}
                 {(() => {
                   const series = card.setSeries || seriesFromSetId(card.setId)
                   const showSeries = series && series !== card.setName
                   return (
                     <div className="text-center flex-shrink-0 leading-tight mt-0.5">
-                      {showSeries && <p className="text-slate-500 text-[10px]">{series}</p>}
-                      {card.setName && <p className="text-slate-400 text-xs">{card.setName}</p>}
+                      <p className="text-slate-400 text-xs">
+                        {showSeries ? `${series} - ${card.setName}` : (card.setName || '')}
+                      </p>
                     </div>
                   )
                 })()}
@@ -779,6 +692,12 @@ export default function CardDetail() {
           <div className="min-h-0 overflow-y-auto bg-surface-800 border border-surface-600 rounded-xl p-3 flex flex-col space-y-3">
             <h3 className="text-sm font-medium text-slate-300">Card Details</h3>
             <div>
+              <label className="text-slate-500 text-xs block mb-1">PriceCharting ID</label>
+              <div className="w-full bg-surface-900 border border-surface-600 rounded px-2 py-1.5 text-sm text-slate-400 select-all">
+                {card.pricechartingId ?? <span className="text-slate-600 italic">Not linked</span>}
+              </div>
+            </div>
+            <div>
               <label className="text-slate-500 text-xs block mb-1">Condition</label>
               <select value={card.condition} onChange={(e) => handleUpdateCondition(e.target.value)}
                 className="w-full bg-surface-700 border border-surface-500 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent">
@@ -807,11 +726,35 @@ export default function CardDetail() {
                 onBlur={handleUpdateAddedDate}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') e.target.blur()
-                  if (e.key === 'Escape') setAddedDateInput(card.addedDate ? (() => { try { return new Date(card.addedDate).toISOString().split('T')[0] } catch { return '' } })() : '')
+                  if (e.key === 'Escape') setAddedDateInput(card.addedDate ? card.addedDate.split('T')[0] : '')
                 }}
                 className="w-full bg-surface-700 border border-surface-500 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent"
               />
             </div>
+            {card.type === 'sealed' && (
+              <div>
+                <label className="text-slate-500 text-xs block mb-1">PriceCharting ID</label>
+                <input
+                  type="text"
+                  value={pcIdInput}
+                  onChange={(e) => setPcIdInput(e.target.value)}
+                  onBlur={async () => {
+                    const val = pcIdInput.trim()
+                    const parsed = val ? parseInt(val, 10) : null
+                    const current = card.pricechartingId ?? null
+                    if (parsed === current || (parsed == null && current == null)) return
+                    const updated = await window.api.updateCard(id, { pricechartingId: parsed })
+                    setCard((c) => ({ ...c, pricechartingId: updated.pricechartingId }))
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') e.target.blur()
+                    if (e.key === 'Escape') setPcIdInput(card.pricechartingId != null ? String(card.pricechartingId) : '')
+                  }}
+                  placeholder="e.g. 11748902"
+                  className="w-full bg-surface-700 border border-surface-500 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent font-mono"
+                />
+              </div>
+            )}
             {card.section === 'collection' && (
               <div>
                 <label className="text-slate-500 text-xs block mb-1">Purchase Price (Paid)</label>
@@ -822,7 +765,7 @@ export default function CardDetail() {
                     onBlur={handleUpdatePurchasePrice}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') e.target.blur()
-                      if (e.key === 'Escape') setPurchasePriceInput(card.purchasePrice != null ? String(card.purchasePrice) : '')
+                      if (e.key === 'Escape') setPurchasePriceInput(card.purchasePrice != null ? card.purchasePrice.toFixed(2) : '')
                     }}
                     placeholder="0.00"
                     className={`w-full bg-surface-700 border rounded pl-7 pr-2 py-1.5 text-sm text-white focus:outline-none ${priceSaved ? 'border-emerald-500' : 'border-surface-500 focus:border-accent'}`} />
@@ -887,7 +830,6 @@ export default function CardDetail() {
                 </div>
               </div>
             </div>
-            <PPTLinker card={card} onLinked={() => load()} />
             <div className="flex-1" />
             <div className="pt-2 border-t border-surface-600">
               <button onClick={handleRemove}

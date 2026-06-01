@@ -398,12 +398,13 @@ function InlineDatePicker({ cardId, current, onSaved }) {
 
   function toInputVal(dateStr) {
     if (!dateStr) return ''
-    try { return new Date(dateStr).toISOString().split('T')[0] } catch { return '' }
+    return dateStr.split('T')[0]
   }
 
   function display(dateStr) {
     if (!dateStr) return 'Date added: —'
-    return 'Date added: ' + new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    const [y, m, d] = dateStr.split('T')[0].split('-').map(Number)
+    return 'Date added: ' + new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
   async function save() {
@@ -476,17 +477,6 @@ function Divider() {
 
 const TRADE_CONDITION_LABELS = { raw: 'Raw', psa10: 'PSA 10', psa9: 'PSA 9', psa8: 'PSA 8', cgc10: 'CGC 10', cgc9: 'CGC 9' }
 
-function getPptPrice(product, condition) {
-  if (!product) return null
-  if (condition === 'raw') {
-    const p = product.prices?.market
-    return p != null && p > 0 ? p : null
-  }
-  const grade = product.ebay?.salesByGrade?.[condition]
-  if (!grade) return null
-  const price = grade.smartMarketPrice?.price ?? grade.marketPrice7Day ?? grade.averagePrice ?? null
-  return price != null && price > 0 ? price : null
-}
 
 const ALL_CONDITIONS_ORDERED = [
   { key: 'raw',   label: 'Raw' },
@@ -504,7 +494,6 @@ function TradeSearch({ onAdd, onCancel }) {
   const [searchCommitted, setSearchCommitted] = useState(false)
   const [selected, setSelected] = useState(null)
   const [condition, setCondition] = useState('raw')
-  const [pptProduct, setPptProduct] = useState(null)
   const [fetchingPrice, setFetchingPrice] = useState(false)
   const inputRef = useRef(null)
 
@@ -596,17 +585,12 @@ function TradeSearch({ onAdd, onCancel }) {
   async function selectCard(card) {
     setSelected(card)
     setFetchingPrice(true)
-    setPptProduct(null)
-    try {
-      const products = await window.api.searchPPT(`${card.name} ${card.set?.name || ''}`)
-      if (products.length > 0) setPptProduct(products[0])
-    } catch {}
     setFetchingPrice(false)
   }
 
   function handleAdd() {
     if (!selected) return
-    const marketPrice = getPptPrice(pptProduct, condition)
+    const marketPrice = null
     onAdd({
       name: selected.name,
       tcgId: selected.id,
@@ -1145,8 +1129,8 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
       <Divider />
 
       {/* Card identity */}
-      <div className="w-64 flex-shrink-0 min-w-0">
-        <div className="flex items-center gap-1.5 mb-1 min-w-0">
+      <div className="w-64 flex-shrink-0 min-w-0 flex flex-col gap-1.5">
+        <div className="flex items-center gap-1.5 min-w-0">
           <FitText text={card.name} className="text-white font-bold leading-tight min-w-0 overflow-hidden whitespace-nowrap" maxSize={18} minSize={11} />
           {card.number && <span className="text-slate-500 text-xs flex-shrink-0">#{card.number}</span>}
           <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${condColor}`}>
@@ -1155,13 +1139,17 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
           {isFavCard && <span className="text-yellow-400 text-sm leading-none flex-shrink-0">★</span>}
         </div>
         {(() => {
+          const variant = (card.pricechartingName || '').match(/\[([^\]]+)\]/)?.[1]
+          return variant ? <p className="text-accent text-xs truncate">{variant}</p> : null
+        })()}
+        {(() => {
           const series = card.setSeries || seriesFromSetId(card.setId)
           return series && series !== card.setName
-            ? <p className="text-slate-400 text-base truncate mb-0.5">{series} - {card.setName}</p>
-            : <p className="text-slate-400 text-base truncate mb-0.5">{card.setName}</p>
+            ? <p className="text-slate-400 text-xs truncate">{series} - {card.setName}</p>
+            : <p className="text-slate-400 text-xs truncate">{card.setName}</p>
         })()}
         <InlineDatePicker cardId={card.id} current={card.addedDate} onSaved={onRefresh} />
-        <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
           <InlineBinderPicker card={card} onSaved={onRefresh} onBinderFilter={onBinderFilter} />
           <button
             onClick={(e) => { e.stopPropagation(); setNotesOpen(true) }}

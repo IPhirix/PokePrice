@@ -67,7 +67,7 @@ export default function Sparkline({ history, cardId, height = 56 }) {
 
   return (
     <ResponsiveContainer width="100%" height={height}>
-      <AreaChart data={data} margin={{ top: 8, right: 4, bottom: 2, left: 2 }}>
+      <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 2, left: 2 }}>
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="5%" stopColor={color} stopOpacity={0.2} />

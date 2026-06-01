@@ -10,7 +10,12 @@ const path = require('path')
 const axios = require('axios')
 const cron = require('node-cron')
 const { Resend } = require('resend')
+const { Pool } = require('pg')
 require('dotenv').config()
+
+const sbPool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL, max: 2 })
+  : null
 
 // Force consistent userData path across dev and production builds (productName
 // capitalisation differs, so pin it explicitly to 'pokeprice').
@@ -53,6 +58,10 @@ function migrateUserData(username) {
   } catch {}
 }
 
+function localDateStr(d = new Date()) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function cardsFile() { return path.join(getUserDir(), 'cards.json') }
 function priceFile(id) { return path.join(getUserDir(), `prices-${id}.json`) }
 function settingsFile() { return path.join(getUserDir(), 'settings.json') }
@@ -84,7 +93,7 @@ function readPrices(cardId) {
   try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return [] }
 }
 function appendPrice(cardId, entry) {
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDateStr()
   const history = readPrices(cardId).filter((p) => p.date !== today)
   history.push({ date: today, ...entry })
   history.sort((a, b) => a.date.localeCompare(b.date))
@@ -174,7 +183,7 @@ function runUserMigrations() {
   try { migrateAlertSettings() } catch {}
   try {
     const s = readSettings()
-    if (!s.dateJoined) writeSettings({ ...s, dateJoined: new Date().toISOString().split('T')[0] })
+    if (!s.dateJoined) writeSettings({ ...s, dateJoined: localDateStr() })
   } catch {}
 }
 
@@ -346,212 +355,110 @@ async function searchCards(query) {
 
 // ── PokemonPriceTracker API ──────────────────────────────────────────────────
 
-const PPT_BASE = 'https://www.pokemonpricetracker.com/api/v2'
-
-// Kept for Firebase CSV backfill (historical CSVs use PriceCharting product IDs)
-const PC_CONDITION_FIELDS = {
-  raw:   ['loose-price'],
-  psa10: ['manual-only-price', 'condition-7-price'],
-  psa9:  ['graded-price', 'condition-5-price'],
-  psa8:  ['new-price', 'condition-2-price'],
-  cgc10: ['condition-17-price'],
-  cgc9:  ['graded-price', 'condition-5-price']
+const SUPABASE_CONDITION_COL = {
+  raw:    'loose_price',
+  psa10:  'manual_only_price',
+  psa9:   'graded_price',
+  psa8:   'new_price',
+  cgc10:  'condition_17_price',
+  cgc9:   'graded_price',
+  sealed: 'loose_price',
 }
 
-function parsePcCsvToMap(text) {
-  const lines = text.split('\n')
-  if (lines.length < 2) return new Map()
-  function parseRow(line) {
-    const fields = []
-    let field = '', inQuote = false
-    for (let i = 0; i < line.length; i++) {
-      const ch = line[i]
-      if (ch === '"') {
-        if (inQuote && line[i + 1] === '"') { field += '"'; i++ }
-        else inQuote = !inQuote
-      } else if (ch === ',' && !inQuote) {
-        fields.push(field.trim()); field = ''
-      } else { field += ch }
+// Resolves a card to its pricecharting_id in Supabase.
+// Priority: pricechartingId (exact int) → pricechartingName (exact product_name string) →
+// constructed name+number with set filter (for newly added cards with no PC fields yet).
+// pricechartingId is the most reliable because it distinguishes variations (1st Ed vs Unlimited).
+async function resolveSupabaseId(card) {
+  if (!sbPool) return null
+  if (card.pricechartingId) return card.pricechartingId
+  if (card.pricechartingName) {
+    const res = await sbPool.query(
+      `SELECT pricecharting_id FROM pokemon_card_prices WHERE product_name = $1 LIMIT 1`,
+      [card.pricechartingName]
+    )
+    if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
+  }
+  // For new cards: construct PriceCharting's product_name format "{Name} #{number}"
+  if (card.name && card.number) {
+    const productName = `${card.name} #${card.number}`
+    if (card.setName) {
+      const res = await sbPool.query(
+        `SELECT pricecharting_id FROM pokemon_card_prices WHERE product_name = $1 AND console_name ILIKE $2 LIMIT 1`,
+        [productName, `%${card.setName}%`]
+      )
+      if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
     }
-    fields.push(field.trim())
-    return fields
+    // Fallback: match product_name only (no set filter)
+    const res = await sbPool.query(
+      `SELECT pricecharting_id FROM pokemon_card_prices WHERE product_name = $1 LIMIT 1`,
+      [productName]
+    )
+    if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
   }
-  const headers = parseRow(lines[0])
-  const idIdx = headers.indexOf('id')
-  if (idIdx === -1) return new Map()
-  const map = new Map()
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (!line) continue
-    const vals = parseRow(line)
-    const id = vals[idIdx]
-    if (!id) continue
-    const row = {}
-    headers.forEach((h, idx) => { row[h] = vals[idx] || '' })
-    map.set(id, row)
-  }
-  return map
-}
-
-function getPcCsvPrice(row, condition) {
-  const fields = PC_CONDITION_FIELDS[condition] || ['loose-price']
-  for (const field of fields) {
-    const val = parseInt(row[field], 10)
-    if (!isNaN(val) && val > 0) return Math.round(val) / 100
+  // Sealed products: find a DB row where the stored card name contains both console_name and product_name.
+  // e.g. "Ascended Heroes Elite Trainer Box" contains "Ascended Heroes" AND "Elite Trainer Box".
+  if (card.type === 'sealed' && card.name) {
+    const res = await sbPool.query(
+      `SELECT DISTINCT pricecharting_id FROM pokemon_card_prices
+       WHERE LOWER($1) LIKE '%' || LOWER(TRIM(console_name)) || '%'
+         AND LOWER($1) LIKE '%' || LOWER(TRIM(product_name)) || '%'
+         AND LENGTH(TRIM(console_name)) > 2
+         AND LENGTH(TRIM(product_name)) > 2
+       LIMIT 1`,
+      [card.name]
+    )
+    if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
   }
   return null
 }
 
-let _lastPptCallAt = 0
-async function pptRateLimit() {
-  const gap = Date.now() - _lastPptCallAt
-  if (gap < 1100) await new Promise((r) => setTimeout(r, 1100 - gap))
-  _lastPptCallAt = Date.now()
+async function fetchSupabaseHistory(card) {
+  if (!sbPool) return []
+  const col = SUPABASE_CONDITION_COL[card.condition] || 'loose_price'
+  const pcId = await resolveSupabaseId(card)
+  if (!pcId) return []
+  // Query the condition-specific column (e.g. manual_only_price for PSA 10)
+  const res = await sbPool.query(
+    `SELECT snapshot_date::date AS date, ${col} AS price FROM pokemon_card_prices WHERE pricecharting_id = $1 AND ${col} IS NOT NULL ORDER BY snapshot_date`,
+    [pcId]
+  )
+  if (res.rows.length > 0) {
+    return res.rows.map(r => ({ date: r.date.toISOString().split('T')[0], price: parseFloat(r.price), source: 'supabase' }))
+  }
+  // Fallback: if this card has no data for the selected grade, use loose_price so
+  // at least the sparkline and change % have something to display
+  if (col !== 'loose_price') {
+    const fallback = await sbPool.query(
+      `SELECT snapshot_date::date AS date, loose_price AS price FROM pokemon_card_prices WHERE pricecharting_id = $1 AND loose_price IS NOT NULL ORDER BY snapshot_date`,
+      [pcId]
+    )
+    return fallback.rows.map(r => ({ date: r.date.toISOString().split('T')[0], price: parseFloat(r.price), source: 'supabase' }))
+  }
+  return []
 }
 
-async function searchPPT(name, setName, number) {
-  const pptToken = process.env.POKEPRICE_KEY || ''
-  if (!pptToken) return []
-  await pptRateLimit()
-  const query = [name, setName, number].filter(Boolean).join(' ')
-  const res = await axios.get(`${PPT_BASE}/cards`, {
-    params: { search: query, limit: 10 },
-    headers: { Authorization: `Bearer ${pptToken}` },
-    timeout: 10000
-  })
-  return res.data?.data || []
-}
-
-// Normalize a set name for fuzzy comparison: strip "SWSH[N]: " / "SV[N]: " prefixes, remove colons
-function normSetName(s) {
-  return (s || '').toLowerCase().replace(/^(swsh\d*|sv\d*):\s*/i, '').replace(/:/g, '').replace(/\s+/g, ' ').trim()
-}
-
-// Returns true if two normalized set names are a confident match using word overlap
-function setsMatch(ourSet, pptSet) {
-  const a = normSetName(ourSet)
-  const b = normSetName(pptSet)
-  if (!a || !b) return false
-  if (a === b) return true
-  const wordsA = a.split(' ').filter(w => w.length > 2)
-  const wordsB = b.split(' ').filter(w => w.length > 2)
-  // Fall back to substring for very short set names (e.g. "Base", "151")
-  if (!wordsA.length || !wordsB.length) return b.includes(a) || a.includes(b)
-  const setB = new Set(wordsB)
-  const shorter = wordsA.length <= wordsB.length ? wordsA : wordsB
-  const overlap = shorter.filter(w => setB.has(w) || b.includes(w)).length
-  return overlap / shorter.length >= 0.6
-}
-
-// Checks whether a PPT card name is a plausible match for our card name
-function nameMatches(pptName, ourName) {
-  const a = (pptName || '').toLowerCase()
-  const b = (ourName || '').toLowerCase()
-  return a === b || a.startsWith(b) || b.startsWith(a) || a.includes(b)
-}
-
-// Resolves an app card to a PPT card object via name+set+number search.
-async function resolveCardToPPT(card) {
-  const pptToken = process.env.POKEPRICE_KEY || ''
-  if (!pptToken || !card.name) return null
-
-  // Name search, disambiguate by set + card number
-  try {
-    await pptRateLimit()
-    const res = await axios.get(`${PPT_BASE}/cards`, {
-      params: { search: card.name, limit: 20 },
-      headers: { Authorization: `Bearer ${pptToken}` },
-      timeout: 10000
-    })
-    const results = res.data?.data || []
-    if (!results.length) return null
-
-    const nameLower = (card.name || '').toLowerCase()
-    const numLower = (card.number || '').toLowerCase()
-
-    // Score each result: exact name = 3pts, set match = 2pts, number-in-name = 1pt.
-    // Exact name strongly preferred so e.g. "Eevee" beats "Eevee [Pokemon Center]".
-    function score(p) {
-      const pName = (p.name || '').toLowerCase()
-      if (pName !== nameLower && !pName.startsWith(nameLower)) return -1 // name must match
-      let s = 0
-      if (pName === nameLower) s += 3
-      if (setsMatch(card.setName, p.setName)) s += 2
-      if (numLower && pName.includes(numLower)) s += 1
-      return s
-    }
-
-    const scored = results.map(p => ({ p, s: score(p) })).filter(x => x.s >= 0).sort((a, b) => b.s - a.s)
-    if (!scored.length) return null
-
-    // Require at least a set match (score ≥ 2); if top result has no set match, refuse to guess
-    if (scored[0].s < 2) {
-      // Exception: only one result total with the exact name → safe to use
-      const exactOnly = results.filter(p => (p.name || '').toLowerCase() === nameLower)
-      if (exactOnly.length === 1) return exactOnly[0]
-      console.warn(`PPT: no confident set match for "${card.name}" from "${card.setName}" — skipping`)
-      return null
-    }
-    return scored[0].p
-  } catch (e) {
-    console.warn('PPT name search failed:', e.message)
-    return null
+async function fetchSupabaseAllConditions(card) {
+  if (!sbPool) return {}
+  const pcId = await resolveSupabaseId(card)
+  if (!pcId) return {}
+  const res = await sbPool.query(
+    `SELECT loose_price, manual_only_price, graded_price, new_price, condition_17_price FROM pokemon_card_prices WHERE pricecharting_id = $1 ORDER BY snapshot_date DESC LIMIT 1`,
+    [pcId]
+  )
+  const row = res.rows[0]
+  if (!row) return {}
+  const p = v => (v != null ? parseFloat(v) : null)
+  return {
+    'Ungraded': p(row.loose_price),
+    'PSA 10':   p(row.manual_only_price),
+    'PSA 9':    p(row.graded_price),
+    'PSA 8':    p(row.new_price),
+    'CGC 10':   p(row.condition_17_price),
+    'CGC 9':    p(row.graded_price),
   }
 }
 
-async function findPPTCard(name, setName, number) {
-  return resolveCardToPPT({ name, setName, number })
-}
-
-async function fetchPPTCardById(pptId, includeEbay = false) {
-  const pptToken = process.env.POKEPRICE_KEY || ''
-  if (!pptToken) throw new Error('PPT token not configured')
-  await pptRateLimit()
-  const params = { tcgPlayerId: pptId }
-  if (includeEbay) params.includeEbay = 'true'
-  const res = await axios.get(`${PPT_BASE}/cards`, {
-    params,
-    headers: { Authorization: `Bearer ${pptToken}` },
-    timeout: 10000
-  })
-  const data = res.data?.data
-  if (!data) throw new Error('PPT: no data returned')
-  return data
-}
-
-function extractPPTPrice(cardData, condition) {
-  if (!cardData) return null
-  if (condition === 'raw') {
-    const p = cardData.prices?.market
-    return p != null && p > 0 ? p : null
-  }
-  const grade = cardData.ebay?.salesByGrade?.[condition]
-  if (!grade) return null
-  const price = grade.smartMarketPrice?.price ?? grade.marketPrice7Day ?? grade.averagePrice ?? null
-  return price != null && price > 0 ? price : null
-}
-
-// Searches for + fetches price in one step; persists pptId link if not already set
-async function linkAndPricePPT(card) {
-  try {
-    let pptId = card.pptId
-    let pptName = card.pptName
-    if (!pptId) {
-      const found = await resolveCardToPPT(card)
-      if (!found) return null
-      pptId = found.tcgPlayerId
-      pptName = found.name
-    }
-    const data = await fetchPPTCardById(pptId, card.condition !== 'raw')
-    const price = extractPPTPrice(data, card.condition)
-    if (price != null) console.log(`PPT [${card.name}/${card.condition}]: $${price.toFixed(2)}`)
-    else console.warn(`PPT: no price for [${card.name}/${card.condition}]`)
-    return { pptId, pptName, price }
-  } catch (e) {
-    console.warn(`PPT price failed for ${card.name}/${card.condition}: ${e.message}`)
-    return null
-  }
-}
 
 // ── Scheduler ────────────────────────────────────────────────────────────────
 
@@ -559,22 +466,19 @@ let cronTask = null
 
 async function refreshAllPrices(onProgress) {
   if (!_currentUser) return
+  const today = localDateStr()
   const cards = readCards()
   for (let i = 0; i < cards.length; i++) {
     const card = cards[i]
     if (onProgress) onProgress({ current: i + 1, total: cards.length, name: card.name })
     try {
-      const result = await linkAndPricePPT(card)
-      if (result) {
-        if (result.price != null) appendPrice(card.id, { price: result.price, source: 'ppt' })
-        if (!card.pptId && result.pptId) {
-          const all = readCards()
-          const idx = all.findIndex((c) => c.id === card.id)
-          if (idx !== -1) { all[idx].pptId = result.pptId; all[idx].pptName = result.pptName || null; writeCards(all) }
-        }
-      }
+      const history = await fetchSupabaseHistory(card)
+      if (!history.length) continue
+      bulkLoadHistory(card.id, history)
+      const todayEntry = history.find(e => e.date === today)
+      if (todayEntry) appendPrice(card.id, { price: todayEntry.price, source: 'supabase' })
     } catch (err) {
-      console.error(`Price fetch failed for ${card.name}: ${err.message}`)
+      console.error(`Supabase price fetch failed for ${card.name}: ${err.message}`)
     }
   }
 }
@@ -721,7 +625,7 @@ async function checkAndRefreshPrices() {
   if (!_currentUser) return
   const cards = readCards()
   if (!cards.length) return
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDateStr()
   const needsRefresh = cards.some((c) => c.lastPriceUpdate !== today)
   if (!needsRefresh) return
 
@@ -846,29 +750,25 @@ ipcMain.handle('account:removeActivity', (_, id) => {
   fs.writeFileSync(activityFile(), JSON.stringify(log, null, 2))
 })
 
-ipcMain.handle('pc:search', async (_, query) => searchPPT(query, '', ''))
-ipcMain.handle('ppt:search', async (_, query) => searchPPT(query, '', ''))
-
-ipcMain.handle('prices:searchAndFetchRaw', async (_, name, setName) => {
-  try {
-    const results = await searchPPT(name, setName, '')
-    if (!results?.length) return null
-    const nameLower = name.toLowerCase()
-    const setLower = (setName || '').toLowerCase()
-    const best = results.find((p) =>
-      (p.name || '').toLowerCase() === nameLower &&
-      (p.setName || '').toLowerCase().includes(setLower)
-    ) || results.find((p) => (p.name || '').toLowerCase() === nameLower)
-    if (!best?.tcgPlayerId) return null
-    const data = await fetchPPTCardById(best.tcgPlayerId, false)
-    return extractPPTPrice(data, 'raw')
-  } catch (e) {
-    console.warn('searchAndFetchRaw failed:', e.message)
-    return null
-  }
-})
-
 ipcMain.handle('cards:search', async (_, query) => searchCards(query))
+
+ipcMain.handle('cards:getVariations', async (_, name, number, setName) => {
+  if (!sbPool || !name || !number) return []
+  const base = `${name} #${number}`
+  const variant = `${name} [%] #${number}`
+  try {
+    const res = await sbPool.query(
+      `SELECT DISTINCT ON (pricecharting_id) pricecharting_id, product_name, console_name
+       FROM pokemon_card_prices
+       WHERE (product_name = $1 OR product_name ILIKE $2)
+         AND console_name ILIKE $3
+         AND console_name NOT ILIKE '%Pocket%'
+       ORDER BY pricecharting_id, product_name`,
+      [base, variant, `%${setName || ''}%`]
+    )
+    return res.rows
+  } catch { return [] }
+})
 
 ipcMain.handle('cards:export', async (_, { rows, format, section }) => {
   const ext = format === 'xlsx' ? 'xlsx' : 'csv'
@@ -876,7 +776,7 @@ ipcMain.handle('cards:export', async (_, { rows, format, section }) => {
   const label = labelMap[section] || 'Cards'
   const result = await dialog.showSaveDialog(mainWindow, {
     title: `Export ${label}`,
-    defaultPath: `pokeprice-${section}-${new Date().toISOString().split('T')[0]}.${ext}`,
+    defaultPath: `pokeprice-${section}-${localDateStr()}.${ext}`,
     filters: format === 'xlsx'
       ? [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
       : [{ name: 'CSV File', extensions: ['csv'] }]
@@ -950,15 +850,15 @@ ipcMain.handle('cards:search-advanced', async (_, q) => {
 
 ipcMain.handle('cards:list', () => {
   const d90 = new Date(); d90.setDate(d90.getDate() - 90)
-  const cutoff90 = d90.toISOString().split('T')[0]
+  const cutoff90 = localDateStr(d90)
   return readCards().filter((card) => card.section !== 'sold').map((card) => {
     const history = readPrices(card.id)
     const latest = history[history.length - 1] || null
     const yesterday = history[history.length - 2] || null
     const dWeek = new Date(); dWeek.setDate(dWeek.getDate() - 7)
     const dMonth = new Date(); dMonth.setDate(dMonth.getDate() - 30)
-    const weekAgo = history.find((p) => p.date >= dWeek.toISOString().split('T')[0]) || null
-    const monthAgo = history.find((p) => p.date >= dMonth.toISOString().split('T')[0]) || null
+    const weekAgo = history.find((p) => p.date >= localDateStr(dWeek)) || null
+    const monthAgo = history.find((p) => p.date >= localDateStr(dMonth)) || null
     return {
       ...card,
       section: card.section || 'watchlist',
@@ -988,7 +888,7 @@ ipcMain.handle('cards:sell', (_, cardId, soldInfo) => {
     }
   }
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDateStr()
 
   // Add received trade cards directly to the collection
   const received = (soldInfo.tradeCardsReceived || []).filter(tc => tc.name?.trim())
@@ -1081,7 +981,7 @@ ipcMain.handle('cards:sell', (_, cardId, soldInfo) => {
 
 ipcMain.handle('cards:listSold', () => {
   const d90 = new Date(); d90.setDate(d90.getDate() - 90)
-  const cutoff90 = d90.toISOString().split('T')[0]
+  const cutoff90 = localDateStr(d90)
   return readCards().filter((card) => card.section === 'sold').map((card) => {
     const history = readPrices(card.id)
     const latest = history[history.length - 1] || null
@@ -1304,8 +1204,6 @@ ipcMain.handle('trades:undo', async (event, tradeId) => {
         purchasePrice: c.price > 0 ? Math.round(c.price * 100) / 100 : null,
         imageUrl: c.imageUrl || '',
         imageUrlLarge: c.imageUrl || '',
-        pptId: null,
-        pptName: null,
         addedDate: new Date().toISOString(),
         lastPriceUpdate: null,
       }))
@@ -1333,7 +1231,7 @@ ipcMain.handle('trades:undo', async (event, tradeId) => {
   return { restored: restored.length, removed: addedCardIds.length }
 })
 
-ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, purchasePrice, binder) => {
+ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, purchasePrice, binder, addedDate) => {
   const cards = readCards()
 
   // Fetch full TCGdex card to supplement brief search result (adds rarity, artist, types)
@@ -1343,12 +1241,6 @@ ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, pur
       if (res.data) tcgCard = { ...tcgCard, ...mapTcgdexCard(res.data) }
     } catch { /* use original data */ }
   }
-
-  const pptProduct = await resolveCardToPPT({
-    name: tcgCard.name,
-    setName: tcgCard.set?.name || '',
-    number: tcgCard.number || ''
-  })
 
   const newCard = {
     id: randomUUID(),
@@ -1369,9 +1261,9 @@ ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, pur
     purchasePrice: purchasePrice != null && purchasePrice > 0 ? Math.round(purchasePrice * 100) / 100 : null,
     imageUrl: tcgCard.images?.small || '',
     imageUrlLarge: tcgCard.images?.large || '',
-    pptId: pptProduct?.tcgPlayerId || null,
-    pptName: pptProduct?.name || null,
-    addedDate: new Date().toISOString(),
+    pricechartingId: tcgCard.pricechartingId || null,
+    pricechartingName: tcgCard.pricechartingName || null,
+    addedDate: addedDate ? new Date(addedDate).toISOString() : new Date().toISOString(),
     lastPriceUpdate: null
   }
   // Re-read before writing to avoid clobbering concurrent additions during the async API calls above
@@ -1385,37 +1277,49 @@ ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, pur
   appendActivity({ type: `card_added_${sectionLabel}`, message: `Added ${tcgCard.name} to ${sectionLabel}`, cardId: newCard.id, detail: activityDetail })
   if (binder) appendActivity({ type: 'card_added_binder', message: `Added ${tcgCard.name} to binder "${binder}"`, cardId: newCard.id, detail: activityDetail })
 
-  // Fetch current price via PPT
+  // Resolve pricechartingId first so all subsequent Supabase calls are pinned to one card
+  if (!newCard.pricechartingId && sbPool) {
+    try {
+      const pcId = await resolveSupabaseId(newCard)
+      if (pcId) {
+        const nameRes = await sbPool.query(
+          `SELECT product_name FROM pokemon_card_prices WHERE pricecharting_id = $1 LIMIT 1`,
+          [pcId]
+        )
+        newCard.pricechartingId = pcId
+        newCard.pricechartingName = nameRes.rows[0]?.product_name || null
+      }
+    } catch (e) { console.warn('[cards:add] Supabase ID resolve failed:', e.message) }
+  }
+
+  // Fetch current price from Supabase
   try {
-    let currentResult = null
+    const sbConditions = await fetchSupabaseAllConditions(newCard)
+    const gradeLabel = COND_TO_GRADE_LABEL[newCard.condition]
+    const ownPrice = gradeLabel ? sbConditions[gradeLabel] : null
 
-    if (newCard.pptId) {
-      try {
-        const pptData = await fetchPPTCardById(newCard.pptId, newCard.condition !== 'raw')
-        const price = extractPPTPrice(pptData, newCard.condition)
-        if (price != null) currentResult = { price, source: 'ppt' }
-      } catch (e) { console.warn('PPT price failed on add:', e.message) }
-    }
-
-    if (currentResult) {
-      appendPrice(newCard.id, currentResult)
-      newCard.lastPriceUpdate = new Date().toISOString().split('T')[0]
+    if (ownPrice != null) {
+      appendPrice(newCard.id, { price: ownPrice, source: 'supabase' })
+      newCard.lastPriceUpdate = localDateStr()
 
       const allCards = readCards()
       const isReAdd = allCards.some((c) =>
         c.id !== newCard.id &&
         c.section === 'sold' &&
-        ((newCard.pptId && c.pptId === newCard.pptId) ||
-         (newCard.tcgId && c.tcgId === newCard.tcgId))
+        (newCard.tcgId && c.tcgId === newCard.tcgId)
       )
       const settings = readSettings()
-      const changes = { lastPriceUpdate: newCard.lastPriceUpdate }
+      const changes = {
+        lastPriceUpdate: newCard.lastPriceUpdate,
+        pricechartingId: newCard.pricechartingId,
+        pricechartingName: newCard.pricechartingName
+      }
       if (!isReAdd) {
         if (settings.defaultAlertUpPct != null) {
-          changes.alertPrice = Math.round(currentResult.price * (1 + settings.defaultAlertUpPct / 100) * 100) / 100
+          changes.alertPrice = Math.round(ownPrice * (1 + settings.defaultAlertUpPct / 100) * 100) / 100
           changes.alertPct = settings.defaultAlertUpPct
         } else if (settings.defaultAlertDownPct != null) {
-          changes.alertPrice = Math.round(currentResult.price * (1 - settings.defaultAlertDownPct / 100) * 100) / 100
+          changes.alertPrice = Math.round(ownPrice * (1 - settings.defaultAlertDownPct / 100) * 100) / 100
           changes.alertPct = -settings.defaultAlertDownPct
         }
       }
@@ -1423,33 +1327,18 @@ ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, pur
       if (idx !== -1) { Object.assign(allCards[idx], changes); writeCards(allCards) }
       Object.assign(newCard, changes)
     }
-  } catch (err) { console.error('Initial price fetch failed:', err.message) }
+  } catch (err) { console.error('Initial Supabase price fetch failed:', err.message) }
 
-  // Fire-and-forget: backfill 6-month PPT history so the price chart populates immediately
-  if (newCard.pptId) {
-    ;(async () => {
-      try {
-        const pptToken = process.env.POKEPRICE_KEY || ''
-        if (!pptToken) return
-        await pptRateLimit()
-        const res = await axios.get(`${PPT_BASE}/cards`, {
-          params: { tcgPlayerId: newCard.pptId, includeHistory: 'true' },
-          headers: { Authorization: `Bearer ${pptToken}` },
-          timeout: 20000
-        })
-        const ph = res.data?.data?.priceHistory
-        const pptConditionKey = Object.entries(PPT_CONDITION_MAP).find(([, v]) => v === newCard.condition)?.[0]
-        const condHistory = pptConditionKey ? ph?.conditions?.[pptConditionKey]?.history || [] : []
-        const entries = condHistory
-          .map((h) => ({ date: (h.date || '').split('T')[0], price: h.market, source: 'ppt' }))
-          .filter((h) => h.date && h.price > 0)
-        if (entries.length > 0) {
-          bulkLoadHistory(newCard.id, entries)
-          mainWindow?.webContents.send('cards:changed')
-        }
-      } catch {}
-    })()
-  }
+  // Fire-and-forget: backfill full Supabase price history so chart and sparkline populate immediately
+  ;(async () => {
+    try {
+      const history = await fetchSupabaseHistory(newCard)
+      if (history.length > 0) {
+        bulkLoadHistory(newCard.id, history)
+        mainWindow?.webContents.send('cards:changed')
+      }
+    } catch {}
+  })()
 
   return newCard
 })
@@ -1472,7 +1361,22 @@ ipcMain.handle('cards:update', (_, cardId, updates) => {
   return cards[idx]
 })
 
-ipcMain.handle('prices:history', (_, cardId) => readPrices(cardId))
+ipcMain.handle('prices:history', async (_, cardId) => {
+  const local = readPrices(cardId)
+  const card = readCards().find(c => c.id === cardId)
+  if (!card) return local
+  let sbHistory = []
+  try { sbHistory = await fetchSupabaseHistory(card) } catch (e) { console.warn('[prices:history] Supabase error', e.message) }
+  const localDates = new Set(local.map(e => e.date))
+  const fresh = sbHistory.filter(e => !localDates.has(e.date))
+  // Write new Supabase entries to local JSON so cards:list also sees them
+  // (sparkline and 1D/1W/1M changes in the card row read from local JSON)
+  if (fresh.length > 0) {
+    bulkLoadHistory(cardId, sbHistory)
+    mainWindow?.webContents.send('cards:changed')
+  }
+  return [...local, ...fresh].sort((a, b) => a.date.localeCompare(b.date))
+})
 
 ipcMain.handle('prices:refresh', async (_, cardId, section) => {
   const cards = readCards()
@@ -1485,24 +1389,31 @@ ipcMain.handle('prices:refresh', async (_, cardId, section) => {
     toRefresh = cards
   }
 
+  const today = localDateStr()
+  let refreshed = 0
+  const sealedIdCache = {} // cardId → resolved pricechartingId (written back below)
   for (const card of toRefresh) {
     try {
-      const result = await linkAndPricePPT(card)
-      if (result) {
-        if (result.price != null) appendPrice(card.id, { price: result.price, source: 'ppt' })
-        if (!card.pptId && result.pptId) {
-          const all = readCards()
-          const idx = all.findIndex((c) => c.id === card.id)
-          if (idx !== -1) { all[idx].pptId = result.pptId; all[idx].pptName = result.pptName || null; writeCards(all) }
-        }
+      const history = await fetchSupabaseHistory(card)
+      if (!history.length) continue
+      bulkLoadHistory(card.id, history)
+      const todayEntry = history.find(e => e.date === today)
+      if (todayEntry) appendPrice(card.id, { price: todayEntry.price, source: 'supabase' })
+      // Cache the resolved DB id for sealed cards that don't have one yet
+      if (card.type === 'sealed' && !card.pricechartingId) {
+        const pcId = await resolveSupabaseId(card)
+        if (pcId) sealedIdCache[card.id] = pcId
       }
-    } catch (err) { console.error(`Refresh failed for ${card.name}: ${err.message}`) }
+      refreshed++
+    } catch (e) { console.warn(`[prices:refresh] Supabase error for ${card.name}:`, e.message) }
   }
-  const today = new Date().toISOString().split('T')[0]
   const updated = readCards()
   toRefresh.forEach((c) => {
     const i = updated.findIndex((u) => u.id === c.id)
-    if (i !== -1) updated[i].lastPriceUpdate = today
+    if (i !== -1) {
+      updated[i].lastPriceUpdate = today
+      if (sealedIdCache[c.id]) updated[i].pricechartingId = sealedIdCache[c.id]
+    }
   })
   writeCards(updated)
   writeSettings({ ...readSettings(), lastRefreshed: new Date().toISOString() })
@@ -1514,66 +1425,44 @@ ipcMain.handle('prices:refresh', async (_, cardId, section) => {
 // Condition key → grade tile label mapping (matches GRADE_SLOTS in CardDetail)
 const COND_TO_GRADE_LABEL = { raw: 'Ungraded', psa10: 'PSA 10', psa9: 'PSA 9', psa8: 'PSA 8', cgc10: 'CGC 10', cgc9: 'CGC 9' }
 
-// Returns current prices for all grades from PPT API (label → price mapping).
+// Returns current prices for all grades from Supabase (label → price mapping).
 // Also saves the card's own condition price to local history so "Current Price" tile populates.
 ipcMain.handle('prices:allConditions', async (_, cardId) => {
-  let card = readCards().find((c) => c.id === cardId)
+  const card = readCards().find((c) => c.id === cardId)
   if (!card) return null
-  if (!card.pptId) {
-    try {
-      const found = await resolveCardToPPT(card)
-      if (!found) return null
-      const all = readCards()
-      const idx = all.findIndex((c) => c.id === cardId)
-      if (idx !== -1) { all[idx].pptId = found.tcgPlayerId; all[idx].pptName = found.name; writeCards(all) }
-      card = { ...card, pptId: found.tcgPlayerId }
-    } catch (e) {
-      console.warn('allConditions auto-link failed:', e.message)
-      return null
-    }
-  }
   try {
-    const data = await fetchPPTCardById(card.pptId, true)
-    // Validate: PPT card name must loosely match our card name — catches stale wrong links
-    const fetchedName = (data.name || '').toLowerCase()
-    const ourName = (card.name || '').toLowerCase()
-    if (!fetchedName.startsWith(ourName) && !ourName.startsWith(fetchedName) && !fetchedName.includes(ourName)) {
-      console.warn(`PPT link mismatch: card "${card.name}" linked to PPT "${data.name}" (id ${card.pptId}) — clearing`)
-      const all = readCards(); const idx = all.findIndex(c => c.id === cardId)
-      if (idx !== -1) { all[idx].pptId = null; all[idx].pptName = null; writeCards(all) }
-      return null
-    }
-    const result = {}
-    const rawPrice = data.prices?.market
-    if (rawPrice != null && rawPrice > 0) result['Ungraded'] = rawPrice
-    const GRADE_LABELS = { psa10: 'PSA 10', psa9: 'PSA 9', psa8: 'PSA 8', cgc10: 'CGC 10', cgc9: 'CGC 9' }
-    for (const [key, label] of Object.entries(GRADE_LABELS)) {
-      const price = extractPPTPrice(data, key)
-      if (price != null) result[label] = price
-    }
+    const result = await fetchSupabaseAllConditions(card)
     if (!Object.keys(result).length) return null
     // Save the card's own condition price to local history so "Current Price" tile populates
     const gradeLabel = COND_TO_GRADE_LABEL[card.condition]
     const ownPrice = gradeLabel ? result[gradeLabel] : null
     if (ownPrice != null) {
-      const today = new Date().toISOString().split('T')[0]
+      const today = localDateStr()
       const existing = readPrices(cardId)
       if (!existing.some(e => e.date === today)) {
-        appendPrice(cardId, { price: ownPrice, source: 'ppt' })
+        appendPrice(cardId, { price: ownPrice, source: 'supabase' })
         const all = readCards(); const idx = all.findIndex(c => c.id === cardId)
-        if (idx !== -1) {
-          all[idx].currentPrice = ownPrice
-          all[idx].lastPriceUpdate = today
-          writeCards(all)
-        }
+        if (idx !== -1) { all[idx].lastPriceUpdate = today; writeCards(all) }
         mainWindow?.webContents.send('cards:changed')
       }
     }
     return result
   } catch (err) {
-    console.error('allConditions PPT fetch failed:', err.message)
+    console.error('[prices:allConditions] Supabase fetch failed:', err.message)
     return null
   }
+})
+
+// Fetch Supabase price + history for a card not yet in the user's collection (browse mode)
+ipcMain.handle('prices:forTcgCard', async (_, { name, number, setName }) => {
+  const mockCard = { name, number, setName, condition: 'raw' }
+  try {
+    const [current, history] = await Promise.all([
+      fetchSupabaseAllConditions(mockCard).catch(() => ({})),
+      fetchSupabaseHistory(mockCard).catch(() => []),
+    ])
+    return { current, history }
+  } catch { return { current: {}, history: [] } }
 })
 
 ipcMain.handle('prices:portfolio', (_, binder) => {
@@ -1627,7 +1516,7 @@ ipcMain.handle('prices:portfolio', (_, binder) => {
 
   // 90-day portfolio value history
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - 90)
-  const cutoffStr = cutoff.toISOString().split('T')[0]
+  const cutoffStr = localDateStr(cutoff)
   const dateSet = new Set()
   portfolioData.forEach(({ history }) => {
     history.forEach((p) => { if (p.date >= cutoffStr) dateSet.add(p.date) })
@@ -1715,7 +1604,7 @@ ipcMain.handle('prices:refreshCsv', async () => {
 
 ipcMain.handle('prices:setManual', (_, cardId, price) => {
   appendPrice(cardId, { price, source: 'manual' })
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDateStr()
   const cards = readCards()
   const idx = cards.findIndex((c) => c.id === cardId)
   if (idx !== -1) { cards[idx].lastPriceUpdate = today; writeCards(cards) }
@@ -1877,21 +1766,8 @@ ipcMain.handle('sets:list', async () => {
   return setsCache
 })
 
-ipcMain.handle('sealed:search', async (_, query) => {
-  const pptToken = process.env.POKEPRICE_KEY || ''
-  if (!pptToken) return { error: 'no_token', products: [] }
-  await pptRateLimit()
-  try {
-    const res = await axios.get(`${PPT_BASE}/sealed-products`, {
-      params: { search: query },
-      headers: { Authorization: `Bearer ${pptToken}` },
-      timeout: 10000,
-    })
-    const products = (res.data?.data || []).slice(0, 30)
-    return { products }
-  } catch (err) {
-    return { error: err.message, products: [] }
-  }
+ipcMain.handle('sealed:search', async () => {
+  return { products: [] }
 })
 
 ipcMain.handle('sealed:add', async (_, product, section, purchasePrice, binder) => {
@@ -1914,52 +1790,17 @@ ipcMain.handle('sealed:add', async (_, product, section, purchasePrice, binder) 
     purchasePrice: purchasePrice != null && purchasePrice > 0 ? Math.round(purchasePrice * 100) / 100 : null,
     imageUrl: product.imageUrl || product.image || product.img || product['image-url'] || product.imageSmall || product.thumbnail || '',
     imageUrlLarge: product.imageUrl || product.image || product.img || product['image-url'] || product.imageSmall || product.thumbnail || '',
-    pptId: product.tcgPlayerId || null,
-    pptName: productName,
     addedDate: new Date().toISOString(),
     lastPriceUpdate: null,
   }
   cards.push(newItem)
   writeCards(cards)
 
-  if (newItem.pptId) {
-    try {
-      const pptToken = process.env.POKEPRICE_KEY || ''
-      await pptRateLimit()
-      const res = await axios.get(`${PPT_BASE}/sealed-products`, {
-        params: { tcgPlayerId: newItem.pptId },
-        headers: { Authorization: `Bearer ${pptToken}` },
-        timeout: 10000,
-      })
-      const data = Array.isArray(res.data?.data) ? res.data.data[0] : res.data?.data
-      const price = data?.prices?.market ?? null
-      const imgFromData = data?.imageUrl || data?.image || data?.img || data?.['image-url'] || null
-      const updated = readCards()
-      const idx = updated.findIndex((c) => c.id === newItem.id)
-      if (idx !== -1) {
-        if (price != null && price > 0) {
-          appendPrice(newItem.id, { price, source: 'ppt' })
-          newItem.lastPriceUpdate = new Date().toISOString().split('T')[0]
-          updated[idx].lastPriceUpdate = newItem.lastPriceUpdate
-        }
-        if (imgFromData && !updated[idx].imageUrl) {
-          updated[idx].imageUrl = imgFromData
-          updated[idx].imageUrlLarge = imgFromData
-          newItem.imageUrl = imgFromData
-          newItem.imageUrlLarge = imgFromData
-        }
-        writeCards(updated)
-      }
-    } catch (err) {
-      console.error('Sealed product PPT price fetch failed:', err.message)
-    }
-  }
-
   return newItem
 })
 
 ipcMain.handle('prices:clearHistory', () => {
-  const today = new Date().toISOString().split('T')[0]
+  const today = localDateStr()
   const cards = readCards()
   let cleared = 0
   for (const card of cards) {
@@ -1994,55 +1835,6 @@ ipcMain.handle('prices:deleteEntry', (_, cardId, date) => {
 })
 
 
-// PPT condition name → app condition key mapping for graded history
-const PPT_CONDITION_MAP = {
-  'PSA 10': 'psa10',
-  'PSA 9': 'psa9',
-  'PSA 8': 'psa8',
-  'CGC 10': 'cgc10',
-  'CGC 9': 'cgc9',
-  'Near Mint': 'raw'
-}
-
-// Fetches 6-month price history from PPT for a card and merges into local storage.
-// Works for raw (Near Mint) and potentially graded conditions if PPT exposes them.
-ipcMain.handle('prices:fetchPPTHistory', async (_, cardId) => {
-  const card = readCards().find((c) => c.id === cardId)
-  if (!card?.pptId) return readPrices(cardId)
-  const pptToken = process.env.POKEPRICE_KEY || ''
-  if (!pptToken) return readPrices(cardId)
-  try {
-    await pptRateLimit()
-    const res = await axios.get(`${PPT_BASE}/cards`, {
-      params: { tcgPlayerId: card.pptId, includeHistory: 'true' },
-      headers: { Authorization: `Bearer ${pptToken}` },
-      timeout: 20000
-    })
-    const data = res.data?.data
-    const ph = data?.priceHistory
-    const tracked = ph?.conditions_tracked || Object.keys(ph?.conditions || {})
-    console.log(`PPT history conditions_tracked for ${card.name}:`, tracked)
-    // Temp: write debug info to file so we can inspect what PPT actually returns
-    const debugPath = path.join(app.getPath('userData'), 'ppt-history-debug.json')
-    fs.writeFileSync(debugPath, JSON.stringify({ conditions_tracked: tracked, conditionKeys: Object.keys(ph?.conditions || {}), sampleConditions: Object.fromEntries(Object.entries(ph?.conditions || {}).map(([k, v]) => [k, { dataPoints: v?.history?.length ?? 0, firstDate: v?.history?.[0]?.date, lastDate: v?.history?.[v?.history?.length - 1]?.date }])) }, null, 2))
-
-    // Find the condition key in PPT response that matches this card's condition
-    const pptConditionKey = Object.entries(PPT_CONDITION_MAP).find(
-      ([, appKey]) => appKey === card.condition
-    )?.[0]
-    const conditionHistory = pptConditionKey
-      ? ph?.conditions?.[pptConditionKey]?.history || []
-      : []
-    const entries = conditionHistory
-      .map((h) => ({ date: (h.date || '').split('T')[0], price: h.market, source: 'ppt' }))
-      .filter((h) => h.date && h.price > 0)
-    if (entries.length > 0) bulkLoadHistory(cardId, entries)
-    console.log(`PPT history: merged ${entries.length} days for ${card.name} (${card.condition}) via key "${pptConditionKey}"`)
-  } catch (e) {
-    console.warn('PPT history fetch failed:', e.message)
-  }
-  return readPrices(cardId)
-})
 
 
 function calcChange(current, previous) {

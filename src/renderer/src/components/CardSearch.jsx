@@ -22,9 +22,14 @@ export default function CardSearch({ section, onAdd, onClose }) {
   const [binder, setBinder] = useState('')
   const [purchasePrice, setPurchasePrice] = useState('')
   const [alertPrice, setAlertPrice] = useState('')
+  const [addedDate, setAddedDate] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` })
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState(null)
   const [displayCount, setDisplayCount] = useState(40)
+  const [variations, setVariations] = useState([])
+  const [variationStep, setVariationStep] = useState(false)
+  const [selectedVariation, setSelectedVariation] = useState(null)
+  const [loadingVariations, setLoadingVariations] = useState(false)
 
   const inputRef = useRef(null)
   const binderRef = useRef(null)
@@ -132,7 +137,25 @@ export default function CardSearch({ section, onAdd, onClose }) {
 
   function goToAdvancedSearch() {
     onClose()
-    navigate('/', { state: { tab: 'search' } })
+    navigate('/', { state: { tab: 'search', searchQuery: query.trim() || undefined } })
+  }
+
+  async function selectCardAndCheckVariations(card) {
+    if (selected?.id === card.id) {
+      setSelected(null); setVariationStep(false); setVariations([]); setSelectedVariation(null)
+      return
+    }
+    setSelected(card); setVariations([]); setSelectedVariation(null); setVariationStep(false)
+    setLoadingVariations(true)
+    try {
+      const vars = await window.api.getCardVariations(card.name, card.number || '', card.set?.name || '')
+      if (vars.length > 1) {
+        setVariations(vars); setVariationStep(true)
+      } else {
+        setSelectedVariation(vars[0] || null)
+      }
+    } catch (e) { console.warn('[CardSearch] getCardVariations failed:', e?.message) }
+    setLoadingVariations(false)
   }
 
   async function handleAddCard() {
@@ -142,9 +165,15 @@ export default function CardSearch({ section, onAdd, onClose }) {
       const effectiveBinder = ((await binderRef.current?.ensureAndGetBinder()) ?? binder) || null
       const parsedPrice = purchasePrice !== '' ? parseFloat(purchasePrice) : null
       const newCard = await window.api.addCard(
-        selected, condition, 1, section,
+        {
+          ...selected,
+          pricechartingId: selectedVariation?.pricecharting_id || null,
+          pricechartingName: selectedVariation?.product_name || null,
+        },
+        condition, 1, section,
         parsedPrice && parsedPrice > 0 ? parsedPrice : null,
-        effectiveBinder
+        effectiveBinder,
+        addedDate || null
       )
       const targets = {}
       const parsedAlert = alertPrice !== '' ? parseFloat(alertPrice) : null
@@ -268,7 +297,7 @@ export default function CardSearch({ section, onAdd, onClose }) {
             return (
               <button
                 key={card.id}
-                onClick={() => !adding && setSelected(selected?.id === card.id ? null : card)}
+                onClick={() => !adding && !loadingVariations && selectCardAndCheckVariations(card)}
                 className={`w-full flex items-center gap-4 px-6 py-4 hover:bg-surface-700 transition-colors text-left ${
                   selected?.id === card.id ? 'bg-surface-700 border-l-2 border-accent' : ''
                 }`}
@@ -306,10 +335,58 @@ export default function CardSearch({ section, onAdd, onClose }) {
           )}
         </div>
 
-        {/* Selected card + add form */}
-        {selected && (
+        {/* Selected card + variation picker / add form */}
+        {(selected || loadingVariations) && (
           <div className="flex-shrink-0 border-t border-surface-600 bg-surface-900/50 overflow-y-auto">
-            {adding ? (
+            {loadingVariations ? (
+              <div className="p-6 flex items-center justify-center gap-3 text-slate-400 text-sm">
+                <svg className="animate-spin w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Looking up variations…
+              </div>
+            ) : variationStep ? (
+              <div className="p-6 flex flex-col gap-3">
+                <div className="flex items-center gap-4 mb-1">
+                  <img src={selected?.images?.small} className="w-12 h-[66px] object-contain rounded flex-shrink-0" alt={selected?.name} />
+                  <div>
+                    <p className="text-white text-base font-semibold">{selected?.name}</p>
+                    <p className="text-slate-400 text-sm">{selected?.set?.name}</p>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-300 mb-0.5">Which variation?</p>
+                  <p className="text-xs text-slate-500 mb-3">Multiple versions found — pick the one you have.</p>
+                  <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto">
+                    {variations.map((v) => (
+                      <button
+                        key={v.pricecharting_id}
+                        onClick={() => { setSelectedVariation(v); setVariationStep(false) }}
+                        className="w-full text-left px-3 py-2.5 bg-surface-800 hover:bg-surface-700 border border-surface-600 hover:border-accent rounded-lg transition-colors"
+                      >
+                        <p className="text-white text-sm">{v.product_name}</p>
+                        <p className="text-slate-500 text-xs">{v.console_name}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-4 pt-1">
+                  <button
+                    onClick={() => { setSelectedVariation(null); setVariationStep(false) }}
+                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    Not sure — skip for now
+                  </button>
+                  <button
+                    onClick={() => { setSelected(null); setVariationStep(false) }}
+                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    ← Back to results
+                  </button>
+                </div>
+              </div>
+            ) : adding ? (
               <div className="p-8 flex flex-col items-center justify-center gap-4">
                 <div className="relative w-16 h-16">
                   {selected?.images?.small && (
@@ -354,6 +431,15 @@ export default function CardSearch({ section, onAdd, onClose }) {
                   <div className="flex-1">
                     <label className="text-slate-400 text-sm mb-1.5 block">Binder (optional)</label>
                     <BinderSelector ref={binderRef} section={section} value={binder} onChange={setBinder} className="w-full" />
+                  </div>
+                  <div className="w-44">
+                    <label className="text-slate-400 text-sm mb-1.5 block">Added to Collection</label>
+                    <input
+                      type="date"
+                      value={addedDate}
+                      onChange={(e) => setAddedDate(e.target.value)}
+                      className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-base text-white focus:outline-none focus:border-accent [color-scheme:dark]"
+                    />
                   </div>
                   {section === 'collection' && (
                     <div className="w-40">

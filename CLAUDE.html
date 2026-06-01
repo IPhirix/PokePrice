@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CLAUDE.md — PokePrice</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f1117;
+      color: #c9d1d9;
+      line-height: 1.7;
+      padding: 2rem 1rem;
+    }
+
+    .page {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ── */
+    .site-header {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+      padding-bottom: 1.5rem;
+      border-bottom: 1px solid #2a2f3a;
+    }
+    .logo {
+      width: 44px;
+      height: 44px;
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.4rem;
+      flex-shrink: 0;
+    }
+    .site-header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #f0f6fc;
+    }
+    .site-header p {
+      font-size: 0.85rem;
+      color: #6e7681;
+      margin-top: 0.1rem;
+    }
+
+    /* ── TOC ── */
+    .toc {
+      background: #161b22;
+      border: 1px solid #2a2f3a;
+      border-radius: 10px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 2.5rem;
+    }
+    .toc h2 {
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #6e7681;
+      margin-bottom: 0.75rem;
+    }
+    .toc ol {
+      list-style: none;
+      counter-reset: toc;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.25rem 2rem;
+    }
+    .toc li { counter-increment: toc; }
+    .toc a {
+      color: #f59e0b;
+      text-decoration: none;
+      font-size: 0.9rem;
+    }
+    .toc a::before {
+      content: counter(toc) ". ";
+      color: #6e7681;
+      font-size: 0.8rem;
+    }
+    .toc a:hover { text-decoration: underline; }
+
+    /* ── Sections ── */
+    section { margin-bottom: 2.5rem; }
+
+    h2 {
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: #f0f6fc;
+      padding-bottom: 0.4rem;
+      border-bottom: 2px solid #f59e0b;
+      margin-bottom: 1.2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    h2 .icon { font-size: 1rem; }
+
+    h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #e6edf3;
+      margin: 1.4rem 0 0.6rem;
+    }
+
+    p { margin-bottom: 0.75rem; }
+
+    a { color: #f59e0b; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    strong { color: #e6edf3; }
+
+    code {
+      font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+      font-size: 0.85em;
+      background: #1c2230;
+      color: #e6b84a;
+      padding: 0.15em 0.4em;
+      border-radius: 4px;
+      border: 1px solid #2a2f3a;
+    }
+
+    pre {
+      background: #161b22;
+      border: 1px solid #2a2f3a;
+      border-radius: 8px;
+      padding: 1.1rem 1.25rem;
+      overflow-x: auto;
+      margin: 0.75rem 0 1rem;
+    }
+    pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: #c9d1d9;
+      font-size: 0.88em;
+    }
+    .comment { color: #6e7681; }
+
+    /* ── Command block ── */
+    .cmd-grid {
+      display: grid;
+      gap: 0.5rem;
+      margin: 0.75rem 0 1rem;
+    }
+    .cmd-row {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      gap: 1rem;
+      align-items: start;
+      background: #161b22;
+      border: 1px solid #2a2f3a;
+      border-radius: 7px;
+      padding: 0.6rem 0.9rem;
+    }
+    .cmd-row code {
+      background: none;
+      border: none;
+      padding: 0;
+      color: #79c0ff;
+      font-size: 0.88em;
+    }
+    .cmd-desc { font-size: 0.88rem; color: #8b949e; }
+
+    /* ── Callout ── */
+    .callout {
+      background: #1c2230;
+      border-left: 3px solid #f59e0b;
+      border-radius: 0 7px 7px 0;
+      padding: 0.75rem 1rem;
+      margin: 0.75rem 0 1rem;
+      font-size: 0.9rem;
+      color: #c9d1d9;
+    }
+
+    /* ── Lists ── */
+    ul, ol {
+      padding-left: 1.4rem;
+      margin-bottom: 0.75rem;
+    }
+    li { margin-bottom: 0.3rem; }
+
+    /* ── File tree ── */
+    .file-list {
+      list-style: none;
+      padding: 0;
+      background: #161b22;
+      border: 1px solid #2a2f3a;
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 0.75rem 0 1rem;
+    }
+    .file-list li {
+      display: flex;
+      gap: 0.75rem;
+      padding: 0.55rem 1rem;
+      border-bottom: 1px solid #2a2f3a;
+      margin: 0;
+      font-size: 0.88rem;
+    }
+    .file-list li:last-child { border-bottom: none; }
+    .file-list .fname { color: #79c0ff; font-family: "Cascadia Code", monospace; white-space: nowrap; flex-shrink: 0; }
+    .file-list .fdesc { color: #8b949e; }
+
+    /* ── Key files table ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.75rem 0 1rem;
+      font-size: 0.88rem;
+    }
+    th {
+      text-align: left;
+      background: #1c2230;
+      color: #8b949e;
+      font-weight: 600;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.55rem 0.9rem;
+      border-bottom: 1px solid #2a2f3a;
+    }
+    td {
+      padding: 0.55rem 0.9rem;
+      border-bottom: 1px solid #1c2230;
+      vertical-align: top;
+    }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: #161b22; }
+    td:first-child { color: #79c0ff; font-family: "Cascadia Code", monospace; white-space: nowrap; }
+    td:last-child { color: #8b949e; }
+
+    /* ── API cards ── */
+    .api-grid {
+      display: grid;
+      gap: 0.6rem;
+      margin: 0.75rem 0 1rem;
+    }
+    .api-card {
+      background: #161b22;
+      border: 1px solid #2a2f3a;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+    }
+    .api-badge {
+      background: #1c2230;
+      border: 1px solid #2a2f3a;
+      border-radius: 5px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      padding: 0.25em 0.55em;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .api-badge.primary { color: #f59e0b; border-color: #f59e0b44; background: #f59e0b11; }
+    .api-badge.secondary { color: #58a6ff; border-color: #58a6ff44; background: #58a6ff11; }
+    .api-badge.utility { color: #7ee787; border-color: #7ee78744; background: #7ee78711; }
+    .api-name { font-weight: 600; color: #e6edf3; font-size: 0.92rem; }
+    .api-desc { font-size: 0.85rem; color: #8b949e; margin-top: 0.15rem; }
+
+    /* ── Auth flow ── */
+    .flow {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin: 0.75rem 0 1rem;
+      font-size: 0.85rem;
+    }
+    .flow-step {
+      background: #1c2230;
+      border: 1px solid #2a2f3a;
+      border-radius: 6px;
+      padding: 0.3em 0.7em;
+      color: #c9d1d9;
+    }
+    .flow-arrow { color: #f59e0b; font-size: 1rem; }
+
+    /* ── Footer ── */
+    footer {
+      margin-top: 3rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #2a2f3a;
+      font-size: 0.8rem;
+      color: #6e7681;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- Header -->
+  <header class="site-header">
+    <div class="logo">⚡</div>
+    <div>
+      <h1>PokePrice — CLAUDE.md</h1>
+      <p>Codebase guide for Claude Code · Last updated 2026-05-31</p>
+    </div>
+  </header>
+
+  <!-- TOC -->
+  <nav class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#commands">Commands</a></li>
+      <li><a href="#process-model">Process Model</a></li>
+      <li><a href="#auth">Auth System</a></li>
+      <li><a href="#storage">Data Storage</a></li>
+      <li><a href="#card-shape">Card Object Shape</a></li>
+      <li><a href="#prices">Price Refresh System</a></li>
+      <li><a href="#styling">Styling</a></li>
+      <li><a href="#key-files">Key Files</a></li>
+      <li><a href="#apis">External APIs</a></li>
+    </ol>
+  </nav>
+
+  <!-- Commands -->
+  <section id="commands">
+    <h2><span class="icon">⚙️</span> Commands</h2>
+    <div class="cmd-grid">
+      <div class="cmd-row"><code>npm run dev</code><span class="cmd-desc">Start Electron app with Vite dev server — hot reload at localhost:5173</span></div>
+      <div class="cmd-row"><code>npm run dev:web</code><span class="cmd-desc">Vite renderer only (no Electron)</span></div>
+      <div class="cmd-row"><code>npm run build</code><span class="cmd-desc">Production bundle</span></div>
+      <div class="cmd-row"><code>npm run build:win</code><span class="cmd-desc">Build portable Windows .exe via electron-builder → <code>dist/PokePrice.exe</code></span></div>
+    </div>
+    <p>There is no test suite. Testing is manual by running the app.</p>
+    <div class="callout">
+      <strong>Important:</strong> Electron must be launched via <code>scripts/start-electron.js</code> (not directly), which clears <code>ELECTRON_RUN_AS_NODE=1</code> that Claude Code CLI sets. <code>npm run dev</code> handles this automatically. For a quick rebuild + launch cycle, use <code>scripts/rebuild.ps1</code>.
+    </div>
+  </section>
+
+  <!-- Process Model -->
+  <section id="process-model">
+    <h2><span class="icon">🏗️</span> Architecture — Process Model</h2>
+    <p><strong>Main process</strong> (<code>src/main/index.js</code>, ~2600 lines) handles all data persistence, API calls, auth, and business logic. The renderer has no direct file system or network access.</p>
+    <p><strong>Preload bridge</strong> (<code>src/preload/index.js</code>) exposes ~76 async methods as <code>window.api.*</code> using <code>contextBridge</code>. All renderer ↔ main communication goes through these IPC calls. Auth methods are nested under <code>window.api.auth.*</code>.</p>
+    <p><strong>Renderer</strong> (<code>src/renderer/</code>) is a React 18 + React Router 6 (hash routing) SPA. Components call <code>window.api.*</code> directly and store results in local <code>useState</code>. There is no Redux/Zustand — state lives in components and React Context.</p>
+  </section>
+
+  <!-- Auth -->
+  <section id="auth">
+    <h2><span class="icon">🔐</span> Auth System</h2>
+    <p>The app uses local multi-user authentication backed by <code>auth.json</code> at the root of <code>userData</code>. Passwords are hashed with PBKDF2 + random salt. Session tokens are stored in <code>auth.json</code> and optionally persisted across restarts via "stay logged in".</p>
+
+    <h3>Startup flow</h3>
+    <div class="flow">
+      <span class="flow-step">App starts</span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-step"><code>AuthProvider</code> checks <code>auth:isSetup</code> &amp; <code>auth:isSessionValid</code></span>
+      <span class="flow-arrow">→</span>
+      <span class="flow-step">Not set up → <code>CreateAccountPage</code></span>
+      <span class="flow-arrow">·</span>
+      <span class="flow-step">Set up, no session → <code>LoginPage</code></span>
+      <span class="flow-arrow">·</span>
+      <span class="flow-step">Authenticated → main app</span>
+    </div>
+
+    <p>Password reset supports two paths: email code (via Resend) or security question/answer.</p>
+    <p><code>_currentUser</code> is set in the main process on login and cleared on logout. All per-user file reads/writes go through <code>getUserDir()</code> which throws if no user is logged in.</p>
+    <p><strong>Data migration:</strong> on first login after upgrade, old flat <code>userData/*.json</code> files are copied into <code>users/{username}/</code>.</p>
+  </section>
+
+  <!-- Data Storage -->
+  <section id="storage">
+    <h2><span class="icon">💾</span> Data Storage</h2>
+    <p><code>auth.json</code> lives at the root of <code>userData</code> (shared across users). All other data files live in <code>userData/users/{username}/</code>:</p>
+    <ul class="file-list">
+      <li><span class="fname">cards.json</span><span class="fdesc">Array of all tracked cards (portfolio + watchlist + sealed)</span></li>
+      <li><span class="fname">prices-{cardId}.json</span><span class="fdesc">Price history array for each card — <code>[{date, price, source}]</code></span></li>
+      <li><span class="fname">settings.json</span><span class="fdesc">API tokens, currency, defaults, binder lists</span></li>
+      <li><span class="fname">trades.json</span><span class="fdesc">Historical trade records</span></li>
+      <li><span class="fname">activity.json</span><span class="fdesc">Account activity log entries</span></li>
+      <li><span class="fname">upcoming-shows.json</span><span class="fdesc">Saved card show events</span></li>
+    </ul>
+    <p><strong>Shared (not per-user):</strong></p>
+    <ul class="file-list">
+      <li><span class="fname">csv-cache/</span><span class="fdesc">Cached PPT CSV files — 1-hour TTL</span></li>
+      <li><span class="fname">sets-cache.json</span><span class="fdesc">Pokemon TCG sets list cache</span></li>
+    </ul>
+  </section>
+
+  <!-- Card Shape -->
+  <section id="card-shape">
+    <h2><span class="icon">🃏</span> Card Object Shape</h2>
+    <pre><code>{
+  id,            <span class="comment">// UUID</span>
+  tcgId,         <span class="comment">// Pokemon TCG API ID</span>
+  name, setName, setId, number, rarity,
+  condition,     <span class="comment">// 'raw' | 'psa10' | 'psa9' | 'psa8' | 'cgc10' | 'cgc9'</span>
+  quantity, section,   <span class="comment">// 'portfolio' | 'watchlist'</span>
+  binder,        <span class="comment">// string | null  (old cards may use 'folder' — both are checked)</span>
+  purchasePrice, currentPrice, priceSource,
+  pptId,         <span class="comment">// tcgPlayerId from Pokemon Price Tracker API</span>
+  pptName,       <span class="comment">// card name from PPT</span>
+  imageUrl, imageUrlLarge,
+  addedDate, lastPriceUpdate,
+  targetBuyPrice, targetSellPrice,
+  changeDay, changeWeek, changeMonth,  <span class="comment">// % changes</span>
+  recentHistory  <span class="comment">// last 90 days [{date, price}]</span>
+}</code></pre>
+    <p>Legacy cards may still have <code>pricechartingId</code>/<code>pricechartingName</code> instead of <code>pptId</code>/<code>pptName</code>.</p>
+  </section>
+
+  <!-- Prices -->
+  <section id="prices">
+    <h2><span class="icon">💰</span> Price Refresh System</h2>
+    <p>All prices come from <strong>Pokemon Price Tracker (PPT)</strong> (<code>https://www.pokemonpricetracker.com/api/v2</code>). Token stored as <code>pptToken</code> in <code>settings.json</code> (env var <code>POKEPRICE_KEY</code> overrides in dev).</p>
+    <ul>
+      <li><strong>Raw cards:</strong> fetched via <code>GET /cards?tcgPlayerId={id}</code> → <code>cardData.prices.market</code></li>
+      <li><strong>Graded cards:</strong> fetched with <code>includeEbay=true</code> → <code>cardData.ebay.salesByGrade[condition].smartMarketPrice</code></li>
+      <li>Rate limiting: 1100ms gap enforced via <code>pptRateLimit()</code>, 60 calls/minute max</li>
+      <li>Cards without a <code>pptId</code> are auto-linked on first refresh via name+set+number search (1 credit)</li>
+      <li>Refresh triggered manually via <code>prices:refresh</code> IPC or by a <code>node-cron</code> job at 8am daily</li>
+    </ul>
+    <p>Legacy PriceCharting CSV backfill still works for old cards that have <code>pricechartingId</code>.</p>
+  </section>
+
+  <!-- Styling -->
+  <section id="styling">
+    <h2><span class="icon">🎨</span> Styling</h2>
+    <p>Tailwind CSS with a custom dark theme. Key custom tokens:</p>
+    <ul>
+      <li><code>surface-900</code> → <code>surface-500</code> — dark panel backgrounds</li>
+      <li><code>accent</code> — amber highlight color</li>
+    </ul>
+  </section>
+
+  <!-- Key Files -->
+  <section id="key-files">
+    <h2><span class="icon">📁</span> Key Files</h2>
+    <table>
+      <thead>
+        <tr><th>File</th><th>Role</th></tr>
+      </thead>
+      <tbody>
+        <tr><td>src/main/index.js</td><td>All IPC handlers, data CRUD, API integrations, auth, cron scheduling</td></tr>
+        <tr><td>src/preload/index.js</td><td><code>window.api</code> bridge definition</td></tr>
+        <tr><td>src/renderer/src/App.jsx</td><td>Auth-gated routing: LoginPage / CreateAccountPage / main app</td></tr>
+        <tr><td>src/renderer/src/pages/Dashboard.jsx</td><td>Main hub — portfolio/watchlist tabs, binder nav</td></tr>
+        <tr><td>src/renderer/src/pages/CardDetail.jsx</td><td>Single card view, price chart, edit/alerts</td></tr>
+        <tr><td>src/renderer/src/pages/LoginPage.jsx</td><td>Login form with password reset flow</td></tr>
+        <tr><td>src/renderer/src/pages/CreateAccountPage.jsx</td><td>New account creation form</td></tr>
+        <tr><td>src/renderer/src/context/AuthContext.jsx</td><td>Auth state: isSetup, isAuthenticated, login/logout/createAccount</td></tr>
+        <tr><td>src/renderer/src/context/CurrencyContext.jsx</td><td>Live forex rates + USD conversion for all prices</td></tr>
+        <tr><td>src/renderer/src/context/AlertsContext.jsx</td><td>Price alert state shared across components</td></tr>
+        <tr><td>src/renderer/src/components/AccountModal.jsx</td><td>Account settings, password change, data management</td></tr>
+        <tr><td>src/renderer/src/components/ResetPasswordModal.jsx</td><td>Password reset via email code or security question</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- External APIs -->
+  <section id="apis">
+    <h2><span class="icon">🌐</span> External APIs</h2>
+    <div class="api-grid">
+      <div class="api-card">
+        <span class="api-badge primary">Primary</span>
+        <div>
+          <div class="api-name">Pokemon Price Tracker (PPT)</div>
+          <div class="api-desc">Sole active price source. See <code>reference-ppt-api.md</code> in memory for auth, endpoints, and rate limits.</div>
+        </div>
+      </div>
+      <div class="api-card">
+        <span class="api-badge secondary">Metadata</span>
+        <div>
+          <div class="api-name">Pokemon TCG API — pokemontcg.io</div>
+          <div class="api-desc">Card search and metadata (name, set, image URLs, rarity).</div>
+        </div>
+      </div>
+      <div class="api-card">
+        <span class="api-badge utility">Utility</span>
+        <div>
+          <div class="api-name">open.er-api.com</div>
+          <div class="api-desc">Live exchange rates for currency conversion. Fallback to hardcoded rates if unavailable.</div>
+        </div>
+      </div>
+      <div class="api-card">
+        <span class="api-badge utility">Utility</span>
+        <div>
+          <div class="api-name">Resend</div>
+          <div class="api-desc">Transactional email for password reset codes.</div>
+        </div>
+      </div>
+      <div class="api-card">
+        <span class="api-badge utility">Utility</span>
+        <div>
+          <div class="api-name">Google Geocoding</div>
+          <div class="api-desc">Used by the card shows feature to place show locations on a map.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Generated from <code>CLAUDE.md</code> · PokePrice
+  </footer>
+
+</div>
+</body>
+</html>
