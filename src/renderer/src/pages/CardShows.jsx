@@ -262,7 +262,7 @@ function UpcomingSidebar({ upcomingShows, onRemove, onShowClick }) {
   )
 }
 
-function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing, jumpToDate }) {
+function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing, jumpToDate, noShows }) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const showMap = buildShowMap(shows)
@@ -348,7 +348,10 @@ function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing, jumpTo
                 Today
               </button>
             </div>
-            {monthShowCount > 0 && <p className="text-violet-400 text-xs">{monthShowCount} show{monthShowCount !== 1 ? 's' : ''}</p>}
+            {noShows
+              ? <p className="text-[10px] text-slate-500 italic">No upcoming shows — check back later</p>
+              : monthShowCount > 0 && <p className="text-violet-400 text-xs">{monthShowCount} show{monthShowCount !== 1 ? 's' : ''}</p>
+            }
           </div>
           <button onClick={() => changeMonth(1)}
             className="flex items-center gap-1 px-3 py-1.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 hover:text-white text-sm rounded-lg transition-colors">
@@ -464,7 +467,7 @@ function CalendarView({ shows, distances, upcomingShowIds, onToggleGoing, jumpTo
   )
 }
 
-function ListView({ shows, distances, upcomingShowIds, onToggleGoing }) {
+function ListView({ shows, distances, upcomingShowIds, onToggleGoing, noShows }) {
   const today = new Date()
   today.setHours(0, 0, 0, 0)
 
@@ -515,6 +518,9 @@ function ListView({ shows, distances, upcomingShowIds, onToggleGoing }) {
     <div className="flex flex-col flex-1 min-h-0 gap-3">
       {/* Filter toolbar */}
       <div className="flex items-center gap-3 flex-shrink-0">
+        {noShows && (
+          <span className="text-xs text-slate-500 italic">No upcoming shows — check back later</span>
+        )}
         <button
           onClick={() => setFilterClose(f => !f)}
           disabled={!hasDistances}
@@ -618,6 +624,19 @@ export default function CardShows() {
     }
   }, [])
 
+  const goBackToStates = useCallback(() => {
+    setSelectedState(null)
+    setShows([])
+  }, [])
+
+  useEffect(() => {
+    if (!selectedState) return
+    window.history.pushState({ pokeprice: 'cardshows-state' }, '')
+    const handlePopState = () => goBackToStates()
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [selectedState, goBackToStates])
+
   const loadState = useCallback(async (state) => {
     setSelectedState(state)
     setLoading(true)
@@ -708,30 +727,42 @@ export default function CardShows() {
   }
 
   const upcomingShowIds = new Set(upcomingShows.map(s => s.id))
+  const showsWithHistory = shows
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
-      <div className="flex-shrink-0 px-6 py-3 border-b border-surface-700 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="flex-shrink-0 px-6 py-3 border-b border-surface-700 grid grid-cols-3 items-center gap-4">
+        {/* Left: back button */}
+        <div className="flex items-center">
           {selectedState && (
-            <button onClick={() => { setSelectedState(null); setShows([]) }}
-              className="flex items-center gap-1 text-slate-400 hover:text-violet-300 text-sm transition-colors">
+            <button onClick={() => { window.history.back() }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-surface-500 bg-surface-700 hover:bg-surface-600 hover:border-violet-500/60 text-slate-300 hover:text-violet-200 text-sm font-medium transition-colors">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6" /></svg>
               States
             </button>
           )}
-          <h2 className="text-base font-semibold text-white">
-            {selectedState ? selectedState.name : 'Card Shows'}
-          </h2>
-          {selectedState && !loading && shows.length > 0 && (
-            <span className="text-xs px-2 py-0.5 bg-violet-900/40 border border-violet-500/30 text-violet-300 rounded-full">
-              {shows.length} show{shows.length !== 1 ? 's' : ''}
-            </span>
+          {!selectedState && (
+            <h2 className="text-base font-semibold text-white">Card Shows</h2>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        {/* Center: state name + count */}
+        <div className="flex items-center justify-center gap-2">
+          {selectedState && (
+            <>
+              <h2 className="text-lg font-bold text-white">{selectedState.name}</h2>
+              {!loading && (
+                <span className="text-xs px-2 py-0.5 bg-violet-900/40 border border-violet-500/30 text-violet-300 rounded-full">
+                  {showsWithHistory.length} show{showsWithHistory.length !== 1 ? 's' : ''}
+                </span>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Right: default select + view toggle */}
+        <div className="flex items-center gap-2 justify-end">
           <span className="text-slate-500 text-xs">Default:</span>
           <select
             value={defaultState?.code || ''}
@@ -772,14 +803,14 @@ export default function CardShows() {
               <div className="grid grid-cols-10 gap-2">
                 {US_STATES.map(state => (
                   <button key={state.code} onClick={() => loadState(state)}
-                    className={`flex flex-col items-center justify-center py-3 px-2 rounded-xl border transition-all group ${
+                    className={`h-16 flex flex-col items-center justify-center px-1 rounded-xl border transition-all group ${
                       defaultState?.code === state.code
                         ? 'border-violet-500 bg-violet-900/30 text-violet-200'
                         : 'border-surface-600 bg-surface-800 text-slate-400 hover:border-violet-500/60 hover:bg-violet-900/10 hover:text-violet-200'
                     }`}>
-                    <span className="text-base font-bold leading-none">{state.code}</span>
-                    <span className="text-[10px] mt-1 text-center leading-tight opacity-60 group-hover:opacity-100 transition-opacity">{state.name}</span>
-                    {defaultState?.code === state.code && <span className="mt-1 w-1.5 h-1.5 rounded-full bg-violet-400" />}
+                    <span className="text-lg font-bold leading-none">{state.code}</span>
+                    <span className="text-[11px] mt-1 text-center leading-tight opacity-60 group-hover:opacity-100 transition-opacity w-full px-1 line-clamp-2">{state.name}</span>
+                    {defaultState?.code === state.code && <span className="mt-1 w-1.5 h-1.5 rounded-full bg-violet-400 flex-shrink-0" />}
                   </button>
                 ))}
               </div>
@@ -804,16 +835,10 @@ export default function CardShows() {
             </div>
           )}
 
-          {selectedState && !loading && !error && shows.length === 0 && (
-            <div className="flex-1 flex items-center justify-center">
-              <p className="text-slate-500 text-sm">No upcoming shows found for {selectedState.name}</p>
-            </div>
-          )}
-
-          {selectedState && !loading && !error && shows.length > 0 && (
+          {selectedState && !loading && !error && (
             viewMode === 'calendar'
-              ? <CalendarView shows={shows} distances={distances} upcomingShowIds={upcomingShowIds} onToggleGoing={toggleGoing} jumpToDate={jumpToDate} />
-              : <ListView shows={shows} distances={distances} upcomingShowIds={upcomingShowIds} onToggleGoing={toggleGoing} />
+              ? <CalendarView shows={showsWithHistory} distances={distances} upcomingShowIds={upcomingShowIds} onToggleGoing={toggleGoing} jumpToDate={jumpToDate} noShows={showsWithHistory.length === 0} />
+              : <ListView shows={showsWithHistory} distances={distances} upcomingShowIds={upcomingShowIds} onToggleGoing={toggleGoing} noShows={showsWithHistory.length === 0} />
           )}
         </div>
       </div>

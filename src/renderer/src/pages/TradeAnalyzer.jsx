@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '../context/CurrencyContext'
+import { useCardSearch } from '../hooks/useCardSearch'
+import CardSearchInput from '../components/CardSearchInput'
 
 const CONDITIONS = [
   { value: 'raw',   label: 'Raw' },
@@ -11,6 +13,15 @@ const CONDITIONS = [
   { value: 'cgc9',  label: 'CGC 9' },
 ]
 const COND_SHORT = { raw: 'Raw', psa10: 'PSA 10', psa9: 'PSA 9', psa8: 'PSA 8', cgc10: 'CGC 10', cgc9: 'CGC 9' }
+
+function cleanVariationLabel(productName, cardName, cardNumber) {
+  if (!productName) return ''
+  let label = productName
+  label = label.replace(/^Pokemon\s+/i, '')
+  if (cardName) label = label.replace(new RegExp('^' + cardName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*', 'i'), '')
+  if (cardNumber) label = label.replace(new RegExp('^#?' + String(cardNumber).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[/\\s]*', 'i'), '')
+  return label.trim()
+}
 
 function tcgPrice(card) {
   return card.cardmarket?.prices?.averageSellPrice
@@ -86,19 +97,20 @@ function TiltCard({ src, alt, onClick, imgClassName = 'w-28 h-[156px]' }) {
 function TradeCardSearch({ side, onAdd, onClose }) {
   const { format } = useCurrency()
   const navigate = useNavigate()
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState([])
-  const [loading, setLoading] = useState(false)
-  const [hasSearched, setHasSearched] = useState(false)
+  const {
+    query, results, searching: loading, searchCommitted: hasSearched, displayCount,
+    handleQueryChange, handleSearch, loadMore, clearSearch,
+  } = useCardSearch({ initialPageSize: 24, pageIncrement: 24 })
   const [selected, setSelected] = useState(null)
+  const [variations, setVariations] = useState([])
+  const [variationStep, setVariationStep] = useState(false)
+  const [selectedVariation, setSelectedVariation] = useState(null)
+  const [loadingVariations, setLoadingVariations] = useState(false)
   const [condition, setCondition] = useState('raw')
   const [customPrice, setCustomPrice] = useState('')
   const [inspecting, setInspecting] = useState(false)
   const [collectionCards, setCollectionCards] = useState([])
   const [collectionLoading, setCollectionLoading] = useState(true)
-  const [displayCount, setDisplayCount] = useState(24)
-
-  useEffect(() => { setDisplayCount(24) }, [results])
 
   useEffect(() => {
     window.api.listCards()
@@ -107,99 +119,9 @@ function TradeCardSearch({ side, onAdd, onClose }) {
       .finally(() => setCollectionLoading(false))
   }, [])
 
-  async function search() {
-    if (!query.trim()) return
-    setLoading(true)
-    setResults([])
-    try {
-      const q = query.trim()
-      // "Charizard #4" or "Charizard #04" — explicit card number
-      const hashMatch = q.match(/^(.*?)\s*#(\w+)\s*$/)
-      if (hashMatch) {
-        const name = hashMatch[1].trim()
-        const rawNum = hashMatch[2]
-        const targetNum = parseInt(rawNum, 10)
-        const isNumeric = !isNaN(targetNum)
-        if (name) {
-          // Search by name, sort matching number to the top client-side
-          const allCards = await window.api.searchCardsAdvanced(`name:"${name}*"`).catch(() => [])
-          const matched = []; const rest = []
-          for (const c of allCards) {
-            const cn = String(c.number || '')
-            const hits = isNumeric ? parseInt(cn, 10) === targetNum : cn.toUpperCase() === rawNum.toUpperCase()
-            if (hits) matched.push(c); else rest.push(c)
-          }
-          const withDivider = matched.length > 0 && rest.length > 0
-            ? [...matched, { _divider: true, id: '__divider__' }, ...rest]
-            : [...matched, ...rest]
-          setResults(withDivider)
-        } else {
-          // Number-only: try zero-padded variants via eq:localId
-          const numVariants = isNumeric
-            ? [...new Set([rawNum, String(targetNum), String(targetNum).padStart(3, '0')])]
-            : [rawNum]
-          const batches = await Promise.all(numVariants.map((v) =>
-            window.api.searchCardsAdvanced(`number:"${v}"`).catch(() => [])
-          ))
-          const seen = new Set(); const merged = []
-          for (const batch of batches) for (const c of batch) if (!seen.has(c.id)) { seen.add(c.id); merged.push(c) }
-          setResults(merged)
-        }
-        return
-      }
-      // "Charizard 4" — trailing number may be card number or set identifier
-      const trailingMatch = q.match(/^(.+?)\s+(\d+)\s*$/)
-      if (trailingMatch) {
-        const name = trailingMatch[1].trim()
-        const rawNum = trailingMatch[2]
-        const targetNum = parseInt(rawNum, 10)
-        const [allCards, setCards] = await Promise.all([
-          window.api.searchCardsAdvanced(`name:"${name}*"`).catch(() => []),
-          window.api.searchCardsAdvanced(`name:"${name}*" set.name:"${rawNum}"`).catch(() => [])
-        ])
-        const seen = new Set(); const matched = []; const rest = []
-        for (const c of allCards) if (parseInt(String(c.number || ''), 10) === targetNum && !seen.has(c.id)) { seen.add(c.id); matched.push(c) }
-        for (const c of setCards) if (!seen.has(c.id)) { seen.add(c.id); rest.push(c) }
-        for (const c of allCards) if (!seen.has(c.id)) { seen.add(c.id); rest.push(c) }
-        const withDivider = matched.length > 0 && rest.length > 0
-          ? [...matched, { _divider: true, id: '__divider__' }, ...rest]
-          : [...matched, ...rest]
-        setResults(withDivider)
-        return
-      }
-      // Plain text: search by card name, set name, and every word-split name+set combo in parallel
-      const words = q.split(/\s+/)
-      const allSearches = [
-        window.api.searchCardsAdvanced(`name:"${q}*"`).catch(() => []),
-        window.api.searchCardsAdvanced(`set.name:"${q}"`).catch(() => []),
-      ]
-      for (let i = 1; i < words.length; i++) {
-        const namePart = words.slice(0, i).join(' ')
-        const setPart = words.slice(i).join(' ')
-        allSearches.push(window.api.searchCardsAdvanced(`name:"${namePart}*" set.name:"${setPart}"`).catch(() => []))
-      }
-      const allBatches = await Promise.all(allSearches)
-      const seen = new Set()
-      const merged = []
-      for (const batch of allBatches) {
-        for (const card of batch) {
-          if (!seen.has(card.id)) { seen.add(card.id); merged.push(card) }
-        }
-      }
-      setResults(merged)
-    } catch {}
-    finally { setLoading(false); setHasSearched(true) }
-  }
-
   function goToAdvancedSearch() {
     onClose()
     navigate('/', { state: { tab: 'search' } })
-  }
-
-  function clearSearch() {
-    setQuery('')
-    setResults([])
-    setHasSearched(false)
   }
 
   function handleSelectCollection(collCard) {
@@ -214,14 +136,32 @@ function TradeCardSearch({ side, onAdd, onClose }) {
       _collectionId: collCard.id,
     }
     setSelected(normalized)
+    setVariations([])
+    setSelectedVariation(null)
+    setVariationStep(false)
+    setLoadingVariations(false)
     setCondition(collCard.condition || 'raw')
     setCustomPrice(collCard.currentPrice != null ? String(collCard.currentPrice) : '')
   }
 
-  function handleSelect(card) {
+  async function selectCardAndCheckVariations(card) {
     setSelected(card)
     const p = tcgPrice(card)
     setCustomPrice(p != null ? String(p) : '')
+    setVariations([])
+    setSelectedVariation(null)
+    setVariationStep(false)
+    setLoadingVariations(true)
+    try {
+      const vars = await window.api.getCardVariations(card.name, card.number || '', card.set?.name || '')
+      if (vars.length > 1) {
+        setVariations(vars)
+        setVariationStep(true)
+      } else {
+        setSelectedVariation(vars[0] || null)
+      }
+    } catch (e) { console.warn('[TradeAnalyzer] getCardVariations failed:', e?.message) }
+    setLoadingVariations(false)
   }
 
   function handleAdd() {
@@ -233,10 +173,13 @@ function TradeCardSearch({ side, onAdd, onClose }) {
       name: selected.name,
       number: selected.number,
       setName: selected.set?.name,
+      seriesName: selected.set?.series || null,
       imageUrl: selected.images?.small,
       condition,
       price: isNaN(price) || price < 0 ? 0 : Math.round(price * 100) / 100,
       collectionId: selected._collectionId || null,
+      pricechartingId: selectedVariation?.pricecharting_id || null,
+      pricechartingName: selectedVariation?.product_name || null,
     })
     onClose()
   }
@@ -250,7 +193,7 @@ function TradeCardSearch({ side, onAdd, onClose }) {
         onClick={(e) => e.target === e.currentTarget && onClose()}>
         <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-lg mx-4 overflow-hidden">
           <div className="px-5 py-4 border-b border-surface-600 flex items-center justify-between">
-            <button onClick={() => setSelected(null)}
+            <button onClick={() => { setSelected(null); setVariations([]); setSelectedVariation(null); setVariationStep(false) }}
               className="flex items-center gap-1 text-slate-400 hover:text-white text-sm transition-colors">
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -260,51 +203,106 @@ function TradeCardSearch({ side, onAdd, onClose }) {
             <h2 className="text-base font-semibold text-white">Add to {side === 'you' ? 'Your' : 'Their'} Side</h2>
             <button onClick={onClose} className="text-slate-400 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
           </div>
-          <div className="p-5 space-y-4">
-            <div className="flex items-center gap-5">
-              {selected.images?.small && (
-                <TiltCard
-                  src={selected.images.small}
-                  alt={selected.name}
-                  onClick={() => setInspecting(true)}
-                />
-              )}
-              <div className="min-w-0">
-                <p className="text-white font-bold text-xl">{selected.name}</p>
-                <p className="text-slate-400 text-base mt-1">{selected.set?.name}</p>
-                {selected.number && <p className="text-slate-500 text-sm mt-0.5">#{selected.number}</p>}
+
+          {loadingVariations ? (
+            <div className="p-8 flex items-center justify-center gap-3 text-slate-400 text-sm">
+              <svg className="animate-spin w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Looking up variations…
+            </div>
+          ) : variationStep ? (
+            <div className="p-5 flex flex-col gap-3">
+              <div className="flex items-center gap-4 mb-1">
+                {selected?.images?.small && (
+                  <img src={selected.images.small} className="w-12 h-[66px] object-contain rounded flex-shrink-0" alt={selected.name} />
+                )}
+                <div>
+                  <p className="text-white text-base font-semibold">{selected?.name}</p>
+                  <p className="text-slate-400 text-sm">{selected?.set?.name}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-slate-300 mb-0.5">Which variation?</p>
+                <p className="text-xs text-slate-500 mb-3">Multiple versions found — pick the one you have.</p>
+                <div className="flex flex-col gap-1.5 max-h-56 overflow-y-auto">
+                  {variations.map((v) => (
+                    <button
+                      key={v.pricecharting_id}
+                      onClick={() => { setSelectedVariation(v); setVariationStep(false) }}
+                      className="w-full text-left px-3 py-2.5 bg-surface-800 hover:bg-surface-700 border border-surface-600 hover:border-yellow-400/50 rounded-lg transition-colors"
+                    >
+                      <p className="text-white text-sm">{v.product_name}</p>
+                      <p className="text-slate-500 text-xs">{v.console_name}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                onClick={() => { setSelectedVariation(null); setVariationStep(false) }}
+                className="w-full px-3 py-2.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 hover:border-surface-400 text-slate-300 text-sm rounded-lg transition-colors"
+              >
+                Not sure — skip for now
+              </button>
+            </div>
+          ) : (
+            <>
+            <div className="p-5 space-y-4">
+              <div className="flex items-center gap-5">
+                {selected.images?.small && (
+                  <TiltCard
+                    src={selected.images.small}
+                    alt={selected.name}
+                    onClick={() => setInspecting(true)}
+                  />
+                )}
+                <div className="min-w-0">
+                  <p className="text-white font-bold text-xl">
+                    {selected.name}{selected.number ? <span className="text-slate-400 font-normal"> #{selected.number}</span> : ''}
+                  </p>
+                  {selectedVariation && (
+                    <p className="text-slate-300 text-sm mt-0.5">
+                      {cleanVariationLabel(selectedVariation.product_name, selected.name, selected.number)}
+                    </p>
+                  )}
+                  <p className="text-slate-400 text-sm mt-0.5">
+                    {[selected.set?.series, selected.set?.name].filter(Boolean).join(' - ')}
+                  </p>
+                </div>
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-1.5">Condition</label>
+                <select value={condition} onChange={(e) => setCondition(e.target.value)}
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-yellow-400">
+                  {CONDITIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-slate-400 text-sm block mb-1.5">
+                  Price
+                  {suggested != null && <span className="text-slate-500 ml-2 text-xs">Market: {format(suggested)}</span>}
+                  {selected._purchasePrice != null && <span className="text-slate-500 ml-2 text-xs">· Paid: {format(selected._purchasePrice)}</span>}
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
+                  <input autoFocus type="number" min="0" step="0.01"
+                    value={customPrice} onChange={(e) => setCustomPrice(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAdd() }}
+                    placeholder="0.00"
+                    className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-7 pr-3 py-2.5 text-sm text-white focus:outline-none focus:border-yellow-400"
+                  />
+                </div>
               </div>
             </div>
-            <div>
-              <label className="text-slate-400 text-sm block mb-1.5">Condition</label>
-              <select value={condition} onChange={(e) => setCondition(e.target.value)}
-                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-yellow-400">
-                {CONDITIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-              </select>
+            <div className="px-5 pb-5">
+              <button onClick={handleAdd}
+                className="w-full bg-yellow-400 hover:bg-yellow-300 text-black font-bold py-2.5 rounded-lg text-sm transition-colors">
+                Add Card
+              </button>
             </div>
-            <div>
-              <label className="text-slate-400 text-sm block mb-1.5">
-                Price
-                {suggested != null && <span className="text-slate-500 ml-2 text-xs">Market: {format(suggested)}</span>}
-                {selected._purchasePrice != null && <span className="text-slate-500 ml-2 text-xs">· Paid: {format(selected._purchasePrice)}</span>}
-              </label>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
-                <input autoFocus type="number" min="0" step="0.01"
-                  value={customPrice} onChange={(e) => setCustomPrice(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') handleAdd() }}
-                  placeholder="0.00"
-                  className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-7 pr-3 py-2.5 text-sm text-white focus:outline-none focus:border-yellow-400"
-                />
-              </div>
-            </div>
-          </div>
-          <div className="px-5 pb-5">
-            <button onClick={handleAdd}
-              className="w-full bg-yellow-400 hover:bg-yellow-300 text-black font-bold py-2.5 rounded-lg text-sm transition-colors">
-              Add Card
-            </button>
-          </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -332,34 +330,22 @@ function TradeCardSearch({ side, onAdd, onClose }) {
           <button onClick={onClose} className="text-slate-400 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
         </div>
         <div className="px-5 py-3 flex-shrink-0">
-          <div className="flex gap-1.5">
-            <input autoFocus value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && search()}
-              placeholder="Search by name, set, or card # (e.g. Charizard #4)…"
-              className={`flex-1 bg-surface-700 border rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none transition-colors ${loading ? 'border-yellow-400/60' : 'border-surface-500 focus:border-yellow-400'}`}
-            />
-            <button onClick={search} disabled={loading || !query.trim()} title="Search"
-              className="px-3 py-2 bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-black font-semibold text-sm rounded-lg transition-colors flex items-center gap-1.5 flex-shrink-0">
-              {loading ? (
-                <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                </svg>
-              ) : (
+          <CardSearchInput
+            query={query}
+            onChange={handleQueryChange}
+            onSearch={handleSearch}
+            searching={loading}
+            autoFocus
+            inputClassName={loading ? 'border-yellow-400/60' : 'focus:border-yellow-400'}
+            rightSlot={
+              <button onClick={goToAdvancedSearch} title="Advanced search — open full search page"
+                className="px-2.5 py-2.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 hover:border-surface-400 text-slate-400 hover:text-white text-sm rounded-lg transition-colors flex items-center flex-shrink-0">
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
                 </svg>
-              )}
-              <span className="text-sm font-bold">{loading ? 'Searching' : 'Search'}</span>
-            </button>
-            <button onClick={goToAdvancedSearch} title="Advanced search — open full search page"
-              className="px-2.5 py-2 bg-surface-700 hover:bg-surface-600 border border-surface-500 hover:border-surface-400 text-slate-400 hover:text-white text-sm rounded-lg transition-colors flex items-center flex-shrink-0">
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
-              </svg>
-            </button>
-          </div>
+              </button>
+            }
+          />
           {loading && (
             <div className="mt-2.5 h-0.5 rounded-full bg-surface-600 overflow-hidden">
               <div className="h-full bg-yellow-400 rounded-full"
@@ -371,7 +357,7 @@ function TradeCardSearch({ side, onAdd, onClose }) {
           onScroll={(e) => {
             const { scrollTop, scrollHeight, clientHeight } = e.currentTarget
             if (scrollHeight - scrollTop - clientHeight < 150 && displayCount < results.length) {
-              setDisplayCount((prev) => Math.min(prev + 24, results.length))
+              loadMore()
             }
           }}
         >
@@ -424,7 +410,7 @@ function TradeCardSearch({ side, onAdd, onClose }) {
                 }
                 const price = tcgPrice(card)
                 return (
-                  <button key={card.id} onClick={() => handleSelect(card)}
+                  <button key={card.id} onClick={() => selectCardAndCheckVariations(card)}
                     className="w-full flex items-center gap-4 px-3 py-3 rounded-lg hover:bg-surface-700 transition-colors text-left mb-1">
                     <div className="w-16 h-[90px] flex-shrink-0">
                       {card.images?.small ? (
@@ -654,14 +640,25 @@ function SidePanel({ side, label, onRename, cards, cash, total, onAddCard, onAdd
                   : <div className="w-14 h-[78px] bg-surface-600 rounded flex-shrink-0" />
                 }
                 <div className="flex-1 min-w-0">
-                  <p className="text-white text-base font-semibold leading-snug truncate">{card.name}</p>
+                  <p className="text-white text-base font-semibold leading-snug truncate">
+                    {card.name}{card.number ? <span className="text-slate-400 font-normal"> #{card.number}</span> : ''}
+                  </p>
                   <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
-                    <p className="text-slate-400 text-sm">{COND_SHORT[card.condition] || card.condition}</p>
+                    <p className="text-slate-400 text-sm">
+                      {card.pricechartingName
+                        ? `${cleanVariationLabel(card.pricechartingName, card.name, card.number)} - ${COND_SHORT[card.condition] || card.condition}`
+                        : (COND_SHORT[card.condition] || card.condition)
+                      }
+                    </p>
                     {card.collectionId && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 font-semibold flex-shrink-0">My Collection</span>
                     )}
                   </div>
-                  {card.setName && <p className="text-slate-500 text-sm truncate">{card.setName}</p>}
+                  {card.setName && (
+                    <p className="text-slate-500 text-sm truncate">
+                      {[card.seriesName, card.setName].filter(Boolean).join(' - ')}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="text-white text-base font-bold">{format(card.price)}</p>

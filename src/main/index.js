@@ -11,7 +11,7 @@ const axios = require('axios')
 const cron = require('node-cron')
 const { Resend } = require('resend')
 const { Pool } = require('pg')
-require('dotenv').config()
+require('dotenv').config({ override: true })
 
 const sbPool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL, max: 2 })
@@ -281,6 +281,12 @@ function extractTcgdexSetId(cardId, localId) {
   return last > 0 ? cardId.slice(0, last) : ''
 }
 
+function isPocketCard(card) {
+  const series = (card.set?.series || '').toLowerCase()
+  if (series.includes('pocket')) return true
+  return /^(A\d|PROMO-A)/i.test(card.set?.id || '')
+}
+
 function mapTcgdexCard(d) {
   const image = d.image || ''
   const localId = d.localId != null ? String(d.localId) : ''
@@ -350,7 +356,7 @@ async function searchCards(query) {
     const setId = extractTcgdexSetId(card.id, localId)
     const setData = setMap.get(setId) || { name: '', series: '', releaseDate: '' }
     return mapTcgdexCard({ ...card, set: { id: setId, name: setData.name, series: setData.series, releaseDate: setData.releaseDate } })
-  })
+  }).filter((c) => !isPocketCard(c))
 }
 
 // ── PokemonPriceTracker API ──────────────────────────────────────────────────
@@ -396,19 +402,22 @@ async function resolveSupabaseId(card) {
     )
     if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
   }
-  // Sealed products: find a DB row where the stored card name contains both console_name and product_name.
-  // e.g. "Ascended Heroes Elite Trainer Box" contains "Ascended Heroes" AND "Elite Trainer Box".
+  // Sealed products: find product_name using the known keyword, then match console_name to the set.
   if (card.type === 'sealed' && card.name) {
-    const res = await sbPool.query(
-      `SELECT DISTINCT pricecharting_id FROM pokemon_card_prices
-       WHERE LOWER($1) LIKE '%' || LOWER(TRIM(console_name)) || '%'
-         AND LOWER($1) LIKE '%' || LOWER(TRIM(product_name)) || '%'
-         AND LENGTH(TRIM(console_name)) > 2
-         AND LENGTH(TRIM(product_name)) > 2
-       LIMIT 1`,
-      [card.name]
-    )
-    if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
+    const keyword = SEALED_PRODUCT_KEYWORDS.find(k => card.name.toLowerCase().includes(k.toLowerCase()))
+    if (keyword) {
+      // The part of the card name before the keyword is the console_name (set name)
+      const consolePart = card.name.toLowerCase().replace(keyword.toLowerCase(), '').trim()
+      const res = await sbPool.query(
+        `SELECT DISTINCT ON (pricecharting_id) pricecharting_id
+         FROM pokemon_card_prices
+         WHERE product_name ILIKE $1 AND LOWER(TRIM(console_name)) = $2
+         ORDER BY pricecharting_id, snapshot_date DESC
+         LIMIT 1`,
+        [`%${keyword}%`, consolePart]
+      )
+      if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
+    }
   }
   return null
 }
@@ -812,7 +821,8 @@ ipcMain.handle('cards:search-advanced', async (_, q) => {
   if (directCardId) {
     try {
       const res = await axios.get(`${TCGDEX_BASE}/cards/${directCardId}`, { timeout: 15000 })
-      return res.data ? [mapTcgdexCard(res.data)] : []
+      const card = res.data ? mapTcgdexCard(res.data) : null
+      return card && !isPocketCard(card) ? [card] : []
     } catch { return [] }
   }
 
@@ -828,9 +838,9 @@ ipcMain.handle('cards:search-advanced', async (_, q) => {
         getTcgdexSetMap().catch(() => new Map())
       ])
       const setData = setMap.get(setId) || { name: '', series: '', releaseDate: '' }
-      return (res.data || []).map((card) =>
-        mapTcgdexCard({ ...card, set: { id: setId, name: setData.name, series: setData.series, releaseDate: setData.releaseDate } })
-      )
+      return (res.data || [])
+        .map((card) => mapTcgdexCard({ ...card, set: { id: setId, name: setData.name, series: setData.series, releaseDate: setData.releaseDate } }))
+        .filter((c) => !isPocketCard(c))
     } catch { return [] }
   }
 
@@ -845,7 +855,7 @@ ipcMain.handle('cards:search-advanced', async (_, q) => {
     const setId = extractTcgdexSetId(card.id, localId)
     const setData = setMap.get(setId) || { name: '', series: '', releaseDate: '' }
     return mapTcgdexCard({ ...card, set: { id: setId, name: setData.name, series: setData.series, releaseDate: setData.releaseDate } })
-  })
+  }).filter((c) => !isPocketCard(c))
 })
 
 ipcMain.handle('cards:list', () => {
@@ -943,36 +953,8 @@ ipcMain.handle('cards:sell', (_, cardId, soldInfo) => {
       detail: `${condLabel}${nc.setName ? ' · ' + nc.setName : ''} · received in trade`
     })
     if (nc.currentPrice) {
-      appendPrice(nc.id, { price: nc.currentPrice, source: 'ppt' })
+      appendPrice(nc.id, { price: nc.currentPrice, source: 'supabase' })
     }
-
-    // Async: link to PPT for future price refreshes
-    ;(async () => {
-      try {
-        const result = await linkAndPricePPT(nc)
-        if (!result) return
-        const updated = readCards()
-        const i = updated.findIndex(c => c.id === nc.id)
-        if (i === -1) return
-        updated[i].pptId = result.pptId
-        updated[i].pptName = result.pptName || nc.name
-        if (result.price != null) {
-          updated[i].currentPrice = result.price
-          updated[i].priceSource = 'ppt'
-          updated[i].lastPriceUpdate = today
-          // One-time: if purchasePrice wasn't set during the trade (PPT lookup failed),
-          // use the first successful price fetch as the baseline so P&L starts at $0.
-          if (updated[i].isTrade && updated[i].purchasePrice == null) {
-            updated[i].purchasePrice = result.price
-          }
-          appendPrice(nc.id, { price: result.price, source: 'ppt' })
-        }
-        writeCards(updated)
-        mainWindow?.webContents.send('cards:changed')
-      } catch (err) {
-        console.error(`Trade card PPT link failed for ${nc.name}:`, err.message)
-      }
-    })()
   }
 
   if (newTradeCards.length > 0) mainWindow?.webContents.send('cards:changed')
@@ -1597,10 +1579,6 @@ ipcMain.handle('prices:portfolio', (_, binder) => {
   }
 })
 
-// CSV refresh is no longer used — prices come from PPT per-card API
-ipcMain.handle('prices:refreshCsv', async () => {
-  return { updated: 0, error: 'CSV refresh removed; use refreshPrices instead' }
-})
 
 ipcMain.handle('prices:setManual', (_, cardId, price) => {
   appendPrice(cardId, { price, source: 'manual' })
@@ -1712,6 +1690,13 @@ function setsCacheFile() { return path.join(getDataDir(), 'sets-cache.json') }
 
 let setsCache = null
 ipcMain.handle('sets:list', async () => {
+  const filterPocketSets = (sets) => sets.filter((s) => {
+    const series = (s.series || '').toLowerCase()
+    if (series.includes('pocket')) return false
+    if (/^(A\d|PROMO-A)/i.test(s.id || '')) return false
+    return true
+  })
+
   if (setsCache) return setsCache
 
   // Use persisted cache if it's less than 24 hours old
@@ -1720,7 +1705,7 @@ ipcMain.handle('sets:list', async () => {
     try {
       const { fetchedAt, sets } = JSON.parse(fs.readFileSync(cacheFile, 'utf8'))
       if (Date.now() - fetchedAt < 86400000) {
-        setsCache = sets
+        setsCache = filterPocketSets(sets)
         return setsCache
       }
     } catch { /* stale or corrupt — re-fetch below */ }
@@ -1756,6 +1741,12 @@ ipcMain.handle('sets:list', async () => {
       },
       ptcgoCode: s.tcgOnline || s.abbreviation?.official || '',
     }))
+    .filter((s) => {
+      const series = (s.series || '').toLowerCase()
+      if (series.includes('pocket')) return false
+      if (/^(A\d|PROMO-A)/i.test(s.id || '')) return false
+      return true
+    })
     .sort((a, b) => (b.releaseDate || '').localeCompare(a.releaseDate || ''))
 
   // Persist to disk so restarts within 24 hours skip the ~200 API calls
@@ -1766,8 +1757,40 @@ ipcMain.handle('sets:list', async () => {
   return setsCache
 })
 
-ipcMain.handle('sealed:search', async () => {
-  return { products: [] }
+const SEALED_PRODUCT_KEYWORDS = [
+  'Elite Trainer Box', 'Booster Box', 'Booster Bundle', 'Booster Pack',
+  'Collection Box', 'Premium Collection', 'Gift Box', 'Mini Tin',
+  'Tin', 'Theme Deck', 'Starter Deck', 'Blister', 'Bundle', 'Display Box',
+]
+
+ipcMain.handle('sealed:search', async (_, query) => {
+  if (!sbPool || !query?.trim()) return { products: [] }
+  const q = query.trim()
+  const keyword = SEALED_PRODUCT_KEYWORDS.find(k => q.toLowerCase().includes(k.toLowerCase()))
+  if (!keyword) return { products: [] }
+  try {
+    const res = await sbPool.query(
+      `SELECT DISTINCT ON (pricecharting_id)
+         pricecharting_id, console_name, product_name, loose_price
+       FROM pokemon_card_prices
+       WHERE product_name ILIKE $1
+       ORDER BY pricecharting_id, snapshot_date DESC
+       LIMIT 50`,
+      [`%${keyword}%`]
+    )
+    const products = res.rows.map(r => ({
+      id: r.pricecharting_id,
+      pricechartingId: r.pricecharting_id,
+      name: `${r.console_name} ${r.product_name}`.trim(),
+      'console-name': r.console_name,
+      setName: r.console_name,
+      prices: { market: r.loose_price != null ? parseFloat(r.loose_price) : null },
+    }))
+    return { products }
+  } catch (e) {
+    console.error('[sealed:search] error:', e.message)
+    return { products: [] }
+  }
 })
 
 ipcMain.handle('sealed:add', async (_, product, section, purchasePrice, binder) => {
@@ -1787,10 +1810,11 @@ ipcMain.handle('sealed:add', async (_, product, section, purchasePrice, binder) 
     type: 'sealed',
     section: section || 'watchlist',
     binder: binder || null,
+    pricechartingId: product.pricechartingId || null,
     purchasePrice: purchasePrice != null && purchasePrice > 0 ? Math.round(purchasePrice * 100) / 100 : null,
     imageUrl: product.imageUrl || product.image || product.img || product['image-url'] || product.imageSmall || product.thumbnail || '',
     imageUrlLarge: product.imageUrl || product.image || product.img || product['image-url'] || product.imageSmall || product.thumbnail || '',
-    addedDate: new Date().toISOString(),
+    addedDate: localDateStr(),
     lastPriceUpdate: null,
   }
   cards.push(newItem)
@@ -1850,21 +1874,18 @@ function cardShowsCacheFile(stateCode) {
 
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
-ipcMain.handle('cardshows:fetch', async (_, stateCode, stateName) => {
-  console.log('[cardshows] fetch requested:', stateCode, stateName)
-  const cacheFile = cardShowsCacheFile(stateCode)
-  if (fs.existsSync(cacheFile)) {
-    try {
-      const { fetchedAt, shows } = JSON.parse(fs.readFileSync(cacheFile, 'utf8'))
-      if (Date.now() - fetchedAt < 86400000) {
-        console.log('[cardshows] returning cached data:', shows.length, 'shows')
-        return { shows, cached: true }
-      }
-    } catch { /* stale or corrupt — re-fetch below */ }
-  }
+// In-memory cache: avoid hammering Supabase on repeated tab switches
+const cardShowsMemCache = {}
+const CARD_SHOWS_MEM_TTL = 10 * 60 * 1000 // 10 minutes
 
-  console.log('[cardshows] no cache — launching hidden browser for', stateCode)
-  const shows = await new Promise((resolve, reject) => {
+function cardShowSyntheticId(stateCode, show) {
+  // TCDB numeric ID when available, otherwise a stable key from show fields
+  if (show.id) return show.id
+  return `${stateCode}|${show.date}|${show.name}|${show.venue}`.slice(0, 250)
+}
+
+async function scrapeCardShows(stateCode, stateName) {
+  return new Promise((resolve, reject) => {
     let settled = false
     const settle = (fn, val) => {
       if (settled) return
@@ -1880,7 +1901,6 @@ ipcMain.handle('cardshows:fetch', async (_, stateCode, stateName) => {
       webPreferences: { nodeIntegration: false, contextIsolation: true },
     })
 
-    // Spoof a real Chrome UA so TCDB doesn't block the Electron agent
     win.webContents.setUserAgent(CHROME_UA)
 
     const timeout = setTimeout(() => {
@@ -1943,7 +1963,6 @@ ipcMain.handle('cardshows:fetch', async (_, stateCode, stateName) => {
       }
     })
 
-    // Only reject on main-frame failures — ad/tracking subframes fail routinely
     win.webContents.on('did-fail-load', (_, code, desc, _url, isMainFrame) => {
       if (!isMainFrame) return
       console.error('[cardshows] did-fail-load:', code, desc)
@@ -1953,11 +1972,122 @@ ipcMain.handle('cardshows:fetch', async (_, stateCode, stateName) => {
     const url = `https://www.tcdb.com/CardShows.cfm?MODE=Location&State=${stateCode}&Display=${encodeURIComponent(stateName)}&Country=United%20States`
     win.loadURL(url)
   })
+}
 
-  try {
-    fs.writeFileSync(cacheFile, JSON.stringify({ fetchedAt: Date.now(), shows }))
-  } catch { /* non-fatal */ }
+async function upsertCardShows(stateCode, stateName, shows) {
+  if (!sbPool || shows.length === 0) return
+  for (const show of shows) {
+    const id = cardShowSyntheticId(stateCode, show)
+    await sbPool.query(
+      `INSERT INTO card_shows (id, state_code, state_name, name, date_text, venue, address, city_state, show_time)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (id) DO UPDATE SET
+         last_seen_at = now(),
+         venue        = EXCLUDED.venue,
+         address      = EXCLUDED.address,
+         city_state   = EXCLUDED.city_state,
+         show_time    = EXCLUDED.show_time`,
+      [id, stateCode, stateName, show.name, show.date, show.venue || '', show.address || '', show.cityState || '', show.time || '']
+    )
+  }
+}
 
+ipcMain.handle('cardshows:fetch', async (_, stateCode, stateName) => {
+  console.log('[cardshows] fetch requested:', stateCode, stateName)
+
+  // Return in-memory cache if fresh
+  const mem = cardShowsMemCache[stateCode]
+  if (mem && Date.now() - mem.fetchedAt < CARD_SHOWS_MEM_TTL) {
+    console.log('[cardshows] returning memory-cached data:', mem.shows.length, 'shows')
+    return { shows: mem.shows, cached: true }
+  }
+
+  if (sbPool) {
+    // Check Supabase first — if it already has rows we may be able to skip scraping
+    let sbShows = []
+    let sbOk = true
+    try {
+      const res = await sbPool.query(
+        `SELECT id, name, date_text, venue, address, city_state, show_time
+         FROM card_shows WHERE state_code = $1`,
+        [stateCode]
+      )
+      sbShows = res.rows.map(r => ({
+        id: r.id, name: r.name, date: r.date_text,
+        venue: r.venue, address: r.address, cityState: r.city_state, time: r.show_time,
+      }))
+    } catch (err) {
+      console.error('[cardshows] Supabase query failed, falling back to local cache:', err.message)
+      sbOk = false
+    }
+
+    if (sbOk) {
+      // Scrape TCDB only if: file cache is stale OR Supabase has no rows yet
+      const cacheFile = cardShowsCacheFile(stateCode)
+      let needsScrape = sbShows.length === 0  // always scrape if Supabase is empty
+      if (!needsScrape && fs.existsSync(cacheFile)) {
+        try {
+          const { fetchedAt } = JSON.parse(fs.readFileSync(cacheFile, 'utf8'))
+          if (Date.now() - fetchedAt >= 86400000) needsScrape = true
+        } catch { needsScrape = true }
+      }
+
+      if (needsScrape) {
+        try {
+          // Migrate any existing file cache shows to Supabase before overwriting the file.
+          // This preserves historical data (e.g. past shows) from the old local-cache format.
+          if (fs.existsSync(cacheFile)) {
+            try {
+              const { shows: cachedShows } = JSON.parse(fs.readFileSync(cacheFile, 'utf8'))
+              if (Array.isArray(cachedShows) && cachedShows.length > 0) {
+                console.log('[cardshows] migrating', cachedShows.length, 'cached shows to Supabase for', stateCode)
+                await upsertCardShows(stateCode, stateName, cachedShows)
+              }
+            } catch { /* corrupt file — skip migration */ }
+          }
+
+          console.log('[cardshows] scraping TCDB for', stateCode)
+          const fresh = await scrapeCardShows(stateCode, stateName)
+          await upsertCardShows(stateCode, stateName, fresh)
+          try { fs.writeFileSync(cacheFile, JSON.stringify({ fetchedAt: Date.now() })) } catch {}
+          // Re-query so we get the freshly upserted rows (fresh + migrated history)
+          const res2 = await sbPool.query(
+            `SELECT id, name, date_text, venue, address, city_state, show_time
+             FROM card_shows WHERE state_code = $1`,
+            [stateCode]
+          )
+          sbShows = res2.rows.map(r => ({
+            id: r.id, name: r.name, date: r.date_text,
+            venue: r.venue, address: r.address, cityState: r.city_state, time: r.show_time,
+          }))
+        } catch (err) {
+          console.error('[cardshows] scrape/upsert failed, using existing Supabase data:', err.message)
+        }
+      }
+
+      console.log('[cardshows] loaded', sbShows.length, 'shows from Supabase')
+      cardShowsMemCache[stateCode] = { fetchedAt: Date.now(), shows: sbShows }
+      return { shows: sbShows, cached: false }
+    }
+  }
+
+  // Fallback: local file cache + TCDB scrape (no Supabase)
+  const cacheFile = cardShowsCacheFile(stateCode)
+  if (fs.existsSync(cacheFile)) {
+    try {
+      const { fetchedAt, shows } = JSON.parse(fs.readFileSync(cacheFile, 'utf8'))
+      if (Date.now() - fetchedAt < 86400000 && shows) {
+        console.log('[cardshows] returning file-cached data:', shows.length, 'shows')
+        cardShowsMemCache[stateCode] = { fetchedAt: Date.now(), shows }
+        return { shows, cached: true }
+      }
+    } catch { /* stale or corrupt */ }
+  }
+
+  console.log('[cardshows] no cache — scraping TCDB for', stateCode)
+  const shows = await scrapeCardShows(stateCode, stateName)
+  try { fs.writeFileSync(cacheFile, JSON.stringify({ fetchedAt: Date.now(), shows })) } catch {}
+  cardShowsMemCache[stateCode] = { fetchedAt: Date.now(), shows }
   return { shows, cached: false }
 })
 

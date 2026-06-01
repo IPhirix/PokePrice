@@ -194,12 +194,6 @@ const VARIANT_LABELS = [
   { key: 'wPromo',       label: 'W Promo',   cls: 'bg-emerald-700/80 text-emerald-100' },
 ]
 
-function isPocketCard(card) {
-  const series = (card.set?.series || '').toLowerCase()
-  if (series === 'pocket') return true
-  // Pocket set IDs are A1, A1a, A2, A2a, PROMO-A, etc.
-  return /^(A\d|PROMO-A)/i.test(card.set?.id || '')
-}
 
 function CardImage({ src, alt, className }) {
   const [failed, setFailed] = useState(false)
@@ -268,10 +262,9 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
     window.api
       .searchCardsAdvanced(query)
       .then((results) => {
-        const physical = results.filter((c) => !isPocketCard(c))
         const lower = searchName.toLowerCase()
-        const filtered = physical.filter((c) => c.name.toLowerCase().startsWith(lower))
-        setCards(filtered.length > 0 ? filtered : physical)
+        const filtered = results.filter((c) => c.name.toLowerCase().includes(lower))
+        setCards(filtered.length > 0 ? filtered : results)
       })
       .catch(() => setCards([]))
       .finally(() => setLoadingCards(false))

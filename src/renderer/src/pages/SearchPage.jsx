@@ -1072,8 +1072,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
         .map((s) => s.series)
         .filter((series) => {
           if (!series) return false
-          const sl = series.toLowerCase()
-          if (sl.includes('mcdonald') || sl.includes('pocket')) return false
+          if (series.toLowerCase().includes('mcdonald')) return false
           return true
         })
     )
@@ -1101,7 +1100,6 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
         const nameLower = (s.name || '').toLowerCase()
         const seriesLower = (s.series || '').toLowerCase()
         if (nameLower.includes("mcdonald") || seriesLower.includes("mcdonald")) return false
-        if (seriesLower.includes("pocket")) return false
         if (q && !nameLower.includes(q)) return false
         if (seriesFilter && s.series !== seriesFilter) return false
         if (yearFilter) {
@@ -2076,6 +2074,66 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
         <div className="flex flex-col items-center justify-center py-16 text-slate-600">
           <p className="text-lg">No cards in {binderFilter.startsWith('binder:') ? binderFilter.slice(7) : binderFilter === 'collection' ? 'Collection' : 'Watchlist'}</p>
           <p className="text-sm mt-1">Add cards from the search results above</p>
+        </div>
+      )}
+
+      {/* Sealed product results — shown inline in Items mode after card results */}
+      {mode === 'cards' && (sealedLoading || sealedResults.length > 0) && (
+        <div className="mt-4">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="flex-1 h-px bg-surface-700" />
+            <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+              Sealed Products
+            </span>
+            <div className="flex-1 h-px bg-surface-700" />
+          </div>
+          {sealedLoading ? (
+            <p className="text-slate-500 text-sm text-center py-4">Searching sealed products…</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {sealedResults.map((product) => {
+                const name = product.name || product['product-name'] || 'Unknown'
+                const category = product.setName || product['console-name'] || 'Sealed Product'
+                const displayPrice = product.prices?.market ?? null
+                const alreadyOwned = ownedCards.some((c) => c.name === name)
+                return (
+                  <div
+                    key={product.pricechartingId || product.id}
+                    className={`bg-surface-800 border rounded-xl px-4 py-3 flex items-center gap-4 ${alreadyOwned ? 'border-emerald-500/50' : 'border-surface-600'}`}
+                  >
+                    <div className="w-10 h-10 flex-shrink-0 bg-surface-700 rounded-lg flex items-center justify-center">
+                      <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-semibold text-sm truncate">{name}</p>
+                      <p className="text-slate-500 text-xs">{category}</p>
+                    </div>
+                    {displayPrice != null && (
+                      <p className="text-accent font-bold text-sm flex-shrink-0">{format(displayPrice)}</p>
+                    )}
+                    {alreadyOwned && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex-shrink-0">Owned</span>
+                    )}
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button onClick={() => setSealedAddModal({ product, section: 'collection' })}
+                        className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-black text-xs font-bold rounded-lg transition-colors whitespace-nowrap">
+                        + Collection
+                      </button>
+                      <button onClick={() => setSealedAddModal({ product, section: 'watchlist' })}
+                        className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg transition-colors whitespace-nowrap">
+                        + Watchlist
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
 

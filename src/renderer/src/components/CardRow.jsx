@@ -1,5 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useCardSearch } from '../hooks/useCardSearch'
+import CardSearchInput from './CardSearchInput'
 
 function seriesFromSetId(id) {
   if (!id) return ''
@@ -488,98 +490,18 @@ const ALL_CONDITIONS_ORDERED = [
 ]
 
 function TradeSearch({ onAdd, onCancel }) {
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState([])
-  const [searching, setSearching] = useState(false)
-  const [searchCommitted, setSearchCommitted] = useState(false)
+  const { query, results, searching, searchCommitted, handleQueryChange, handleSearch } = useCardSearch({ initialPageSize: 40, pageIncrement: 40 })
   const [selected, setSelected] = useState(null)
   const [condition, setCondition] = useState('raw')
   const [fetchingPrice, setFetchingPrice] = useState(false)
-  const inputRef = useRef(null)
 
   useEffect(() => {
-    setTimeout(() => inputRef.current?.focus(), 0)
     window.api.getSettings().then((s) => { if (s.defaultCondition) setCondition(s.defaultCondition) }).catch(() => {})
   }, [])
 
-  async function search() {
-    const q = query.trim()
-    if (!q) return
-    setSearching(true)
-    setSearchCommitted(true)
+  async function doSearch() {
     setSelected(null)
-    setPptProduct(null)
-    try {
-      // "Charizard #4" — explicit card number with hash
-      const hashMatch = q.match(/^(.*?)\s*#(\w+)\s*$/)
-      if (hashMatch) {
-        const name = hashMatch[1].trim()
-        const rawNum = hashMatch[2]
-        const targetNum = parseInt(rawNum, 10)
-        const isNumeric = !isNaN(targetNum)
-        if (name) {
-          const allCards = await window.api.searchCardsAdvanced(`name:"${name}*"`).catch(() => [])
-          const matched = []; const rest = []
-          for (const c of allCards) {
-            const cn = String(c.number || '')
-            const hits = isNumeric ? parseInt(cn, 10) === targetNum : cn.toUpperCase() === rawNum.toUpperCase()
-            if (hits) matched.push(c); else rest.push(c)
-          }
-          setResults(matched.length > 0 && rest.length > 0
-            ? [...matched, { _divider: true, id: '__divider__' }, ...rest]
-            : [...matched, ...rest])
-        } else {
-          const numVariants = isNumeric
-            ? [...new Set([rawNum, String(targetNum), String(targetNum).padStart(3, '0')])]
-            : [rawNum]
-          const batches = await Promise.all(numVariants.map((v) =>
-            window.api.searchCardsAdvanced(`number:"${v}"`).catch(() => [])
-          ))
-          const seen = new Set(); const merged = []
-          for (const batch of batches) for (const c of batch) if (!seen.has(c.id)) { seen.add(c.id); merged.push(c) }
-          setResults(merged)
-        }
-        return
-      }
-      // "Charizard 4" — trailing number may be card number
-      const trailingMatch = q.match(/^(.+?)\s+(\d+)\s*$/)
-      if (trailingMatch) {
-        const name = trailingMatch[1].trim()
-        const rawNum = trailingMatch[2]
-        const targetNum = parseInt(rawNum, 10)
-        const [allCards, setCards] = await Promise.all([
-          window.api.searchCardsAdvanced(`name:"${name}*"`).catch(() => []),
-          window.api.searchCardsAdvanced(`name:"${name}*" set.name:"${rawNum}"`).catch(() => [])
-        ])
-        const seen = new Set(); const matched = []; const rest = []
-        for (const c of allCards) if (parseInt(String(c.number || ''), 10) === targetNum && !seen.has(c.id)) { seen.add(c.id); matched.push(c) }
-        for (const c of setCards) if (!seen.has(c.id)) { seen.add(c.id); rest.push(c) }
-        for (const c of allCards) if (!seen.has(c.id)) { seen.add(c.id); rest.push(c) }
-        setResults(matched.length > 0 && rest.length > 0
-          ? [...matched, { _divider: true, id: '__divider__' }, ...rest]
-          : [...matched, ...rest])
-        return
-      }
-      // Plain text — search by name, set name, and word-split name+set combos in parallel
-      const words = q.split(/\s+/)
-      const allSearches = [
-        window.api.searchCardsAdvanced(`name:"${q}*"`).catch(() => []),
-        window.api.searchCardsAdvanced(`set.name:"${q}"`).catch(() => []),
-      ]
-      for (let i = 1; i < words.length; i++) {
-        const namePart = words.slice(0, i).join(' ')
-        const setPart = words.slice(i).join(' ')
-        allSearches.push(window.api.searchCardsAdvanced(`name:"${namePart}*" set.name:"${setPart}"`).catch(() => []))
-      }
-      const allBatches = await Promise.all(allSearches)
-      const seen = new Set(); const merged = []
-      for (const batch of allBatches) for (const card of batch) if (!seen.has(card.id)) { seen.add(card.id); merged.push(card) }
-      setResults(merged)
-    } catch {
-      setResults([])
-    } finally {
-      setSearching(false)
-    }
+    await handleSearch()
   }
 
   async function selectCard(card) {
@@ -607,33 +529,17 @@ function TradeSearch({ onAdd, onCancel }) {
 
   return (
     <div className="border border-surface-500 rounded-xl bg-surface-900 overflow-hidden">
-      <div className="flex gap-2 p-3 border-b border-surface-700">
-        <input
-          ref={inputRef}
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setSearchCommitted(false) }}
-          onKeyDown={(e) => e.key === 'Enter' && search()}
-          placeholder="Search by name, set, or card # (e.g. Charizard #4)…"
-          className="flex-1 bg-surface-700 border border-surface-600 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+      <div className="p-3 border-b border-surface-700">
+        <CardSearchInput
+          query={query}
+          onChange={handleQueryChange}
+          onSearch={doSearch}
+          searching={searching}
+          autoFocus
+          rightSlot={
+            <button onClick={onCancel} className="px-2 text-slate-500 hover:text-white text-lg transition-colors">✕</button>
+          }
         />
-        <button
-          onClick={search}
-          disabled={searching || !query.trim()}
-          className="px-4 py-2.5 bg-accent hover:bg-amber-400 disabled:opacity-40 text-black font-bold rounded-lg text-sm transition-colors flex items-center gap-1.5 flex-shrink-0"
-        >
-          {searching ? (
-            <svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-            </svg>
-          ) : (
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
-            </svg>
-          )}
-          {searching ? 'Searching' : 'Search'}
-        </button>
-        <button onClick={onCancel} className="px-2 text-slate-500 hover:text-white text-lg transition-colors">✕</button>
       </div>
 
       {!selected ? (
@@ -685,7 +591,7 @@ function TradeSearch({ onAdd, onCancel }) {
       ) : (
         <div>
           <div className="flex items-center gap-3 px-4 py-3 border-b border-surface-700">
-            <button onClick={() => { setSelected(null); setPptProduct(null) }} className="text-slate-400 hover:text-white text-sm flex-shrink-0">‹ Back</button>
+            <button onClick={() => setSelected(null)} className="text-slate-400 hover:text-white text-sm flex-shrink-0">‹ Back</button>
             {selected.images?.small && (
               <img src={selected.images.small} alt={selected.name} className="w-12 h-[66px] object-contain rounded flex-shrink-0" />
             )}

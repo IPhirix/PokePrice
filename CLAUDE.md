@@ -48,7 +48,6 @@ Data migration: on first login after upgrade, old flat `userData/*.json` files a
 - `upcoming-shows.json` — saved card show events
 
 Shared (not per-user):
-- `csv-cache/` — cached PPT CSV files (1-hour TTL)
 - `sets-cache.json` — Pokemon TCG sets list cache
 
 ### Card Object Shape
@@ -62,8 +61,6 @@ Shared (not per-user):
   quantity, section,   // 'portfolio' | 'watchlist'
   binder,        // string | null  (old cards may use 'folder' — both are checked)
   purchasePrice, currentPrice, priceSource,
-  pptId,         // tcgPlayerId from Pokemon Price Tracker API
-  pptName,       // card name from PPT
   imageUrl, imageUrlLarge,
   addedDate, lastPriceUpdate,
   targetBuyPrice, targetSellPrice,
@@ -72,19 +69,15 @@ Shared (not per-user):
 }
 ```
 
-Legacy cards may still have `pricechartingId`/`pricechartingName` instead of `pptId`/`pptName`.
+Cards may have a `pricechartingId`/`pricechartingName` used to resolve their row in the Supabase price database.
 
 ### Price Refresh System
 
-All prices come from **Pokemon Price Tracker (PPT)** (`https://www.pokemonpricetracker.com/api/v2`). Token stored as `pptToken` in `settings.json` (env var `POKEPRICE_KEY` overrides in dev).
+All prices come from a **Supabase PostgreSQL database** seeded with PriceCharting data. The connection string is read from the `DATABASE_URL` environment variable; if absent, price refresh is a no-op.
 
-- **Raw cards**: fetched via `GET /cards?tcgPlayerId={id}` → `cardData.prices.market`
-- **Graded cards**: fetched with `includeEbay=true` → `cardData.ebay.salesByGrade[condition].smartMarketPrice`
-- Rate limiting: 1100ms gap enforced via `pptRateLimit()`, 60 calls/minute max
-- Cards without a `pptId` are auto-linked on first refresh via name+set+number search (1 credit)
+- Prices are looked up via `resolveSupabaseId()` which matches `pricechartingId` → `pricechartingName` → constructed name+number
+- Per-condition columns: `loose_price` (raw/sealed), `manual_only_price` (PSA 10), `graded_price` (PSA 9 / CGC 9), `new_price` (PSA 8), `condition_17_price` (CGC 10)
 - Refresh triggered manually via `prices:refresh` IPC or by a `node-cron` job at 8am daily
-
-Legacy PriceCharting CSV backfill still works for old cards that have `pricechartingId`.
 
 ### Styling
 
@@ -111,8 +104,10 @@ Tailwind CSS with a custom dark theme. Key custom tokens:
 
 ## External APIs
 
-- **Pokemon Price Tracker (PPT)** — sole active price source; see `reference-ppt-api.md` in memory for auth, endpoints, and rate limits
-- **Pokemon TCG API** (`pokemontcg.io`) — card search and metadata
-- **open.er-api.com** — live exchange rates for currency conversion (fallback hardcoded rates)
-- **Resend** — transactional email for password reset codes
-- **Google Geocoding** — used by the card shows feature to place show locations on a map
+- **Supabase (PostgreSQL)** — sole active price source; `DATABASE_URL` env var connects to the PriceCharting-seeded DB
+- **TCGdex** (`api.tcgdex.net/v2/en`) — card search, set lists, and card metadata
+- **open.er-api.com** — live exchange rates for currency conversion; called from the renderer (`CurrencyContext`), fallback to hardcoded rates
+- **Resend** — transactional email for password reset codes and price alert emails (`RESEND_KEY` env var)
+- **Nominatim (OpenStreetMap)** — geocoding for card show locations (`nominatim.openstreetmap.org`)
+- **Zippopotam** (`api.zippopotam.us`) — ZIP code to lat/lon for user location on card shows map
+- **TCDB** (`tcdb.com`) — card show event data scraped via a hidden Electron browser window

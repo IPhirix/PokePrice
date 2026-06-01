@@ -62,7 +62,7 @@ function CustomTooltip({ active, payload }) {
         <p className="text-slate-500 text-xs mt-0.5">Estimated</p>
       ) : p.source ? (
         <p className="text-slate-500 text-xs mt-0.5">
-          {p.source === 'pricecharting' ? 'PriceCharting' : p.source === 'manual' ? 'Manual' : p.source}
+          {p.source === 'manual' ? 'Manual' : 'PriceCharting'}
         </p>
       ) : null}
     </div>

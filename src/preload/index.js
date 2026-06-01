@@ -10,7 +10,6 @@ contextBridge.exposeInMainWorld('api', {
   updateCard: (id, updates) => ipcRenderer.invoke('cards:update', id, updates),
   getPriceHistory: (cardId) => ipcRenderer.invoke('prices:history', cardId),
   refreshPrices: (cardId, section) => ipcRenderer.invoke('prices:refresh', cardId, section),
-  refreshFromCsv: () => ipcRenderer.invoke('prices:refreshCsv'),
   getPortfolio: (binder) => ipcRenderer.invoke('prices:portfolio', binder),
   setManualPrice: (cardId, price) => ipcRenderer.invoke('prices:setManual', cardId, price),
   clearPriceHistory: () => ipcRenderer.invoke('prices:clearHistory'),

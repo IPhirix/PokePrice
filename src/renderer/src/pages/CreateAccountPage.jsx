@@ -135,7 +135,35 @@ export default function CreateAccountPage({ onCancel }) {
   }
 
   return (
-    <div className="h-screen w-screen bg-surface-900 flex items-center justify-center">
+    <div className="h-screen w-screen bg-surface-900 flex flex-col">
+      {/* Custom title bar */}
+      <div
+        className="flex items-center justify-between px-4 h-10 bg-surface-900 border-b border-surface-600 select-none flex-shrink-0"
+        style={{ WebkitAppRegion: 'drag' }}
+      >
+        <span className="text-accent font-bold text-sm tracking-widest">POKEPRICE</span>
+        <div className="flex gap-1 items-center" style={{ WebkitAppRegion: 'no-drag' }}>
+          <button
+            onClick={() => window.api.windowMinimize()}
+            className="w-8 h-8 rounded hover:bg-surface-500 flex items-center justify-center text-slate-400 hover:text-slate-200"
+          >
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><line x1="2" y1="6.5" x2="11" y2="6.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+          </button>
+          <button
+            onClick={() => window.api.windowMaximize()}
+            className="w-8 h-8 rounded hover:bg-surface-500 flex items-center justify-center text-slate-400 hover:text-slate-200"
+          >
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><rect x="2" y="2" width="9" height="9" stroke="currentColor" strokeWidth="1.8" rx="0.5"/></svg>
+          </button>
+          <button
+            onClick={() => window.api.windowClose()}
+            className="w-8 h-8 rounded hover:bg-red-600 flex items-center justify-center text-slate-400 hover:text-white"
+          >
+            <svg width="13" height="13" viewBox="0 0 13 13" fill="none"><line x1="2.5" y1="2.5" x2="10.5" y2="10.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><line x1="10.5" y1="2.5" x2="2.5" y2="10.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>
+          </button>
+        </div>
+      </div>
+      <div className="flex-1 flex items-center justify-center">
       {loading && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex flex-col items-center justify-center gap-4">
           <div className="w-10 h-10 rounded-full border-4 border-surface-600 border-t-accent animate-spin" />
@@ -387,6 +415,7 @@ export default function CreateAccountPage({ onCancel }) {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   )

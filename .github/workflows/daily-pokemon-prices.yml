@@ -1,10 +1,14 @@
 name: Daily Pokemon Price Pipeline
 
 on:
+  push:
+    branches:
+      - main
+
   workflow_dispatch:
 
   schedule:
-    - cron: '20 13 * * *'
+    - cron: '0 13 * * *' # ~8:00 AM Chicago
 
 jobs:
   run-pipeline:

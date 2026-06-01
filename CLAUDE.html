@@ -307,7 +307,7 @@
     <div class="logo">⚡</div>
     <div>
       <h1>PokePrice — CLAUDE.md</h1>
-      <p>Codebase guide for Claude Code · Last updated 2026-05-31</p>
+      <p>Codebase guide for Claude Code · Last updated 2026-06-01</p>
     </div>
   </header>
 
@@ -387,7 +387,6 @@
     </ul>
     <p><strong>Shared (not per-user):</strong></p>
     <ul class="file-list">
-      <li><span class="fname">csv-cache/</span><span class="fdesc">Cached PPT CSV files — 1-hour TTL</span></li>
       <li><span class="fname">sets-cache.json</span><span class="fdesc">Pokemon TCG sets list cache</span></li>
     </ul>
   </section>
@@ -403,29 +402,24 @@
   quantity, section,   <span class="comment">// 'portfolio' | 'watchlist'</span>
   binder,        <span class="comment">// string | null  (old cards may use 'folder' — both are checked)</span>
   purchasePrice, currentPrice, priceSource,
-  pptId,         <span class="comment">// tcgPlayerId from Pokemon Price Tracker API</span>
-  pptName,       <span class="comment">// card name from PPT</span>
   imageUrl, imageUrlLarge,
   addedDate, lastPriceUpdate,
   targetBuyPrice, targetSellPrice,
   changeDay, changeWeek, changeMonth,  <span class="comment">// % changes</span>
   recentHistory  <span class="comment">// last 90 days [{date, price}]</span>
 }</code></pre>
-    <p>Legacy cards may still have <code>pricechartingId</code>/<code>pricechartingName</code> instead of <code>pptId</code>/<code>pptName</code>.</p>
+    <p>Cards may have <code>pricechartingId</code>/<code>pricechartingName</code> used to resolve their row in the Supabase price database.</p>
   </section>
 
   <!-- Prices -->
   <section id="prices">
     <h2><span class="icon">💰</span> Price Refresh System</h2>
-    <p>All prices come from <strong>Pokemon Price Tracker (PPT)</strong> (<code>https://www.pokemonpricetracker.com/api/v2</code>). Token stored as <code>pptToken</code> in <code>settings.json</code> (env var <code>POKEPRICE_KEY</code> overrides in dev).</p>
+    <p>All prices come from a <strong>Supabase PostgreSQL database</strong> seeded with PriceCharting data. The connection string is read from the <code>DATABASE_URL</code> environment variable; if absent, price refresh is a no-op.</p>
     <ul>
-      <li><strong>Raw cards:</strong> fetched via <code>GET /cards?tcgPlayerId={id}</code> → <code>cardData.prices.market</code></li>
-      <li><strong>Graded cards:</strong> fetched with <code>includeEbay=true</code> → <code>cardData.ebay.salesByGrade[condition].smartMarketPrice</code></li>
-      <li>Rate limiting: 1100ms gap enforced via <code>pptRateLimit()</code>, 60 calls/minute max</li>
-      <li>Cards without a <code>pptId</code> are auto-linked on first refresh via name+set+number search (1 credit)</li>
+      <li>Cards are resolved via <code>resolveSupabaseId()</code> — matches <code>pricechartingId</code> → <code>pricechartingName</code> → constructed name+number</li>
+      <li><strong>Per-condition columns:</strong> <code>loose_price</code> (raw/sealed), <code>manual_only_price</code> (PSA 10), <code>graded_price</code> (PSA 9 / CGC 9), <code>new_price</code> (PSA 8), <code>condition_17_price</code> (CGC 10)</li>
       <li>Refresh triggered manually via <code>prices:refresh</code> IPC or by a <code>node-cron</code> job at 8am daily</li>
     </ul>
-    <p>Legacy PriceCharting CSV backfill still works for old cards that have <code>pricechartingId</code>.</p>
   </section>
 
   <!-- Styling -->
@@ -469,36 +463,50 @@
       <div class="api-card">
         <span class="api-badge primary">Primary</span>
         <div>
-          <div class="api-name">Pokemon Price Tracker (PPT)</div>
-          <div class="api-desc">Sole active price source. See <code>reference-ppt-api.md</code> in memory for auth, endpoints, and rate limits.</div>
+          <div class="api-name">Supabase (PostgreSQL)</div>
+          <div class="api-desc">Sole active price source — PriceCharting-seeded DB. <code>DATABASE_URL</code> env var provides the connection string.</div>
         </div>
       </div>
       <div class="api-card">
         <span class="api-badge secondary">Metadata</span>
         <div>
-          <div class="api-name">Pokemon TCG API — pokemontcg.io</div>
-          <div class="api-desc">Card search and metadata (name, set, image URLs, rarity).</div>
+          <div class="api-name">TCGdex — api.tcgdex.net/v2/en</div>
+          <div class="api-desc">Card search, set lists, and card metadata (name, set, image URLs, rarity).</div>
         </div>
       </div>
       <div class="api-card">
         <span class="api-badge utility">Utility</span>
         <div>
           <div class="api-name">open.er-api.com</div>
-          <div class="api-desc">Live exchange rates for currency conversion. Fallback to hardcoded rates if unavailable.</div>
+          <div class="api-desc">Live exchange rates for currency conversion, called from the renderer (<code>CurrencyContext</code>). Fallback to hardcoded rates if unavailable.</div>
         </div>
       </div>
       <div class="api-card">
         <span class="api-badge utility">Utility</span>
         <div>
           <div class="api-name">Resend</div>
-          <div class="api-desc">Transactional email for password reset codes.</div>
+          <div class="api-desc">Transactional email for password reset codes and price alert emails. <code>RESEND_KEY</code> env var.</div>
         </div>
       </div>
       <div class="api-card">
         <span class="api-badge utility">Utility</span>
         <div>
-          <div class="api-name">Google Geocoding</div>
-          <div class="api-desc">Used by the card shows feature to place show locations on a map.</div>
+          <div class="api-name">Nominatim (OpenStreetMap)</div>
+          <div class="api-desc">Geocoding for card show locations — converts addresses to lat/lon.</div>
+        </div>
+      </div>
+      <div class="api-card">
+        <span class="api-badge utility">Utility</span>
+        <div>
+          <div class="api-name">Zippopotam — api.zippopotam.us</div>
+          <div class="api-desc">ZIP code to lat/lon for placing the user's location on the card shows map.</div>
+        </div>
+      </div>
+      <div class="api-card">
+        <span class="api-badge utility">Utility</span>
+        <div>
+          <div class="api-name">TCDB — tcdb.com</div>
+          <div class="api-desc">Card show event data scraped via a hidden Electron browser window.</div>
         </div>
       </div>
     </div>
