@@ -79,10 +79,39 @@ print(f"Downloaded: {csv_filename.name}")
 # CONNECT TO SUPABASE
 # -------------------------
 
-conn = psycopg2.connect(DATABASE_URL)
-cursor = conn.cursor()
+print("Connecting to Supabase...")
 
-print("Connected to Supabase")
+max_attempts = 5
+attempt = 1
+
+while attempt <= max_attempts:
+    try:
+        conn = psycopg2.connect(
+            DATABASE_URL,
+            connect_timeout=30
+        )
+
+        cursor = conn.cursor()
+
+        print("Connected to Supabase")
+        break
+
+    except Exception as e:
+        print(
+            f"Connection attempt "
+            f"{attempt}/{max_attempts} failed"
+        )
+
+        print(e)
+
+        if attempt == max_attempts:
+            raise Exception(
+                "Failed to connect to Supabase "
+                "after multiple attempts."
+            )
+
+        time.sleep(15)
+        attempt += 1
 
 # -------------------------
 # CHECK DAILY IMPORT
