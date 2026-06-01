@@ -957,7 +957,6 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
         }
       }
 
-      if (rar) merged = merged.filter((c) => c._divider || c.rarity === rar)
       setResults(merged)
       // Always search sealed products in parallel when there's a name query
       if (q) runSealedSearch(q, true)

@@ -12,7 +12,8 @@ from pathlib import Path
 from datetime import datetime
 from psycopg2.extras import execute_values
 
-from google.oauth2 import service_account
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
@@ -312,16 +313,22 @@ print(f"Compressed: {gz_filename.name}")
 try:
     print("Uploading to Google Drive...")
 
-    service_account_info = json.loads(
-        GOOGLE_SERVICE_ACCOUNT_JSON
+    token_info = json.loads(
+        os.getenv("GOOGLE_TOKEN_JSON")
     )
 
-    credentials = service_account.Credentials.from_service_account_info(
-        service_account_info,
-        scopes=["https://www.googleapis.com/auth/drive"]
+    creds = Credentials.from_authorized_user_info(
+        token_info
     )
 
-    service = build("drive", "v3", credentials=credentials)
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+
+    service = build(
+        "drive",
+        "v3",
+        credentials=creds
+    )
 
     media = MediaFileUpload(
         str(gz_filename),
@@ -334,7 +341,6 @@ try:
             "parents": [GOOGLE_DRIVE_FOLDER_ID]
         },
         media_body=media,
-        supportsAllDrives=True,
         fields="id"
     ).execute()
 
