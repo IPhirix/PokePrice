@@ -27,8 +27,12 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 PRICECHARTING_URL = os.getenv("PRICECHARTING_URL")
-GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
-GOOGLE_TOKEN_JSON = os.getenv("GOOGLE_TOKEN_JSON")
+GOOGLE_DRIVE_FOLDER_ID = os.getenv(
+    "GOOGLE_DRIVE_FOLDER_ID"
+)
+GOOGLE_TOKEN_JSON = os.getenv(
+    "GOOGLE_TOKEN_JSON"
+)
 
 if not DATABASE_URL:
     raise Exception("DATABASE_URL missing")
@@ -37,10 +41,14 @@ if not PRICECHARTING_URL:
     raise Exception("PRICECHARTING_URL missing")
 
 if not GOOGLE_DRIVE_FOLDER_ID:
-    raise Exception("GOOGLE_DRIVE_FOLDER_ID missing")
+    raise Exception(
+        "GOOGLE_DRIVE_FOLDER_ID missing"
+    )
 
 if not GOOGLE_TOKEN_JSON:
-    raise Exception("GOOGLE_TOKEN_JSON missing")
+    raise Exception(
+        "GOOGLE_TOKEN_JSON missing"
+    )
 
 today = datetime.now().strftime("%Y-%m-%d")
 snapshot_date = datetime.today().date()
@@ -52,8 +60,15 @@ snapshot_date = datetime.today().date()
 download_folder = Path("PokemonPrices")
 download_folder.mkdir(exist_ok=True)
 
-csv_filename = download_folder / f"pokemon_{today}.csv"
-gz_filename = download_folder / f"pokemon_{today}.csv.gz"
+csv_filename = (
+    download_folder /
+    f"pokemon_{today}.csv"
+)
+
+gz_filename = (
+    download_folder /
+    f"pokemon_{today}.csv.gz"
+)
 
 # -------------------------
 # DOWNLOAD CSV
@@ -69,12 +84,19 @@ response = requests.get(
 
 response.raise_for_status()
 
-csv_filename.write_bytes(response.content)
+csv_filename.write_bytes(
+    response.content
+)
 
 if csv_filename.stat().st_size < 100000:
-    raise Exception("Downloaded file too small.")
+    raise Exception(
+        "Downloaded file too small."
+    )
 
-print(f"Downloaded: {csv_filename.name}")
+print(
+    f"Downloaded: "
+    f"{csv_filename.name}"
+)
 
 # -------------------------
 # CONNECT TO SUPABASE
@@ -107,8 +129,8 @@ while attempt <= max_attempts:
 
         if attempt == max_attempts:
             raise Exception(
-                "Failed to connect to Supabase "
-                "after multiple attempts."
+                "Failed to connect to "
+                "Supabase after retries."
             )
 
         time.sleep(15)
@@ -118,7 +140,10 @@ while attempt <= max_attempts:
 # CHECK DAILY IMPORT
 # -------------------------
 
-def already_imported(cursor, snapshot_date):
+def already_imported(
+    cursor,
+    snapshot_date
+):
     cursor.execute("""
         SELECT EXISTS (
             SELECT 1
@@ -131,168 +156,297 @@ def already_imported(cursor, snapshot_date):
     return cursor.fetchone()[0]
 
 
-if already_imported(cursor, snapshot_date):
-    print(f"Data already imported for {snapshot_date}")
-    print("Skipping pipeline.")
+skip_database_import = False
 
-    cursor.close()
-    conn.close()
+if already_imported(
+    cursor,
+    snapshot_date
+):
+    print(
+        f"Data already imported "
+        f"for {snapshot_date}"
+    )
 
-    if csv_filename.exists():
-        csv_filename.unlink()
+    print(
+        "Skipping database import."
+    )
 
-    exit()
-
-# -------------------------
-# LOAD CSV
-# -------------------------
-
-df = pd.read_csv(csv_filename)
-
-print(f"Loaded {len(df):,} rows")
+    skip_database_import = True
 
 # -------------------------
-# HELPERS
+# DATABASE IMPORT
 # -------------------------
 
-def clean_price(value):
-    if pd.isna(value):
-        return None
+if not skip_database_import:
 
-    try:
-        value = str(value).replace("$", "").replace(",", "").strip()
+    df = pd.read_csv(csv_filename)
 
-        if value == "":
+    print(
+        f"Loaded "
+        f"{len(df):,} rows"
+    )
+
+    def clean_price(value):
+        if pd.isna(value):
             return None
 
-        return float(value)
+        try:
+            value = (
+                str(value)
+                .replace("$", "")
+                .replace(",", "")
+                .strip()
+            )
 
-    except:
-        return None
+            if value == "":
+                return None
 
+            return float(value)
 
-def clean_text(value):
-    if pd.isna(value):
-        return None
-
-    return str(value).strip()
-
-
-def clean_int(value):
-    if pd.isna(value):
-        return None
-
-    try:
-        return int(value)
-    except:
-        return None
+        except:
+            return None
 
 
-# -------------------------
-# PREPARE RECORDS
-# -------------------------
+    def clean_text(value):
+        if pd.isna(value):
+            return None
 
-records = []
+        return str(value).strip()
 
-for _, row in df.iterrows():
 
-    try:
-        record = (
-            clean_int(row.get("id")),
-            clean_text(row.get("tcg-id")),
-            clean_text(row.get("upc")),
-            clean_text(row.get("asin")),
-            clean_text(row.get("epid")),
+    def clean_int(value):
+        if pd.isna(value):
+            return None
 
-            clean_text(row.get("console-name")),
-            clean_text(row.get("product-name")),
-            clean_text(row.get("genre")),
+        try:
+            return int(value)
 
-            row.get("release-date")
-            if pd.notna(row.get("release-date"))
-            else None,
+        except:
+            return None
 
-            clean_price(row.get("loose-price")),
-            clean_price(row.get("cib-price")),
-            clean_price(row.get("new-price")),
-            clean_price(row.get("graded-price")),
-            clean_price(row.get("box-only-price")),
-            clean_price(row.get("manual-only-price")),
-            clean_price(row.get("bgs-10-price")),
-            clean_price(row.get("condition-17-price")),
-            clean_price(row.get("condition-18-price")),
+    records = []
 
-            clean_price(row.get("gamestop-price")),
-            clean_price(row.get("gamestop-trade-price")),
+    for _, row in df.iterrows():
 
-            clean_price(row.get("retail-loose-buy")),
-            clean_price(row.get("retail-loose-sell")),
-            clean_price(row.get("retail-cib-buy")),
-            clean_price(row.get("retail-cib-sell")),
-            clean_price(row.get("retail-new-buy")),
-            clean_price(row.get("retail-new-sell")),
+        try:
+            record = (
+                clean_int(
+                    row.get("id")
+                ),
 
-            clean_int(row.get("sales-volume")),
+                clean_text(
+                    row.get("tcg-id")
+                ),
 
+                clean_text(
+                    row.get("upc")
+                ),
+
+                clean_text(
+                    row.get("asin")
+                ),
+
+                clean_text(
+                    row.get("epid")
+                ),
+
+                clean_text(
+                    row.get(
+                        "console-name"
+                    )
+                ),
+
+                clean_text(
+                    row.get(
+                        "product-name"
+                    )
+                ),
+
+                clean_text(
+                    row.get("genre")
+                ),
+
+                (
+                    row.get(
+                        "release-date"
+                    )
+                    if pd.notna(
+                        row.get(
+                            "release-date"
+                        )
+                    )
+                    else None
+                ),
+
+                clean_price(
+                    row.get(
+                        "loose-price"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "cib-price"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "new-price"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "graded-price"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "box-only-price"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "manual-only-price"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "bgs-10-price"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "condition-17-price"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "condition-18-price"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "gamestop-price"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "gamestop-trade-price"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "retail-loose-buy"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "retail-loose-sell"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "retail-cib-buy"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "retail-cib-sell"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "retail-new-buy"
+                    )
+                ),
+
+                clean_price(
+                    row.get(
+                        "retail-new-sell"
+                    )
+                ),
+
+                clean_int(
+                    row.get(
+                        "sales-volume"
+                    )
+                ),
+
+                snapshot_date
+            )
+
+            records.append(record)
+
+        except Exception as e:
+            print(
+                f"Skipping row: {e}"
+            )
+
+    print(
+        f"Prepared "
+        f"{len(records):,} records"
+    )
+
+    execute_values(
+        cursor,
+        """
+        INSERT INTO pokemon_card_prices (
+            pricecharting_id,
+            tcg_id,
+            upc,
+            asin,
+            epid,
+            console_name,
+            product_name,
+            genre,
+            release_date,
+            loose_price,
+            cib_price,
+            new_price,
+            graded_price,
+            box_only_price,
+            manual_only_price,
+            bgs_10_price,
+            condition_17_price,
+            condition_18_price,
+            gamestop_price,
+            gamestop_trade_price,
+            retail_loose_buy,
+            retail_loose_sell,
+            retail_cib_buy,
+            retail_cib_sell,
+            retail_new_buy,
+            retail_new_sell,
+            sales_volume,
             snapshot_date
         )
-
-        records.append(record)
-
-    except Exception as e:
-        print(f"Skipping row: {e}")
-
-print(f"Prepared {len(records):,} records")
-
-# -------------------------
-# BULK INSERT
-# -------------------------
-
-execute_values(
-    cursor,
-    """
-    INSERT INTO pokemon_card_prices (
-        pricecharting_id,
-        tcg_id,
-        upc,
-        asin,
-        epid,
-        console_name,
-        product_name,
-        genre,
-        release_date,
-        loose_price,
-        cib_price,
-        new_price,
-        graded_price,
-        box_only_price,
-        manual_only_price,
-        bgs_10_price,
-        condition_17_price,
-        condition_18_price,
-        gamestop_price,
-        gamestop_trade_price,
-        retail_loose_buy,
-        retail_loose_sell,
-        retail_cib_buy,
-        retail_cib_sell,
-        retail_new_buy,
-        retail_new_sell,
-        sales_volume,
-        snapshot_date
+        VALUES %s
+        ON CONFLICT DO NOTHING
+        """,
+        records,
+        page_size=10000
     )
-    VALUES %s
-    ON CONFLICT DO NOTHING
-    """,
-    records,
-    page_size=10000
-)
 
-conn.commit()
+    conn.commit()
+
+    print("Imported to Supabase")
+
 cursor.close()
 conn.close()
-
-print("Imported to Supabase")
 
 # -------------------------
 # COMPRESS FILE
@@ -301,27 +455,45 @@ print("Imported to Supabase")
 print("Compressing CSV...")
 
 with open(csv_filename, "rb") as f_in:
-    with gzip.open(gz_filename, "wb", compresslevel=9) as f_out:
-        shutil.copyfileobj(f_in, f_out)
+    with gzip.open(
+        gz_filename,
+        "wb",
+        compresslevel=9
+    ) as f_out:
+        shutil.copyfileobj(
+            f_in,
+            f_out
+        )
 
-print(f"Compressed: {gz_filename.name}")
+print(
+    f"Compressed: "
+    f"{gz_filename.name}"
+)
 
 # -------------------------
 # GOOGLE DRIVE UPLOAD
 # -------------------------
 
 try:
-    print("Uploading to Google Drive...")
+    print(
+        "Uploading to Google Drive..."
+    )
 
     token_info = json.loads(
-        os.getenv("GOOGLE_TOKEN_JSON")
+        GOOGLE_TOKEN_JSON
     )
 
-    creds = Credentials.from_authorized_user_info(
-        token_info
+    creds = (
+        Credentials
+        .from_authorized_user_info(
+            token_info
+        )
     )
 
-    if creds.expired and creds.refresh_token:
+    if (
+        creds.expired and
+        creds.refresh_token
+    ):
         creds.refresh(Request())
 
     service = build(
@@ -330,41 +502,80 @@ try:
         credentials=creds
     )
 
-    media = MediaFileUpload(
-        str(gz_filename),
-        mimetype="application/gzip"
+    existing_files = (
+        service.files().list(
+            q=(
+                f"name="
+                f"'{gz_filename.name}' "
+                f"and "
+                f"'{GOOGLE_DRIVE_FOLDER_ID}' "
+                f"in parents "
+                f"and trashed=false"
+            ),
+            fields="files(id,name)"
+        ).execute()
     )
 
-    service.files().create(
-        body={
-            "name": gz_filename.name,
-            "parents": [GOOGLE_DRIVE_FOLDER_ID]
-        },
-        media_body=media,
-        fields="id"
-    ).execute()
+    files = (
+        existing_files
+        .get("files", [])
+    )
 
-    print("Upload complete")
+    if files:
+        print(
+            "Backup already exists:"
+        )
+        print(gz_filename.name)
+
+    else:
+        media = MediaFileUpload(
+            str(gz_filename),
+            mimetype=(
+                "application/gzip"
+            )
+        )
+
+        service.files().create(
+            body={
+                "name":
+                gz_filename.name,
+                "parents": [
+                    GOOGLE_DRIVE_FOLDER_ID
+                ]
+            },
+            media_body=media,
+            fields="id"
+        ).execute()
+
+        print("Upload complete")
 
 except Exception as e:
-    print("Google Drive upload failed")
+    print(
+        "Google Drive upload failed"
+    )
     print(e)
 
 # -------------------------
 # CLEANUP
 # -------------------------
 
-print("Cleaning up local files...")
+print(
+    "Cleaning up local files..."
+)
 
 try:
-    csv_filename.unlink()
+    if csv_filename.exists():
+        csv_filename.unlink()
 
     media = None
     time.sleep(2)
 
-    gz_filename.unlink()
+    if gz_filename.exists():
+        gz_filename.unlink()
 
-    print("Local files deleted")
+    print(
+        "Local files deleted"
+    )
 
 except Exception as e:
     print("Cleanup warning:")
