@@ -41,4 +41,4 @@ jobs:
           PRICECHARTING_URL: ${{ secrets.PRICECHARTING_URL }}
           GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
           GOOGLE_TOKEN_JSON: ${{ secrets.GOOGLE_TOKEN_JSON }}
-        run: python pokemon_prices.py
+        run: python scripts/python/pokemon_prices.py
