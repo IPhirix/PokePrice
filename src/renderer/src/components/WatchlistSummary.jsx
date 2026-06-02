@@ -74,13 +74,17 @@ export default function WatchlistSummary({ cards, onRefresh }) {
       dayCounts[key] = (dayCounts[key] || 0) + 1
     }
     let cumSum = 0
-    const itemsOverTime = Object.entries(dayCounts)
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, v]) => {
-        cumSum += v
-        const d = new Date(k + 'T12:00:00')
-        return { name: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), value: cumSum }
-      })
+    const sortedKeys = Object.keys(dayCounts).sort()
+    const itemsOverTime = sortedKeys.map((k) => {
+      cumSum += dayCounts[k]
+      const d = new Date(k + 'T12:00:00')
+      return { name: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), value: cumSum, isAdded: true }
+    })
+    const todayKey = (() => { const n = new Date(); return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}` })()
+    if (itemsOverTime.length > 0 && sortedKeys[sortedKeys.length - 1] !== todayKey) {
+      const todayLabel = new Date(todayKey + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      itemsOverTime.push({ name: todayLabel, value: cumSum })
+    }
 
     // Raw / Graded / Sealed counts
     let rawCount = 0, gradedCount = 0, sealedCount = 0
@@ -185,7 +189,11 @@ export default function WatchlistSummary({ cards, onRefresh }) {
                     stroke="#38bdf8"
                     strokeWidth={2}
                     fill="url(#wl-time-grad)"
-                    dot={false}
+                    dot={(dotProps) => {
+                      const { cx, cy, payload } = dotProps
+                      if (!payload?.isAdded) return null
+                      return <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={2} fill="#ffffff" stroke="#38bdf8" strokeWidth={1} />
+                    }}
                     activeDot={{ r: 3, fill: '#38bdf8' }}
                     isAnimationActive={false}
                   />

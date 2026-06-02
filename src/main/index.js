@@ -1604,6 +1604,10 @@ ipcMain.handle('prices:portfolio', (_, binder) => {
     runningInvested += investedByDate[date]
     return { date, value: Math.round(runningInvested * 100) / 100 }
   })
+  const todayStr = localDateStr()
+  if (investedHistory.length > 0 && investedHistory[investedHistory.length - 1].date !== todayStr) {
+    investedHistory.push({ date: todayStr, value: investedHistory[investedHistory.length - 1].value })
+  }
 
   // Cumulative card-add history for the bar chart (one bar per card, sorted by addedDate)
   const sortedByAdded = [...portfolioCards].sort((a, b) => {
@@ -2421,6 +2425,7 @@ ipcMain.handle('auth:isSessionValid', async () => {
     _currentUser = username
     migrateUserData(username)
     runUserMigrations()
+    checkAndRefreshPrices()
     return true
   } catch { return false }
 })
@@ -2498,6 +2503,7 @@ ipcMain.handle('auth:login', async (_, { username, password, email: providedEmai
       _currentUser = normalizedUsername
       migrateUserData(normalizedUsername)
       runUserMigrations()
+      checkAndRefreshPrices()
       try { fs.renameSync(authFile(), authFile() + '.migrated') } catch {}
       const settings = readSettings()
       const mergedProfile = { ...(settings.profile || {}), ...(legacyUser.profile || {}), username: normalizedUsername }
@@ -2514,6 +2520,7 @@ ipcMain.handle('auth:login', async (_, { username, password, email: providedEmai
   _currentUser = normalizedUsername
   migrateUserData(normalizedUsername)
   runUserMigrations()
+  checkAndRefreshPrices()
   const settings = readSettings()
   const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', data.user.id).single()
   if (profile) {
