@@ -28,10 +28,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -r scripts/python/requirements.txt
 
       - name: Run Card Shows Scraper
         env:
-          # add your secrets here if needed
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python scripts/python/daily_card_shows_scraper.py
+        run: python scripts/python/card_shows_scraper.py
