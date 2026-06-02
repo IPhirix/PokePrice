@@ -19,9 +19,9 @@ There is no test suite. Testing is manual by running the app.
 
 ### Process Model
 
-**Main process** (`src/main/index.js`, ~2600 lines) handles all data persistence, API calls, auth, and business logic. The renderer has no direct file system or network access.
+**Main process** (`src/main/index.js`, ~2550 lines) handles all data persistence, API calls, auth, and business logic. The renderer has no direct file system or network access.
 
-**Preload bridge** (`src/preload/index.js`) exposes ~76 async methods as `window.api.*` using `contextBridge`. All renderer ↔ main communication goes through these IPC calls. Auth methods are nested under `window.api.auth.*`.
+**Preload bridge** (`src/preload/index.js`) exposes ~78 async methods as `window.api.*` using `contextBridge`. All renderer ↔ main communication goes through these IPC calls. Auth methods are nested under `window.api.auth.*`.
 
 **Renderer** (`src/renderer/`) is a React 18 + React Router 6 (hash routing) SPA. Components call `window.api.*` directly and store results in local `useState`. There is no Redux/Zustand — state lives in components and React Context.
 
@@ -49,6 +49,8 @@ Data migration: on first login after upgrade, old flat `userData/*.json` files a
 
 Shared (not per-user):
 - `sets-cache.json` — Pokemon TCG sets list cache
+- `cardshows-{stateCode}.json` — cached card show events per US state
+- `geocache.json` — geocoding cache for card show locations
 
 ### Card Object Shape
 
@@ -65,7 +67,8 @@ Shared (not per-user):
   addedDate, lastPriceUpdate,
   targetBuyPrice, targetSellPrice,
   changeDay, changeWeek, changeMonth,  // % changes
-  recentHistory  // last 90 days [{date, price}]
+  recentHistory,  // last 90 days [{date, price}]
+  pptId, pptName  // reserved — not currently populated or used
 }
 ```
 

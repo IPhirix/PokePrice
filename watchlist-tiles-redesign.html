@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PokePrice — Watchlist Tiles Redesign</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #070c18;
+      --s900:         #0b1120;
+      --s800:         #101826;
+      --s700:         #18243a;
+      --s600:         #223046;
+      --s500:         #2a3b56;
+      --amber:        #f59e0b;
+      --amber-dim:    rgba(245,158,11,0.07);
+      --amber-border: rgba(245,158,11,0.22);
+      --sky:          #38bdf8;
+      --sky-dim:      rgba(56,189,248,0.06);
+      --sky-border:   rgba(56,189,248,0.18);
+      --t1:           #f1f5f9;
+      --t2:           #94a3b8;
+      --t3:           #64748b;
+      --ease: cubic-bezier(0.25, 1, 0.5, 1);
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--t1);
+      font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      padding: 48px 44px 100px;
+      max-width: 1080px;
+      margin: 0 auto;
+    }
+
+    /* ─── Page header ─── */
+    .ph { margin-bottom: 64px; }
+    .ph h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      color: var(--t1);
+    }
+    .ph p {
+      font-size: 13px;
+      color: var(--t3);
+      margin-top: 5px;
+      line-height: 1.5;
+    }
+
+    /* ─── Approach block ─── */
+    .approach { margin-bottom: 72px; }
+
+    .approach-hdr {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+
+    .badge {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-weight: 700;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: var(--s700);
+      color: var(--t3);
+      border: 1px solid var(--s600);
+    }
+
+    .badge.rec {
+      background: rgba(245,158,11,0.08);
+      color: var(--amber);
+      border-color: rgba(245,158,11,0.28);
+    }
+
+    .approach-name {
+      font-size: 14px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      color: var(--t2);
+    }
+
+    .approach-desc {
+      font-size: 12px;
+      color: var(--t3);
+      margin-bottom: 14px;
+      line-height: 1.55;
+    }
+
+    /* ─── App chrome wrapper ─── */
+    .chrome {
+      background: var(--s900);
+      border-radius: 14px;
+      padding: 14px;
+      border: 1px solid var(--s700);
+    }
+
+    /* ─── Shared grid ─── */
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      grid-auto-rows: 132px;
+      gap: 10px;
+    }
+
+    .col4 { grid-column: span 4; }
+    .col2 { grid-column: span 2; }
+
+    /* ─── Shared utilities ─── */
+    .num-stack {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+    }
+
+    .n-xl {
+      font-size: 58px;
+      font-weight: 800;
+      letter-spacing: -0.045em;
+      line-height: 1;
+      color: var(--t1);
+    }
+
+    .n-lg {
+      font-size: 40px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+
+    .n-md {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+
+    .n-sub {
+      font-size: 11px;
+      color: var(--t3);
+      margin-top: 6px;
+      letter-spacing: 0.01em;
+    }
+
+    .chart-abs {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    /* ─── Entry animation ─── */
+    @keyframes slide-up {
+      from { opacity: 0; transform: translateY(9px); }
+      to   { opacity: 1; transform: translateY(0);  }
+    }
+
+    .anim { animation: slide-up 380ms var(--ease) both; }
+    .d1 { animation-delay: 50ms; }
+    .d2 { animation-delay: 100ms; }
+    .d3 { animation-delay: 150ms; }
+    .d4 { animation-delay: 200ms; }
+    .d5 { animation-delay: 250ms; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .anim { animation: none; }
+    }
+
+
+    /* ══════════════════════════════════════════════════════
+       APPROACH A — AMBIENT DEPTH
+    ══════════════════════════════════════════════════════ */
+
+    .a-tile {
+      position: relative;
+      border-radius: 13px;
+      padding: 16px;
+      overflow: hidden;
+      background: var(--s800);
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.05),
+        0 2px 14px rgba(0,0,0,0.38);
+      transition: box-shadow 250ms var(--ease), transform 200ms var(--ease);
+    }
+
+    .a-tile:hover {
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.09),
+        0 6px 22px rgba(0,0,0,0.45);
+      transform: translateY(-1px);
+    }
+
+    .a-tile.a-count {
+      box-shadow:
+        0 0 0 1px rgba(56,189,248,0.14),
+        0 4px 24px rgba(0,0,0,0.45),
+        inset 0 0 80px -24px rgba(56,189,248,0.04);
+    }
+
+    .a-tile.a-count::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 25%; right: 25%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(56,189,248,0.55), transparent);
+    }
+
+    .a-tile.a-alert {
+      background: rgba(245,158,11,0.04);
+      box-shadow:
+        0 0 0 1px rgba(245,158,11,0.18),
+        0 4px 24px rgba(0,0,0,0.45),
+        inset 0 0 80px -24px rgba(245,158,11,0.05);
+    }
+
+    .a-tile.a-alert::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 25%; right: 25%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(245,158,11,0.58), transparent);
+    }
+
+    /* A — Condition tile: dominant number + pills + proportion bar */
+    .a-cond {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+
+    .a-cond-top {
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+    }
+
+    .a-cond-big-num {
+      font-size: 46px;
+      font-weight: 800;
+      letter-spacing: -0.045em;
+      line-height: 1;
+      color: var(--t1);
+    }
+
+    .a-cond-big-label {
+      font-size: 11px;
+      color: var(--t3);
+      margin-bottom: 4px;
+    }
+
+    .a-pills {
+      display: flex;
+      gap: 5px;
+    }
+
+    .a-pill {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: var(--s700);
+      border: 1px solid var(--s600);
+      border-radius: 7px;
+      padding: 3px 8px 3px 6px;
+    }
+
+    .a-dot {
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .a-pill-num {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--t1);
+    }
+
+    .a-pill-lbl {
+      font-size: 10px;
+      color: var(--t3);
+    }
+
+    .prop-track {
+      height: 3px;
+      border-radius: 2px;
+      background: var(--s600);
+      overflow: hidden;
+      display: flex;
+      gap: 2px;
+    }
+
+    .prop-seg { height: 100%; border-radius: 2px; }
+
+    /* A — Sets tile */
+    .a-sets {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 9px;
+    }
+
+    .a-set-row {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .a-set-name {
+      font-size: 11px;
+      color: var(--t2);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .a-bar-track {
+      width: 38px;
+      height: 2px;
+      border-radius: 1px;
+      background: var(--s600);
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    .a-bar-fill {
+      height: 100%;
+      border-radius: 1px;
+      background: rgba(56,189,248,0.5);
+    }
+
+    .a-set-ct {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--t1);
+      flex-shrink: 0;
+      width: 14px;
+      text-align: right;
+    }
+
+
+    /* ══════════════════════════════════════════════════════
+       APPROACH B — GLASS ARCHITECTURE (Recommended)
+    ══════════════════════════════════════════════════════ */
+
+    .b-shell {
+      border-radius: 18px;
+      padding: 3px;
+      background: rgba(255,255,255,0.025);
+      border: 1px solid rgba(255,255,255,0.07);
+      transition: border-color 250ms var(--ease), background 250ms var(--ease), transform 200ms var(--ease);
+      height: 100%;
+    }
+
+    .b-shell:hover {
+      background: rgba(255,255,255,0.04);
+      border-color: rgba(255,255,255,0.11);
+      transform: translateY(-1px);
+    }
+
+    .b-shell.b-sky {
+      background: rgba(56,189,248,0.025);
+      border-color: rgba(56,189,248,0.13);
+    }
+
+    .b-shell.b-sky:hover { border-color: rgba(56,189,248,0.22); }
+
+    .b-shell.b-amber {
+      background: rgba(245,158,11,0.03);
+      border-color: rgba(245,158,11,0.16);
+    }
+
+    .b-shell.b-amber:hover { border-color: rgba(245,158,11,0.26); }
+
+    .b-core {
+      border-radius: 15px;
+      padding: 14px 15px;
+      background: var(--s800);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,0.07);
+      height: 100%;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .b-shell.b-amber .b-core {
+      background: rgba(245,158,11,0.05);
+      box-shadow: inset 0 1px 0 rgba(245,158,11,0.12);
+    }
+
+    /* Tiny eyebrow label — used once per tile, not repeated on every section */
+    .b-eyebrow {
+      display: block;
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.13em;
+      font-weight: 700;
+      color: var(--t3);
+      margin-bottom: 8px;
+    }
+
+    .b-shell.b-amber .b-eyebrow { color: rgba(245,158,11,0.5); }
+
+    /* B — Condition tile */
+    .b-cond {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .b-cond-cols {
+      flex: 1;
+      display: flex;
+      align-items: flex-end;
+      gap: 0;
+    }
+
+    .b-cond-col {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding-right: 10px;
+      position: relative;
+    }
+
+    .b-cond-col::after {
+      content: '';
+      position: absolute;
+      top: 10px; bottom: 0; right: 0;
+      width: 1px;
+      background: var(--s600);
+    }
+
+    .b-cond-col:last-child { padding-right: 0; padding-left: 10px; }
+    .b-cond-col:last-child::after { display: none; }
+    .b-cond-col:nth-child(2) { padding-left: 10px; }
+
+    .b-cond-num {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+
+    .b-cond-lbl {
+      font-size: 10px;
+      color: var(--t3);
+      margin-top: 4px;
+    }
+
+    /* B — Sets tile */
+    .b-sets {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 9px;
+    }
+
+    .b-set-item { display: flex; flex-direction: column; gap: 4px; }
+
+    .b-set-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+    }
+
+    .b-set-name {
+      font-size: 10px;
+      color: var(--t2);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 105px;
+    }
+
+    .b-set-ct {
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--t1);
+    }
+
+    .b-bar {
+      height: 2px;
+      border-radius: 1px;
+      background: var(--s600);
+      overflow: hidden;
+    }
+
+    .b-bar-fill {
+      height: 100%;
+      border-radius: 1px;
+      background: rgba(56,189,248,0.5);
+    }
+
+
+    /* ══════════════════════════════════════════════════════
+       APPROACH C — EDITORIAL FLUSH
+    ══════════════════════════════════════════════════════ */
+
+    .c-wrap {
+      background: var(--s900);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 13px;
+      overflow: hidden;
+    }
+
+    .c-grid {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      grid-auto-rows: 132px;
+    }
+
+    .c-grid .col4 { grid-column: span 4; }
+    .c-grid .col2 { grid-column: span 2; }
+
+    .c-tile {
+      position: relative;
+      padding: 18px 20px;
+      border-right: 1px solid rgba(255,255,255,0.06);
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      overflow: hidden;
+    }
+
+    /* Row 1: tile 1 (col4) + tile 2 (col2) — tile 2 has no right border */
+    .c-tile:nth-child(2) { border-right: none; }
+    /* Row 2: tiles 3, 4, 5 — no bottom border; tile 5 no right border */
+    .c-tile:nth-child(3),
+    .c-tile:nth-child(4),
+    .c-tile:nth-child(5) { border-bottom: none; }
+    .c-tile:nth-child(5) { border-right: none; }
+
+    .c-tile:hover { background: rgba(255,255,255,0.015); }
+    .c-tile.c-alert-tile { background: rgba(245,158,11,0.03); }
+    .c-tile.c-alert-tile:hover { background: rgba(245,158,11,0.05); }
+
+    .c-num-xl {
+      font-size: 62px;
+      font-weight: 800;
+      letter-spacing: -0.05em;
+      line-height: 1;
+      color: var(--t1);
+    }
+
+    .c-num-lg {
+      font-size: 40px;
+      font-weight: 800;
+      letter-spacing: -0.04em;
+      line-height: 1;
+    }
+
+    .c-num-md {
+      font-size: 30px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+
+    .c-lbl {
+      font-size: 10px;
+      color: var(--t3);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      font-weight: 500;
+      margin-top: 7px;
+    }
+
+    /* C — Conditions: three equal columns, no surrounding borders */
+    .c-cond {
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-evenly;
+    }
+
+    .c-cond-col { display: flex; flex-direction: column; align-items: center; }
+    .c-cond-div { width: 1px; height: 30px; background: rgba(255,255,255,0.07); }
+
+    /* C — Sets: ranked leaderboard */
+    .c-sets {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .c-set-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+    }
+
+    .c-set-rank {
+      font-size: 9px;
+      color: var(--t3);
+      font-weight: 600;
+      width: 9px;
+      flex-shrink: 0;
+    }
+
+    .c-set-name {
+      font-size: 11px;
+      color: var(--t2);
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .c-set-ct {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--t1);
+    }
+
+
+    /* ─── Notes footer ─── */
+    .notes {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+      padding-top: 32px;
+      border-top: 1px solid var(--s600);
+    }
+
+    .note-block { }
+
+    .note-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--t2);
+      margin-bottom: 5px;
+    }
+
+    .note-title.amber { color: var(--amber); }
+
+    .note-body {
+      font-size: 11px;
+      color: var(--t3);
+      line-height: 1.6;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="ph">
+    <h1>Watchlist Tiles — Design Exploration</h1>
+    <p>3 approaches, same 5 tiles, same data. Dark navy + amber palette preserved throughout.<br>Mock data: 47 items, 28 raw / 15 graded / 4 sealed, 23 unique Pokemon, 3 alerts triggered.</p>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════
+       APPROACH A — AMBIENT DEPTH
+  ═══════════════════════════════════════════════ -->
+  <div class="approach">
+    <div class="approach-hdr">
+      <span class="badge">Option A</span>
+      <span class="approach-name">Ambient Depth</span>
+    </div>
+    <p class="approach-desc">
+      No hard card borders. Tiles float via ambient glow shadows, with colored top-stroke accents on key tiles.
+      The condition split is redesigned as a dominant number + pill tags + proportion bar instead of three equal columns.
+      Sets gain inline bars. Charts are more readable.
+    </p>
+    <div class="chrome">
+      <div class="grid">
+
+        <!-- Tile 1: Count + area chart -->
+        <div class="a-tile a-count col4 anim d1">
+          <svg class="chart-abs" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+            <defs>
+              <linearGradient id="a-area-grad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.28"/>
+                <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.02"/>
+              </linearGradient>
+            </defs>
+            <path d="M 0,38 C 5,36 8,34 11,34 C 17,34 19,30 22,30 C 27,30 30,25 33,25 C 38,25 41,20 44,20 C 49,20 52,15 55,15 C 60,15 63,10 66,10 C 71,10 74,7 77,7 C 82,7 85,4 88,4 C 93,4 96,2 100,2 L 100,40 L 0,40 Z" fill="url(#a-area-grad)"/>
+            <path d="M 0,38 C 5,36 8,34 11,34 C 17,34 19,30 22,30 C 27,30 30,25 33,25 C 38,25 41,20 44,20 C 49,20 52,15 55,15 C 60,15 63,10 66,10 C 71,10 74,7 77,7 C 82,7 85,4 88,4 C 93,4 96,2 100,2" fill="none" stroke="rgba(56,189,248,0.65)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="0" cy="38" r="1.4" fill="rgba(56,189,248,0.4)"/>
+            <circle cx="100" cy="2" r="2.2" fill="#38bdf8" stroke="rgba(15,23,42,0.8)" stroke-width="1.2"/>
+          </svg>
+          <div class="num-stack">
+            <div class="n-xl" style="position:relative;z-index:1;">47</div>
+            <div class="n-sub" style="position:relative;z-index:1;">watchlist items</div>
+          </div>
+        </div>
+
+        <!-- Tile 2: Conditions — dominant number + pills + proportion bar -->
+        <div class="a-tile col2 anim d2">
+          <div class="a-cond">
+            <div class="a-cond-top">
+              <div class="a-cond-big-num">28</div>
+              <div class="a-cond-big-label">raw cards</div>
+            </div>
+            <div class="a-pills">
+              <div class="a-pill">
+                <div class="a-dot" style="background:#60a5fa;"></div>
+                <span class="a-pill-num">15</span>
+                <span class="a-pill-lbl">graded</span>
+              </div>
+              <div class="a-pill">
+                <div class="a-dot" style="background:#a78bfa;"></div>
+                <span class="a-pill-num">4</span>
+                <span class="a-pill-lbl">sealed</span>
+              </div>
+            </div>
+            <div class="prop-track">
+              <div class="prop-seg" style="width:59%;background:#94a3b8;"></div>
+              <div class="prop-seg" style="width:32%;background:#60a5fa;"></div>
+              <div class="prop-seg" style="width:9%;background:#a78bfa;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tile 3: Top Sets -->
+        <div class="a-tile col2 anim d3">
+          <div class="a-sets">
+            <div class="a-set-row">
+              <span class="a-set-name">Scarlet &amp; Violet</span>
+              <div class="a-bar-track"><div class="a-bar-fill" style="width:100%;"></div></div>
+              <span class="a-set-ct">12</span>
+            </div>
+            <div class="a-set-row">
+              <span class="a-set-name">Crown Zenith</span>
+              <div class="a-bar-track"><div class="a-bar-fill" style="width:75%;"></div></div>
+              <span class="a-set-ct">9</span>
+            </div>
+            <div class="a-set-row">
+              <span class="a-set-name">Paldea Evolved</span>
+              <div class="a-bar-track"><div class="a-bar-fill" style="width:67%;"></div></div>
+              <span class="a-set-ct">8</span>
+            </div>
+            <div class="a-set-row">
+              <span class="a-set-name">151</span>
+              <div class="a-bar-track"><div class="a-bar-fill" style="width:58%;"></div></div>
+              <span class="a-set-ct">7</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tile 4: Pokemon count + bar chart -->
+        <div class="a-tile col2 anim d4">
+          <svg class="chart-abs" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+            <rect x="3"  y="7"  width="12" height="33" rx="2" fill="rgba(245,158,11,0.30)"/>
+            <rect x="20" y="13" width="12" height="27" rx="2" fill="rgba(245,158,11,0.23)"/>
+            <rect x="37" y="19" width="12" height="21" rx="2" fill="rgba(245,158,11,0.18)"/>
+            <rect x="54" y="25" width="12" height="15" rx="2" fill="rgba(245,158,11,0.14)"/>
+            <rect x="71" y="29" width="12" height="11" rx="2" fill="rgba(245,158,11,0.10)"/>
+            <rect x="88" y="33" width="10" height="7"  rx="2" fill="rgba(245,158,11,0.07)"/>
+          </svg>
+          <div class="num-stack">
+            <div class="n-lg" style="color:var(--amber);position:relative;z-index:1;">23</div>
+            <div class="n-sub" style="position:relative;z-index:1;">unique Pokemon</div>
+          </div>
+        </div>
+
+        <!-- Tile 5: Price Alerts (triggered state) -->
+        <div class="a-tile a-alert col2 anim d5">
+          <div class="num-stack">
+            <div class="n-lg" style="color:var(--amber);">3</div>
+            <div class="n-sub" style="color:rgba(245,158,11,0.65);">alerts triggered</div>
+            <div style="margin-top:8px;font-size:10px;color:var(--t3);">8 of 47 monitored</div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════
+       APPROACH B — GLASS ARCHITECTURE (Recommended)
+  ═══════════════════════════════════════════════ -->
+  <div class="approach">
+    <div class="approach-hdr">
+      <span class="badge rec">Recommended</span>
+      <span class="approach-name">Glass Architecture</span>
+    </div>
+    <p class="approach-desc">
+      Double-bezel nested cards: a thin outer shell with a hairline border wraps a distinct inner core with an inner top-highlight.
+      Each tile type reads differently. Sets show proportion bars per item. A tiny eyebrow label appears once per tile (not on every section
+      of the page). The amber alert tile gets a warm glass treatment. The most sophisticated of the three approaches.
+    </p>
+    <div class="chrome" style="background:#0d1422;">
+      <div class="grid">
+
+        <!-- Tile 1: Count + area chart -->
+        <div class="b-shell b-sky col4 anim d1">
+          <div class="b-core">
+            <svg class="chart-abs" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="b-area-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.32"/>
+                  <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.01"/>
+                </linearGradient>
+              </defs>
+              <path d="M 0,38 C 5,36 8,34 11,34 C 17,34 19,30 22,30 C 27,30 30,25 33,25 C 38,25 41,20 44,20 C 49,20 52,15 55,15 C 60,15 63,10 66,10 C 71,10 74,7 77,7 C 82,7 85,4 88,4 C 93,4 96,2 100,2 L 100,40 L 0,40 Z" fill="url(#b-area-grad)"/>
+              <path d="M 0,38 C 5,36 8,34 11,34 C 17,34 19,30 22,30 C 27,30 30,25 33,25 C 38,25 41,20 44,20 C 49,20 52,15 55,15 C 60,15 63,10 66,10 C 71,10 74,7 77,7 C 82,7 85,4 88,4 C 93,4 96,2 100,2" fill="none" stroke="rgba(56,189,248,0.72)" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="100" cy="2" r="2.2" fill="#38bdf8" stroke="rgba(13,20,34,0.9)" stroke-width="1.2"/>
+            </svg>
+            <div class="num-stack">
+              <div class="n-xl" style="position:relative;z-index:1;">47</div>
+              <div class="n-sub" style="position:relative;z-index:1;">watchlist items</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tile 2: Conditions -->
+        <div class="b-shell col2 anim d2">
+          <div class="b-core">
+            <span class="b-eyebrow">condition split</span>
+            <div class="b-cond">
+              <div class="b-cond-cols">
+                <div class="b-cond-col">
+                  <div class="b-cond-num" style="color:var(--t1);">28</div>
+                  <div class="b-cond-lbl">Raw</div>
+                </div>
+                <div class="b-cond-col">
+                  <div class="b-cond-num" style="color:#60a5fa;">15</div>
+                  <div class="b-cond-lbl">Graded</div>
+                </div>
+                <div class="b-cond-col">
+                  <div class="b-cond-num" style="color:#a78bfa;">4</div>
+                  <div class="b-cond-lbl">Sealed</div>
+                </div>
+              </div>
+              <div class="prop-track" style="margin-top:10px;">
+                <div class="prop-seg" style="width:59%;background:#94a3b8;"></div>
+                <div class="prop-seg" style="width:32%;background:#60a5fa;"></div>
+                <div class="prop-seg" style="width:9%;background:#a78bfa;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tile 3: Top Sets with proportion bars -->
+        <div class="b-shell col2 anim d3">
+          <div class="b-core">
+            <span class="b-eyebrow">top sets</span>
+            <div class="b-sets">
+              <div class="b-set-item">
+                <div class="b-set-top">
+                  <span class="b-set-name">Scarlet &amp; Violet</span>
+                  <span class="b-set-ct">12</span>
+                </div>
+                <div class="b-bar"><div class="b-bar-fill" style="width:100%;"></div></div>
+              </div>
+              <div class="b-set-item">
+                <div class="b-set-top">
+                  <span class="b-set-name">Crown Zenith</span>
+                  <span class="b-set-ct">9</span>
+                </div>
+                <div class="b-bar"><div class="b-bar-fill" style="width:75%;"></div></div>
+              </div>
+              <div class="b-set-item">
+                <div class="b-set-top">
+                  <span class="b-set-name">Paldea Evolved</span>
+                  <span class="b-set-ct">8</span>
+                </div>
+                <div class="b-bar"><div class="b-bar-fill" style="width:67%;"></div></div>
+              </div>
+              <div class="b-set-item">
+                <div class="b-set-top">
+                  <span class="b-set-name">151</span>
+                  <span class="b-set-ct">7</span>
+                </div>
+                <div class="b-bar"><div class="b-bar-fill" style="width:58%;"></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tile 4: Pokemon count + bar chart -->
+        <div class="b-shell col2 anim d4">
+          <div class="b-core">
+            <svg class="chart-abs" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+              <rect x="3"  y="7"  width="12" height="33" rx="2" fill="rgba(245,158,11,0.32)"/>
+              <rect x="20" y="13" width="12" height="27" rx="2" fill="rgba(245,158,11,0.24)"/>
+              <rect x="37" y="19" width="12" height="21" rx="2" fill="rgba(245,158,11,0.18)"/>
+              <rect x="54" y="25" width="12" height="15" rx="2" fill="rgba(245,158,11,0.13)"/>
+              <rect x="71" y="29" width="12" height="11" rx="2" fill="rgba(245,158,11,0.09)"/>
+              <rect x="88" y="33" width="10" height="7"  rx="2" fill="rgba(245,158,11,0.06)"/>
+            </svg>
+            <span class="b-eyebrow">unique pokemon</span>
+            <div class="num-stack" style="height:auto;margin-top:auto;">
+              <div class="n-lg" style="color:var(--amber);position:relative;z-index:1;margin-top:auto;">23</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tile 5: Alerts -->
+        <div class="b-shell b-amber col2 anim d5">
+          <div class="b-core">
+            <span class="b-eyebrow">price alerts</span>
+            <div class="num-stack">
+              <div class="n-lg" style="color:var(--amber);">3</div>
+              <div class="n-sub" style="color:rgba(245,158,11,0.6);">triggered now</div>
+              <div style="margin-top:8px;font-size:10px;color:var(--t3);">8 of 47 monitored</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════
+       APPROACH C — EDITORIAL FLUSH
+  ═══════════════════════════════════════════════ -->
+  <div class="approach">
+    <div class="approach-hdr">
+      <span class="badge">Option C</span>
+      <span class="approach-name">Editorial Flush</span>
+    </div>
+    <p class="approach-desc">
+      No individual tile backgrounds at all. The grid container holds everything with hairline internal dividers.
+      Maximum typographic contrast between data and labels. Sets become a ranked leaderboard. The most minimal
+      and editorial of the three. Works well if you want the tiles to feel like a single unified dashboard strip.
+    </p>
+    <div class="chrome">
+      <div class="c-wrap">
+        <div class="c-grid">
+
+          <!-- Tile 1: Count + chart -->
+          <div class="c-tile col4 anim d1">
+            <svg class="chart-abs" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <linearGradient id="c-area-grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.12"/>
+                  <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.00"/>
+                </linearGradient>
+              </defs>
+              <path d="M 0,38 C 5,36 8,34 11,34 C 17,34 19,30 22,30 C 27,30 30,25 33,25 C 38,25 41,20 44,20 C 49,20 52,15 55,15 C 60,15 63,10 66,10 C 71,10 74,7 77,7 C 82,7 85,4 88,4 C 93,4 96,2 100,2 L 100,40 L 0,40 Z" fill="url(#c-area-grad)"/>
+              <path d="M 0,38 C 5,36 8,34 11,34 C 17,34 19,30 22,30 C 27,30 30,25 33,25 C 38,25 41,20 44,20 C 49,20 52,15 55,15 C 60,15 63,10 66,10 C 71,10 74,7 77,7 C 82,7 85,4 88,4 C 93,4 96,2 100,2" fill="none" stroke="rgba(56,189,248,0.38)" stroke-width="1.1" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <div style="position:relative;z-index:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;">
+              <div class="c-num-xl">47</div>
+              <div class="c-lbl">watchlist items</div>
+            </div>
+          </div>
+
+          <!-- Tile 2: Conditions -->
+          <div class="c-tile col2 anim d2">
+            <div class="c-cond">
+              <div class="c-cond-col">
+                <div class="c-num-md">28</div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--t3);margin-top:4px;font-weight:500;">Raw</div>
+              </div>
+              <div class="c-cond-div"></div>
+              <div class="c-cond-col">
+                <div class="c-num-md" style="color:#60a5fa;">15</div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--t3);margin-top:4px;font-weight:500;">Graded</div>
+              </div>
+              <div class="c-cond-div"></div>
+              <div class="c-cond-col">
+                <div class="c-num-md" style="color:#a78bfa;">4</div>
+                <div style="font-size:9px;text-transform:uppercase;letter-spacing:0.1em;color:var(--t3);margin-top:4px;font-weight:500;">Sealed</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tile 3: Top Sets -->
+          <div class="c-tile col2 anim d3">
+            <div class="c-sets">
+              <div class="c-set-row">
+                <span class="c-set-rank">1</span>
+                <span class="c-set-name">Scarlet &amp; Violet</span>
+                <span class="c-set-ct">12</span>
+              </div>
+              <div class="c-set-row">
+                <span class="c-set-rank">2</span>
+                <span class="c-set-name">Crown Zenith</span>
+                <span class="c-set-ct">9</span>
+              </div>
+              <div class="c-set-row">
+                <span class="c-set-rank">3</span>
+                <span class="c-set-name">Paldea Evolved</span>
+                <span class="c-set-ct">8</span>
+              </div>
+              <div class="c-set-row">
+                <span class="c-set-rank">4</span>
+                <span class="c-set-name">151</span>
+                <span class="c-set-ct">7</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tile 4: Pokemon -->
+          <div class="c-tile col2 anim d4">
+            <svg class="chart-abs" viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+              <rect x="3"  y="7"  width="12" height="33" rx="2" fill="rgba(245,158,11,0.18)"/>
+              <rect x="20" y="13" width="12" height="27" rx="2" fill="rgba(245,158,11,0.14)"/>
+              <rect x="37" y="19" width="12" height="21" rx="2" fill="rgba(245,158,11,0.10)"/>
+              <rect x="54" y="25" width="12" height="15" rx="2" fill="rgba(245,158,11,0.07)"/>
+              <rect x="71" y="29" width="12" height="11" rx="2" fill="rgba(245,158,11,0.05)"/>
+              <rect x="88" y="33" width="10" height="7"  rx="2" fill="rgba(245,158,11,0.04)"/>
+            </svg>
+            <div style="position:relative;z-index:1;height:100%;display:flex;flex-direction:column;justify-content:flex-end;">
+              <div class="c-num-lg" style="color:var(--amber);">23</div>
+              <div class="c-lbl">unique Pokemon</div>
+            </div>
+          </div>
+
+          <!-- Tile 5: Alerts -->
+          <div class="c-tile c-alert-tile col2 anim d5">
+            <div style="height:100%;display:flex;flex-direction:column;justify-content:flex-end;">
+              <div class="c-num-lg" style="color:var(--amber);">3</div>
+              <div class="c-lbl" style="color:rgba(245,158,11,0.5);">alerts triggered</div>
+              <div style="font-size:10px;color:var(--t3);margin-top:6px;">8 of 47 monitored</div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ─── Comparison notes ─── -->
+  <div class="notes">
+    <div class="note-block">
+      <div class="note-title">Option A — Ambient Depth</div>
+      <div class="note-body">
+        Biggest visual gain from removing the flat border ring. The condition tile redesign (dominant number + pills + bar)
+        is the standout improvement here. Closest feel to the current layout, easiest path if you want incremental change.
+      </div>
+    </div>
+    <div class="note-block">
+      <div class="note-title amber">Option B — Glass Architecture</div>
+      <div class="note-body">
+        Recommended. The nested shell gives real physical depth without visual noise. Each tile type reads
+        distinctly. The per-set proportion bars make the sets tile much more scannable. Most premium feel
+        with the least code change from the current Tailwind setup.
+      </div>
+    </div>
+    <div class="note-block">
+      <div class="note-title">Option C — Editorial Flush</div>
+      <div class="note-body">
+        Highest typographic contrast and information clarity. Works best if the rest of the watchlist page
+        also moves toward a more editorial, borderless direction. The biggest departure from the current design.
+        Consider this if you plan a broader Dashboard rethink.
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>

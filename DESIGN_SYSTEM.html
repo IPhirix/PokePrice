@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PokePrice Design System</title>
+  <style>
+    :root {
+      --surface-900: #0f1117;
+      --surface-800: #161b27;
+      --surface-700: #1e2535;
+      --surface-600: #252d3d;
+      --surface-500: #2e3850;
+      --accent:      #f59e0b;
+      --accent-hover:#fbbf24;
+      --text-primary:   #e2e8f0;
+      --text-secondary: #cbd5e1;
+      --text-muted:     #64748b;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--surface-900);
+      color: var(--text-primary);
+      padding: 40px 24px 80px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--surface-800); }
+    ::-webkit-scrollbar-thumb { background: var(--surface-500); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3e4f70; }
+
+    .page { max-width: 900px; margin: 0 auto; }
+
+    /* ── Header ── */
+    .page-header { margin-bottom: 48px; }
+    .page-header h1 {
+      font-size: 2rem; font-weight: 900; color: var(--accent);
+      letter-spacing: -0.5px; margin-bottom: 6px;
+    }
+    .page-header p { font-size: 0.875rem; color: var(--text-muted); }
+
+    /* ── Section ── */
+    section { margin-bottom: 48px; }
+    .section-title {
+      font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--text-muted);
+      border-bottom: 1px solid var(--surface-600);
+      padding-bottom: 10px; margin-bottom: 20px;
+    }
+
+    /* ── Grid helpers ── */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .grid-auto { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 12px; }
+
+    /* ── Color Swatches ── */
+    .swatch {
+      background: var(--surface-800);
+      border: 1px solid var(--surface-600);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .swatch-color { height: 64px; width: 100%; }
+    .swatch-info { padding: 10px 12px; }
+    .swatch-name { font-size: 0.75rem; font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
+    .swatch-hex  { font-size: 0.7rem; color: var(--text-muted); font-family: monospace; margin-bottom: 4px; }
+    .swatch-use  { font-size: 0.65rem; color: var(--text-muted); line-height: 1.4; }
+
+    /* ── Table ── */
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    th {
+      text-align: left; font-size: 0.65rem; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text-muted);
+      padding: 6px 12px; border-bottom: 1px solid var(--surface-600);
+    }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--surface-700); color: var(--text-secondary); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    code {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.75rem; background: var(--surface-700);
+      border: 1px solid var(--surface-600);
+      color: var(--accent); padding: 1px 5px; border-radius: 4px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--surface-800);
+      border: 1px solid var(--surface-600);
+      border-radius: 12px;
+      padding: 16px 20px;
+    }
+    .card h3 { font-size: 0.7rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin-bottom: 14px; }
+
+    /* ── Condition Badges ── */
+    .badge-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .badge {
+      font-size: 0.7rem; padding: 3px 10px; border-radius: 9999px; font-weight: 600;
+      display: inline-block;
+    }
+    .badge-raw   { background: #334155; color: #cbd5e1; }
+    .badge-psa10 { background: rgba(202,138,4,0.5); color: #fef08a; box-shadow: 0 0 0 1px rgba(234,179,8,0.4); }
+    .badge-psa9  { background: rgba(113,113,122,0.5); color: #f4f4f5; }
+    .badge-psa8  { background: rgba(154,52,18,0.6); color: #fdba74; }
+    .badge-cgc10 { background: rgba(202,138,4,0.5); color: #fef08a; box-shadow: 0 0 0 1px rgba(234,179,8,0.4); }
+    .badge-cgc9  { background: rgba(113,113,122,0.5); color: #f4f4f5; }
+
+    /* ── Component Previews ── */
+    .component-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .component-card {
+      background: var(--surface-800);
+      border: 1px solid var(--surface-600);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .component-label {
+      font-size: 0.65rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--text-muted);
+      padding: 10px 14px; border-bottom: 1px solid var(--surface-700);
+      background: var(--surface-900);
+    }
+    .component-preview {
+      padding: 20px 16px;
+      display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 10px;
+    }
+
+    /* Live component styles */
+    .demo-input {
+      background: var(--surface-700);
+      border: 1px solid var(--surface-500);
+      border-radius: 8px; padding: 6px 12px;
+      font-size: 0.8rem; color: white;
+      outline: none; width: 100%; max-width: 220px;
+      font-family: inherit;
+    }
+    .demo-input:focus { border-color: var(--accent); }
+
+    .demo-btn-primary {
+      background: var(--accent); color: #000;
+      font-weight: 600; padding: 8px 16px;
+      border-radius: 8px; border: none; cursor: pointer;
+      font-size: 0.8rem; font-family: inherit;
+      transition: background 0.15s;
+    }
+    .demo-btn-primary:hover { background: var(--accent-hover); }
+
+    .demo-btn-secondary {
+      background: var(--surface-700);
+      border: 1px solid var(--surface-500);
+      color: #cbd5e1; padding: 8px 16px;
+      border-radius: 8px; cursor: pointer;
+      font-size: 0.8rem; font-family: inherit;
+      transition: background 0.15s, color 0.15s;
+    }
+    .demo-btn-secondary:hover { background: var(--surface-600); color: white; }
+
+    .demo-btn-danger {
+      background: rgba(127,29,29,0.4);
+      border: 1px solid rgba(185,28,28,0.5);
+      color: #f87171; padding: 8px 16px;
+      border-radius: 8px; cursor: pointer;
+      font-size: 0.8rem; font-family: inherit;
+      transition: background 0.15s;
+    }
+    .demo-btn-danger:hover { background: rgba(127,29,29,0.6); }
+
+    .demo-modal-overlay {
+      background: rgba(0,0,0,0.7);
+      border-radius: 8px; padding: 16px;
+      display: flex; align-items: center; justify-content: center;
+      width: 100%;
+    }
+    .demo-modal {
+      background: var(--surface-800);
+      border: 1px solid var(--surface-600);
+      border-radius: 16px; padding: 20px;
+      width: 100%; max-width: 260px;
+      box-shadow: 0 25px 50px rgba(0,0,0,0.5);
+    }
+    .demo-modal-title { font-size: 0.9rem; font-weight: 700; margin-bottom: 8px; }
+    .demo-modal-body  { font-size: 0.75rem; color: var(--text-muted); line-height: 1.5; }
+
+    .demo-card-row {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface-800); border: 1px solid var(--surface-700);
+      border-radius: 12px; padding: 12px 16px;
+      cursor: pointer; transition: all 0.15s; width: 100%;
+    }
+    .demo-card-row:hover { border-color: var(--surface-500); background: rgba(30,37,53,0.5); }
+    .demo-card-thumb {
+      width: 36px; height: 50px; border-radius: 6px;
+      background: var(--surface-700); border: 1px solid var(--surface-600);
+      flex-shrink: 0;
+    }
+    .demo-card-name  { font-size: 0.8rem; font-weight: 600; margin-bottom: 3px; }
+    .demo-card-meta  { font-size: 0.7rem; color: var(--text-muted); }
+    .demo-card-price { margin-left: auto; font-size: 1rem; font-weight: 700; color: white; }
+
+    /* ── Typography Scale ── */
+    .type-row { padding: 12px 16px; border-bottom: 1px solid var(--surface-700); }
+    .type-row:last-child { border-bottom: none; }
+    .type-meta { font-size: 0.65rem; color: var(--text-muted); margin-top: 3px; font-family: monospace; }
+
+    /* ── Spacing / Shape ── */
+    .radius-row {
+      display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end;
+    }
+    .radius-swatch {
+      display: flex; flex-direction: column; align-items: center; gap: 8px;
+    }
+    .radius-box {
+      background: var(--surface-700); border: 1px solid var(--surface-500);
+      width: 56px; height: 56px;
+    }
+    .radius-label { font-size: 0.65rem; color: var(--text-muted); text-align: center; }
+
+    /* ── Semantic Color Pills ── */
+    .semantic-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .sem { padding: 4px 12px; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
+    .sem-pos-text  { color: #34d399; background: rgba(6,78,59,0.3); }
+    .sem-neg-text  { color: #f87171; background: rgba(127,29,29,0.3); }
+    .sem-sky       { color: #38bdf8; background: rgba(12,74,110,0.3); }
+    .sem-yellow    { color: #fde047; background: rgba(113,63,18,0.3); }
+    .sem-muted     { color: #64748b; background: var(--surface-700); }
+
+    /* ── Do/Don't ── */
+    .rule {
+      display: flex; gap: 12px; align-items: flex-start;
+      padding: 12px 16px; border-radius: 10px;
+      background: var(--surface-800); border: 1px solid var(--surface-700);
+      margin-bottom: 8px; font-size: 0.82rem; line-height: 1.5; color: var(--text-secondary);
+    }
+    .rule-icon { font-size: 0.9rem; flex-shrink: 0; margin-top: 1px; }
+    .rule strong { color: var(--text-primary); }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <div class="page-header">
+    <h1>PokePrice Design System</h1>
+    <p>Visual reference for the app's color tokens, components, and conventions.</p>
+  </div>
+
+  <!-- ── COLOR TOKENS ── -->
+  <section>
+    <div class="section-title">Color Tokens — Surface Scale</div>
+    <div class="grid-auto">
+      <div class="swatch">
+        <div class="swatch-color" style="background:#2e3850"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">surface-500</div>
+          <div class="swatch-hex">#2e3850</div>
+          <div class="swatch-use">Accents, scrollbar thumb, hover targets</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#252d3d"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">surface-600</div>
+          <div class="swatch-hex">#252d3d</div>
+          <div class="swatch-use">Borders, dividers</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#1e2535"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">surface-700</div>
+          <div class="swatch-hex">#1e2535</div>
+          <div class="swatch-use">Inputs, secondary buttons</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#161b27"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">surface-800</div>
+          <div class="swatch-hex">#161b27</div>
+          <div class="swatch-use">Cards, modals, panels</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#0f1117; border-bottom:1px solid #252d3d"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">surface-900</div>
+          <div class="swatch-hex">#0f1117</div>
+          <div class="swatch-use">App background (body)</div>
+        </div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:linear-gradient(135deg,#f59e0b,#fbbf24)"></div>
+        <div class="swatch-info">
+          <div class="swatch-name">accent / accent-hover</div>
+          <div class="swatch-hex">#f59e0b → #fbbf24</div>
+          <div class="swatch-use">CTAs, highlights, active states</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── SEMANTIC COLORS ── -->
+  <section>
+    <div class="section-title">Semantic Colors</div>
+    <div class="card">
+      <div class="semantic-row">
+        <span class="sem sem-pos-text">Positive / profit / up</span>
+        <span class="sem sem-neg-text">Negative / loss / down</span>
+        <span class="sem sem-sky">Watchlist / info</span>
+        <span class="sem sem-yellow">Trade / warning</span>
+        <span class="sem sem-muted">Muted / disabled</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── CONDITION BADGES ── -->
+  <section>
+    <div class="section-title">Condition Badges</div>
+    <div class="card">
+      <div class="badge-row">
+        <span class="badge badge-raw">RAW</span>
+        <span class="badge badge-psa10">PSA 10</span>
+        <span class="badge badge-psa9">PSA 9</span>
+        <span class="badge badge-psa8">PSA 8</span>
+        <span class="badge badge-cgc10">CGC 10</span>
+        <span class="badge badge-cgc9">CGC 9</span>
+      </div>
+      <div style="margin-top:14px">
+        <table>
+          <thead><tr><th>Key</th><th>Classes</th></tr></thead>
+          <tbody>
+            <tr><td><code>raw</code></td><td><code>bg-slate-700 text-slate-300</code></td></tr>
+            <tr><td><code>psa10</code></td><td><code>bg-yellow-600/50 text-yellow-200 ring-1 ring-yellow-500/40</code></td></tr>
+            <tr><td><code>psa9</code></td><td><code>bg-zinc-500/50 text-zinc-100</code></td></tr>
+            <tr><td><code>psa8</code></td><td><code>bg-orange-800/60 text-orange-300</code></td></tr>
+            <tr><td><code>cgc10</code></td><td><code>bg-yellow-600/50 text-yellow-200 ring-1 ring-yellow-500/40</code></td></tr>
+            <tr><td><code>cgc9</code></td><td><code>bg-zinc-500/50 text-zinc-100</code></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── COMPONENT RECIPES ── -->
+  <section>
+    <div class="section-title">Component Recipes</div>
+    <div class="component-grid">
+
+      <div class="component-card">
+        <div class="component-label">Form Input</div>
+        <div class="component-preview">
+          <input class="demo-input" type="text" placeholder="Search cards…" />
+        </div>
+      </div>
+
+      <div class="component-card">
+        <div class="component-label">Buttons</div>
+        <div class="component-preview">
+          <button class="demo-btn-primary">Save Card</button>
+          <button class="demo-btn-secondary">Cancel</button>
+          <button class="demo-btn-danger">Delete</button>
+        </div>
+      </div>
+
+      <div class="component-card">
+        <div class="component-label">Modal</div>
+        <div class="component-preview" style="padding:0; background:rgba(0,0,0,0.4); border-radius:0 0 12px 12px;">
+          <div class="demo-modal-overlay">
+            <div class="demo-modal">
+              <div class="demo-modal-title">Add to Watchlist</div>
+              <div class="demo-modal-body">This card will be tracked but not counted toward your portfolio value.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="component-card">
+        <div class="component-label">Card Row Item</div>
+        <div class="component-preview" style="padding: 12px;">
+          <div class="demo-card-row">
+            <div class="demo-card-thumb"></div>
+            <div>
+              <div class="demo-card-name">Charizard</div>
+              <div class="demo-card-meta">Base Set · #4 · <span class="badge badge-psa10" style="font-size:0.6rem;padding:1px 7px;">PSA 10</span></div>
+            </div>
+            <div class="demo-card-price">$420.00</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ── TYPOGRAPHY ── -->
+  <section>
+    <div class="section-title">Typography Scale</div>
+    <div class="card" style="padding:0; overflow:hidden;">
+      <div class="type-row">
+        <div style="font-size:1.875rem; font-weight:900;">App Logo / Main Heading</div>
+        <div class="type-meta">text-3xl font-black · 900 weight</div>
+      </div>
+      <div class="type-row">
+        <div style="font-size:1.5rem; font-weight:700;">Page Heading</div>
+        <div class="type-meta">text-2xl font-bold · 700 weight</div>
+      </div>
+      <div class="type-row">
+        <div style="font-size:1.125rem; font-weight:700;">Modal Title</div>
+        <div class="type-meta">text-lg font-bold · 700 weight</div>
+      </div>
+      <div class="type-row">
+        <div style="font-size:1rem; font-weight:600;">Sub-heading / Tab Label</div>
+        <div class="type-meta">text-base font-semibold · 600 weight</div>
+      </div>
+      <div class="type-row">
+        <div style="font-size:0.875rem;">Body text and form labels — the most common size in the app.</div>
+        <div class="type-meta">text-sm · 400–500 weight</div>
+      </div>
+      <div class="type-row">
+        <div style="font-size:0.75rem; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:#64748b;">Section Header</div>
+        <div class="type-meta">text-xs font-semibold uppercase tracking-wider</div>
+      </div>
+      <div class="type-row">
+        <div style="font-size:0.75rem; color:#94a3b8;">Secondary labels, captions, metadata</div>
+        <div class="type-meta">text-xs · 400 weight</div>
+      </div>
+      <div class="type-row">
+        <div style="font-size:1.875rem; font-weight:700; color:#f59e0b;">$420.00</div>
+        <div class="type-meta">text-3xl font-bold · price values</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── SPACING & SHAPE ── -->
+  <section>
+    <div class="section-title">Border Radius Ladder</div>
+    <div class="card">
+      <div class="radius-row">
+        <div class="radius-swatch">
+          <div class="radius-box" style="border-radius:4px"></div>
+          <div class="radius-label">rounded<br/>4px<br/><span style="color:#94a3b8">micro</span></div>
+        </div>
+        <div class="radius-swatch">
+          <div class="radius-box" style="border-radius:8px"></div>
+          <div class="radius-label">rounded-lg<br/>8px<br/><span style="color:#94a3b8">inputs</span></div>
+        </div>
+        <div class="radius-swatch">
+          <div class="radius-box" style="border-radius:12px"></div>
+          <div class="radius-label">rounded-xl<br/>12px<br/><span style="color:#94a3b8">cards</span></div>
+        </div>
+        <div class="radius-swatch">
+          <div class="radius-box" style="border-radius:16px"></div>
+          <div class="radius-label">rounded-2xl<br/>16px<br/><span style="color:#94a3b8">modals</span></div>
+        </div>
+        <div class="radius-swatch">
+          <div class="radius-box" style="border-radius:9999px"></div>
+          <div class="radius-label">rounded-full<br/>50%<br/><span style="color:#94a3b8">badges</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── DO / DON'T ── -->
+  <section>
+    <div class="section-title">Do / Don't</div>
+
+    <div class="rule">
+      <span class="rule-icon">✓</span>
+      <span><strong>Depth via surface steps, not shadows.</strong> Layer <code>surface-700</code> on <code>surface-800</code> backgrounds. <code>shadow-2xl</code> is reserved for floating modals only.</span>
+    </div>
+    <div class="rule">
+      <span class="rule-icon">✓</span>
+      <span><strong>Semi-transparent backgrounds for condition badges.</strong> Use <code>bg-yellow-600/50</code>, not <code>bg-yellow-600</code> — keeps the badge readable over any surface.</span>
+    </div>
+    <div class="rule">
+      <span class="rule-icon">✓</span>
+      <span><strong><code>transition-colors</code> on all interactive elements.</strong> Use <code>transition-all</code> only when transform or opacity is also animating.</span>
+    </div>
+    <div class="rule">
+      <span class="rule-icon">✓</span>
+      <span><strong><code>text-black</code> on accent buttons.</strong> The amber <code>accent</code> color is light — white text fails contrast.</span>
+    </div>
+    <div class="rule">
+      <span class="rule-icon">✓</span>
+      <span><strong>Number inputs hide spinners globally.</strong> <code>index.css</code> removes <code>-webkit-inner-spin-button</code> everywhere — don't fight it with custom styles.</span>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

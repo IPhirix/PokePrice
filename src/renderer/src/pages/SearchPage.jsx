@@ -116,6 +116,11 @@ export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, on
   const price = cardPrice(card) ?? (ownedEntry?.currentPrice ?? sbPrice ?? null)
   const displayHistory = ownedEntry?.id ? priceHistory : sbHistory
 
+  const lastPrice = displayHistory[displayHistory.length - 1]?.price ?? null
+  const prevPrice = displayHistory[displayHistory.length - 2]?.price ?? null
+  const dayDollar = lastPrice != null && prevPrice != null ? lastPrice - prevPrice : null
+  const dayPct = dayDollar != null && prevPrice > 0 ? (dayDollar / prevPrice) * 100 : null
+
   useEffect(() => {
     setSbPrice(null)
     setSbHistory([])
@@ -156,99 +161,121 @@ export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, on
         className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4"
         onClick={(e) => e.target === e.currentTarget && onClose()}
       >
-        <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-5xl overflow-hidden flex max-h-[88vh]">
+        <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-3xl overflow-hidden flex max-h-[96vh]">
 
-          {/* Left: card image — fills the full panel with equal padding */}
-          <div className="flex-shrink-0 w-80 bg-surface-900 p-5 flex flex-col">
-            <img
-              ref={imgRef}
-              src={card.images?.large || card.images?.small}
-              alt={card.name}
-              className="flex-1 min-h-0 w-full object-contain rounded-xl select-none cursor-pointer"
-              style={{
-                transform: `perspective(800px) rotateX(${cardTilt.x}deg) rotateY(${cardTilt.y}deg)`,
-                transition: cardTilt.x === 0 && cardTilt.y === 0 ? 'transform 0.4s ease' : 'transform 0.05s linear',
-              }}
-              onMouseMove={handleMouseMove}
-              onMouseLeave={() => setCardTilt({ x: 0, y: 0 })}
-              onClick={() => setInspecting(true)}
-              title="Click to inspect"
+          {/* Left: card image panel */}
+          <div className="flex-shrink-0 w-72 bg-surface-900 flex flex-col relative overflow-hidden">
+            {/* Amber glow at base */}
+            <div
+              className="absolute bottom-0 left-0 right-0 h-32 pointer-events-none z-0"
+              style={{ background: 'linear-gradient(to top, rgba(245,158,11,0.10) 0%, transparent 100%)' }}
             />
+            <div className="flex-1 min-h-0 p-5 pb-3 flex items-center justify-center">
+              <img
+                ref={imgRef}
+                src={card.images?.large || card.images?.small}
+                alt={card.name}
+                className="max-h-[300px] w-full object-contain rounded-xl select-none cursor-pointer relative z-10"
+                style={{
+                  transform: `perspective(800px) rotateX(${cardTilt.x}deg) rotateY(${cardTilt.y}deg)`,
+                  transition: cardTilt.x === 0 && cardTilt.y === 0 ? 'transform 0.4s ease' : 'transform 0.05s linear',
+                }}
+                onMouseMove={handleMouseMove}
+                onMouseLeave={() => setCardTilt({ x: 0, y: 0 })}
+                onClick={() => setInspecting(true)}
+                title="Click to inspect"
+              />
+            </div>
           </div>
 
           {/* Right: info + chart + actions */}
           <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-            {/* Header row */}
-            <div className="flex items-start justify-between px-6 pt-5 pb-3 flex-shrink-0">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 pt-5 pb-[14px] flex-shrink-0 border-b border-surface-700/60">
               <div className="flex items-center gap-2 min-w-0 pr-2">
                 <button
                   onClick={toggleFav}
                   title={isFav ? `Unfavorite ${card.name}` : `Favorite ${card.name}`}
-                  className={`flex-shrink-0 flex items-center justify-center text-2xl transition-colors ${isFav ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-600 hover:text-yellow-400'}`}
+                  className={`flex-shrink-0 text-[20px] leading-none transition-colors ${isFav ? 'text-yellow-400 hover:text-yellow-300' : 'text-slate-600 hover:text-yellow-400'}`}
                 >
                   {isFav ? '★' : '☆'}
                 </button>
-                <h2 className="text-xl font-bold text-white leading-tight">
-                  {card.name}{card.number ? <span className="text-slate-400 font-normal text-base ml-2">#{card.number}</span> : null}
+                <h2 className="text-[18px] font-bold text-white leading-tight tracking-[-0.02em]">
+                  {card.name}{card.number ? <span className="text-[14px] font-normal text-slate-400 ml-1.5">#{card.number}</span> : null}
                 </h2>
               </div>
-              <button onClick={onClose} className="flex-shrink-0 text-slate-400 hover:text-white text-xl w-8 h-8 flex items-center justify-center">✕</button>
+              <button
+                onClick={onClose}
+                className="flex-shrink-0 w-7 h-7 rounded-lg hover:bg-surface-700 text-slate-500 hover:text-slate-200 text-[15px] flex items-center justify-center transition-colors"
+              >
+                ✕
+              </button>
             </div>
 
-            {/* Scrollable body */}
-            <div className="flex-1 overflow-y-auto px-6 pb-5 flex flex-col gap-4 min-h-0">
+            {/* Body */}
+            <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
 
-              {/* Metadata grid */}
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2.5">
+              {/* Price hero */}
+              <div className="px-6 py-4 border-b border-surface-700/60 flex items-end gap-4 flex-shrink-0">
                 <div>
-                  <p className="text-slate-500 text-xs uppercase tracking-wider mb-0.5">Set</p>
-                  <p className="text-white text-sm">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500 mb-1">Market Price · Raw</p>
+                  {price != null
+                    ? <p className="text-[36px] font-extrabold text-accent leading-none tracking-[-0.03em] tabular-nums">{format(price)}</p>
+                    : <p className="text-[36px] font-extrabold text-slate-600 leading-none">—</p>
+                  }
+                </div>
+                {dayPct != null && (
+                  <span className={`text-[13px] font-bold tabular-nums pb-1 ${dayPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {dayPct >= 0 ? '+' : ''}{dayPct.toFixed(1)}%
+                  </span>
+                )}
+                <span className="ml-auto text-[11px] text-slate-600 pb-1 self-end">Updated today</span>
+              </div>
+
+              {/* Metadata rows */}
+              <div className="px-6 flex-shrink-0">
+                <div className="flex items-baseline justify-between py-[9px] border-b border-surface-700/40">
+                  <span className="text-[11px] font-medium text-slate-500 uppercase tracking-[0.05em] flex-shrink-0 mr-4">Set</span>
+                  <span className="text-[13px] font-medium text-slate-200 text-right">
                     {card.set
                       ? (card.set.series && card.set.series !== card.set.name
-                          ? `${card.set.series} - ${card.set.name}`
+                          ? `${card.set.series} — ${card.set.name}`
                           : card.set.name || '—')
                       : '—'}
-                  </p>
+                  </span>
                 </div>
-                <div>
-                  <p className="text-slate-500 text-xs uppercase tracking-wider mb-0.5">Rarity</p>
-                  <p className="text-white text-sm">{card.rarity ?? '—'}</p>
+                <div className="flex items-baseline justify-between py-[9px] border-b border-surface-700/40">
+                  <span className="text-[11px] font-medium text-slate-500 uppercase tracking-[0.05em] flex-shrink-0 mr-4">Rarity</span>
+                  <span className="text-[13px] font-medium text-slate-200 text-right">{card.rarity ?? '—'}</span>
                 </div>
-                <div>
-                  <p className="text-slate-500 text-xs uppercase tracking-wider mb-0.5">Pokémon Type</p>
-                  <p className="text-white text-sm">{card.types?.length > 0 ? card.types.join(', ') : '—'}</p>
+                <div className="flex items-baseline justify-between py-[9px] border-b border-surface-700/40">
+                  <span className="text-[11px] font-medium text-slate-500 uppercase tracking-[0.05em] flex-shrink-0 mr-4">Pokémon Type</span>
+                  <span className="text-[13px] font-medium text-slate-200 text-right">{card.types?.length > 0 ? card.types.join(', ') : '—'}</span>
                 </div>
-                <div>
-                  <p className="text-slate-500 text-xs uppercase tracking-wider mb-0.5">Variant</p>
-                  <p className="text-white text-sm">{formatVariants(card.variants)}</p>
+                <div className="flex items-baseline justify-between py-[9px] border-b border-surface-700/40">
+                  <span className="text-[11px] font-medium text-slate-500 uppercase tracking-[0.05em] flex-shrink-0 mr-4">Variant</span>
+                  <span className="text-[13px] font-medium text-slate-200 text-right">{formatVariants(card.variants)}</span>
                 </div>
-                <div>
-                  <p className="text-slate-500 text-xs uppercase tracking-wider mb-0.5">Illustrator</p>
+                <div className="flex items-baseline justify-between py-[9px]">
+                  <span className="text-[11px] font-medium text-slate-500 uppercase tracking-[0.05em] flex-shrink-0 mr-4">Illustrator</span>
                   {card.artist && onFilterByArtist ? (
                     <button
                       onClick={() => onFilterByArtist(card.artist)}
-                      className="text-sm text-accent hover:text-yellow-200 underline underline-offset-2 decoration-accent/50 hover:decoration-yellow-300 transition-colors text-left"
+                      className="text-[13px] text-accent hover:text-yellow-200 underline underline-offset-2 decoration-accent/50 hover:decoration-yellow-300 transition-colors text-right"
                       title={`Show all cards by ${card.artist}`}
                     >
                       {card.artist}
                     </button>
                   ) : (
-                    <p className="text-white text-sm">{card.artist ?? '—'}</p>
+                    <span className="text-[13px] font-medium text-slate-200 text-right">{card.artist ?? '—'}</span>
                   )}
-                </div>
-                <div>
-                  <p className="text-slate-500 text-xs uppercase tracking-wider mb-0.5">Market Price · Raw</p>
-                  {price != null
-                    ? <p className="text-accent font-bold text-3xl leading-tight">{format(price)}</p>
-                    : <p className="text-slate-600 text-xl">—</p>
-                  }
                 </div>
               </div>
 
               {/* Price chart */}
-              <div className="bg-surface-900/60 border border-surface-700 rounded-xl p-4">
-                <div style={{ height: 200 }}>
+              <div className="px-6 pt-3 pb-6 border-t border-surface-700/60 flex-1 min-h-0">
+                <div style={{ height: 180 }}>
                   <PriceChart
                     history={displayHistory}
                     range={chartRange}
@@ -258,40 +285,40 @@ export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, on
                 </div>
               </div>
 
-              {/* Action buttons */}
-              <div className="flex gap-3 pt-1">
-                {inPortfolio ? (
-                  <button
-                    onClick={() => { onRemove(card, 'collection'); onClose() }}
-                    className="flex-1 bg-red-800/70 hover:bg-red-700/80 border border-red-700/50 text-red-300 text-sm font-semibold py-2.5 rounded-lg transition-colors"
-                  >
-                    Remove from Collection
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setAddingSection('collection')}
-                    className="flex-1 bg-accent hover:bg-accent-hover text-black text-sm font-bold py-2.5 rounded-lg transition-colors"
-                  >
-                    + Add to Collection
-                  </button>
-                )}
-                {inWatchlist ? (
-                  <button
-                    onClick={() => { onRemove(card, 'watchlist'); onClose() }}
-                    className="flex-1 bg-red-800/70 hover:bg-red-700/80 border border-red-700/50 text-red-300 text-sm font-semibold py-2.5 rounded-lg transition-colors"
-                  >
-                    Remove from Watchlist
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => setAddingSection('watchlist')}
-                    className="flex-1 bg-sky-600 hover:bg-sky-500 text-white text-sm font-bold py-2.5 rounded-lg transition-colors"
-                  >
-                    + Add to Watchlist
-                  </button>
-                )}
-              </div>
+            </div>
 
+            {/* Action buttons — pinned at bottom */}
+            <div className="flex gap-3 px-6 pb-6 pt-4 flex-shrink-0 border-t border-surface-700/60">
+              {inPortfolio ? (
+                <button
+                  onClick={() => { onRemove(card, 'collection'); onClose() }}
+                  className="flex-1 bg-red-800/70 hover:bg-red-700/80 active:scale-[0.98] border border-red-700/50 text-red-300 text-[13px] font-semibold py-[11px] rounded-lg transition-all"
+                >
+                  Remove from Collection
+                </button>
+              ) : (
+                <button
+                  onClick={() => setAddingSection('collection')}
+                  className="flex-1 bg-accent hover:bg-accent-hover active:scale-[0.98] text-black text-[13px] font-bold py-[11px] rounded-lg transition-all"
+                >
+                  + Add to Collection
+                </button>
+              )}
+              {inWatchlist ? (
+                <button
+                  onClick={() => { onRemove(card, 'watchlist'); onClose() }}
+                  className="flex-1 bg-red-800/70 hover:bg-red-700/80 active:scale-[0.98] border border-red-700/50 text-red-300 text-[13px] font-semibold py-[11px] rounded-lg transition-all"
+                >
+                  Remove from Watchlist
+                </button>
+              ) : (
+                <button
+                  onClick={() => setAddingSection('watchlist')}
+                  className="flex-1 bg-sky-600 hover:bg-sky-500 active:scale-[0.98] text-white text-[13px] font-bold py-[11px] rounded-lg transition-all"
+                >
+                  + Add to Watchlist
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1950,6 +1977,41 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
               <option value="price_low">Price (Low → High)</option>
             </select>
           </div>
+          <div className="flex items-center rounded-lg border border-surface-600 overflow-hidden text-xs flex-shrink-0">
+            {[
+              { mode: 'grid', label: 'Grid', icon: (
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
+                  <rect x="1" y="1" width="6" height="6" rx="1" />
+                  <rect x="9" y="1" width="6" height="6" rx="1" />
+                  <rect x="1" y="9" width="6" height="6" rx="1" />
+                  <rect x="9" y="9" width="6" height="6" rx="1" />
+                </svg>
+              )},
+              { mode: 'table', label: 'Table', icon: (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 6h18M3 14h18M3 18h18" />
+                </svg>
+              )},
+              { mode: 'binder', label: 'Binder', icon: (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+                </svg>
+              )},
+            ].map((v) => (
+              <button
+                key={v.mode}
+                onClick={() => { setViewMode(v.mode); setSearchBinderPage(0) }}
+                className={`flex items-center gap-1.5 px-3 py-2 font-medium transition-colors ${
+                  viewMode === v.mode
+                    ? 'bg-surface-600 text-white'
+                    : 'text-slate-400 hover:text-white hover:bg-surface-700 bg-surface-800'
+                }`}
+              >
+                {v.icon}
+                {v.label}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -2224,7 +2286,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                       onDrop={(e) => handleDrop(e, absoluteIdx)}
                       onDragEnd={handleDragEnd}
                       onDragLeave={() => setDragOverIdx(null)}
-                      className={`rounded-lg overflow-hidden relative transition-all cursor-grab active:cursor-grabbing select-none bg-surface-800 ring-1 ${
+                      className={`rounded-lg overflow-hidden relative transition-all cursor-grab active:cursor-grabbing select-none bg-surface-800 ring-1 p-[3px] ${
                         dragOverIdx === absoluteIdx && dragSrcRef.current !== absoluteIdx
                           ? 'ring-accent scale-[1.04] z-10'
                           : 'ring-surface-600 hover:ring-accent/50 hover:scale-[1.03] hover:z-10'
@@ -2233,7 +2295,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                       style={{ opacity: dragSrcRef.current === absoluteIdx ? 0.4 : 1 }}
                     >
                       {card.images?.small
-                        ? <img src={card.images.small} alt={card.name} className="w-full h-full object-cover" onError={(e) => (e.target.style.display = 'none')} />
+                        ? <img src={card.images.small} alt={card.name} className="w-full h-full object-contain rounded-sm" onError={(e) => (e.target.style.display = 'none')} />
                         : <div className="w-full h-full bg-surface-700 flex items-center justify-center text-slate-600 text-[10px]">No img</div>
                       }
                       {(inPortfolio || inWatchlist) && (
@@ -2270,7 +2332,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
       {!loading && baseResults.length > 0 && (mode === 'cards' || browsedSet) && (
         <>
           {/* ── Grid view ── */}
-          {(viewMode === 'grid' || browsedSet) && (
+          {viewMode === 'grid' && (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
               {displayResults.map((card) => {
                 if (card._divider) {
@@ -2335,7 +2397,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
           )}
 
           {/* ── Table view ── */}
-          {viewMode === 'table' && !browsedSet && (
+          {viewMode === 'table' && (
             <div className="bg-surface-800 border border-surface-600 rounded-xl overflow-hidden">
               <table className="w-full">
                 <thead>
@@ -2414,7 +2476,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
           )}
 
           {/* ── Binder view ── */}
-          {viewMode === 'binder' && !browsedSet && (() => {
+          {viewMode === 'binder' && (() => {
             const binderCards = displayResults.filter((c) => !c._divider)
             const BINDER_PER_PAGE = 9
             const pageCount = Math.ceil(binderCards.length / BINDER_PER_PAGE)
@@ -2435,9 +2497,9 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                         <button
                           key={card.id}
                           onClick={() => openCardModal(card)}
-                          className="rounded overflow-hidden relative transition-all hover:scale-[1.03] hover:z-10 bg-surface-800 ring-1 ring-surface-600 hover:ring-accent/60"
+                          className="rounded overflow-hidden relative transition-all hover:scale-[1.03] hover:z-10 bg-surface-800 ring-1 ring-surface-600 hover:ring-accent/60 p-[3px]"
                         >
-                          <img src={card.images?.small} alt={card.name} className="w-full h-full object-cover" onError={(e) => (e.target.style.display = 'none')} />
+                          <img src={card.images?.small} alt={card.name} className="w-full h-full object-contain rounded-sm" onError={(e) => (e.target.style.display = 'none')} />
                           {(inPortfolio || inWatchlist) && (
                             <div className="absolute top-1 right-1 flex flex-col gap-0.5 pointer-events-none">
                               {inPortfolio && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-accent text-black leading-none">Coll.</span>}

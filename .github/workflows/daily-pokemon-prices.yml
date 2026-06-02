@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
   schedule:
-    - cron: '0 13 * * *' # ~8:00 AM Chicago
+    - cron: '0 13 * * *' # 8:00 AM Chicago / 9:00 AM Eastern
 
 jobs:
   run-pipeline:

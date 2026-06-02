@@ -773,7 +773,7 @@ export default function CardDetail() {
               </div>
             )}
             <div>
-              <label className="text-accent text-xs font-medium block mb-1 flex items-center gap-1">
+              <label className="text-xs font-medium block mb-1.5 text-accent text-center flex items-center justify-center gap-1">
                 {card.alertPrice != null && card.alertPct != null && (
                   <span className={card.alertPct >= 0 ? 'text-emerald-400' : 'text-red-400'}>
                     {card.alertPct >= 0 ? '↑' : '↓'}
@@ -781,7 +781,7 @@ export default function CardDetail() {
                 )}
                 Price Alert
               </label>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-col gap-1.5">
                 <select
                   value={alertPct}
                   onChange={async (e) => {
@@ -806,15 +806,15 @@ export default function CardDetail() {
                       }
                     }
                   }}
-                  className="flex-shrink-0 w-16 text-xs bg-surface-600 border border-surface-500 rounded px-1 py-1.5 text-slate-400 focus:outline-none focus:border-accent"
+                  className="w-full text-xs bg-surface-600 border border-surface-500 rounded px-1 py-1.5 text-slate-400 focus:outline-none focus:border-accent"
                 >
-                  <option value="">%</option>
+                  <option value="">% change</option>
                   {PCT_OPTIONS.map((p) => (
                     <option key={p} value={p}>{p > 0 ? `+${p}%` : `${p}%`}</option>
                   ))}
                 </select>
-                <div className="relative flex-1">
-                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
+                <div className="relative">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
                   <input
                     type="number" min="0.01" step="0.01"
                     value={alertInput}
@@ -825,7 +825,7 @@ export default function CardDetail() {
                       if (e.key === 'Escape') setAlertInput(card.alertPrice != null ? String(card.alertPrice) : '')
                     }}
                     placeholder="—"
-                    className="w-full bg-surface-700 border border-surface-500 rounded pl-7 pr-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent"
+                    className="w-full bg-surface-700 border border-surface-500 rounded pl-6 pr-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent"
                   />
                 </div>
               </div>

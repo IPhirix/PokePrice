@@ -195,32 +195,53 @@ function TargetPriceField({ label, value, pctValue, cardId, fieldName, onSaved, 
 
   return (
     <div>
-      <p className="text-sm font-medium mb-1 text-accent">{label}</p>
-      <div className="flex items-center gap-1.5">
+      <p className="text-xs font-medium mb-1.5 text-accent text-center flex items-center justify-center gap-1">
+        {pct !== '' && (
+          <span className={parseFloat(pct) >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+            {parseFloat(pct) >= 0 ? '↑' : '↓'}
+          </span>
+        )}
+        {label}
+      </p>
+      <div className="flex flex-col gap-1.5">
         <select
           value={pct}
           onChange={handlePctChange}
-          className="flex-shrink-0 w-16 text-xs bg-surface-600 border border-surface-500 rounded px-1 py-1.5 text-slate-400 focus:outline-none focus:border-accent"
+          className="w-full text-xs bg-surface-600 border border-surface-500 rounded px-1 py-1.5 text-slate-400 focus:outline-none focus:border-accent"
         >
-          <option value="">%</option>
+          <option value="">% change</option>
+          {pct !== '' && !PCT_OPTIONS.includes(parseFloat(pct)) && (
+            <option key="dynamic" value={pct}>
+              {parseFloat(pct) > 0 ? `+${parseFloat(pct)}%` : `${parseFloat(pct)}%`}
+            </option>
+          )}
           {PCT_OPTIONS.map((p) => (
             <option key={p} value={p}>{p > 0 ? `+${p}%` : `${p}%`}</option>
           ))}
         </select>
-        <div className="relative flex-1">
-        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
-        <input
-          type="number" min="0.01" step="0.01"
-          value={input}
-          onChange={(e) => { setInput(e.target.value); setPct('') }}
-          onBlur={save}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') e.target.blur()
-            if (e.key === 'Escape') setInput(value != null ? String(value) : '')
-          }}
-          placeholder="—"
-          className="w-full bg-surface-700 border border-surface-600 rounded pl-6 pr-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent"
-        />
+        <div className="relative">
+          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
+          <input
+            type="number" min="0.01" step="0.01"
+            value={input}
+            onChange={(e) => {
+              const val = e.target.value
+              setInput(val)
+              const parsed = parseFloat(val)
+              if (!isNaN(parsed) && parsed > 0 && currentPrice != null) {
+                setPct(String(Math.round((parsed - currentPrice) / currentPrice * 1000) / 10))
+              } else {
+                setPct('')
+              }
+            }}
+            onBlur={save}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.target.blur()
+              if (e.key === 'Escape') setInput(value != null ? String(value) : '')
+            }}
+            placeholder="—"
+            className="w-full bg-surface-700 border border-surface-500 rounded pl-6 pr-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent"
+          />
         </div>
       </div>
     </div>
@@ -952,7 +973,7 @@ function NotesModal({ card, onClose, onSaved }) {
   )
 }
 
-export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBinderFilter, confirmRemove = true, showPlPct = false, onTogglePlPct, showDollarChanges = false, onToggleDollarChanges, bulkMode = false, isSelected = false, onToggleSelect }) {
+export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBinderFilter, confirmRemove = true, showPlPct = false, onTogglePlPct, showDollarChanges = false, onToggleDollarChanges, bulkMode = false, isSelected = false, onToggleSelect, viewMode = 'detailed' }) {
   const navigate = useNavigate()
   const { format } = useCurrency()
   const [confirmingRemove, setConfirmingRemove] = useState(false)
@@ -1000,6 +1021,182 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
     (card.alertPct != null ? card.alertPct <= 0 : card.alertPrice < marketPrice) &&
     marketPrice <= card.alertPrice
   const isAlerted = isUpAlert || isDownAlert
+
+  const [editingTableAlert, setEditingTableAlert] = useState(false)
+  const [tableAlertInput, setTableAlertInput] = useState('')
+
+  async function saveTableAlertPrice() {
+    const parsed = parseFloat(tableAlertInput)
+    const newVal = !isNaN(parsed) && parsed > 0 ? Math.round(parsed * 100) / 100 : null
+    const newPct = newVal != null && marketPrice != null
+      ? Math.round((newVal - marketPrice) / marketPrice * 1000) / 10
+      : null
+    await window.api.updateCard(card.id, { alertPrice: newVal, alertPct: newPct })
+    onRefresh?.()
+    setEditingTableAlert(false)
+  }
+
+  // ── Table (compact) view ──────────────────────────────────────────────────
+  if (viewMode === 'table') {
+    const TDiv = () => <div className="w-px h-5 bg-surface-600 rounded-full flex-shrink-0" />
+    return (
+      <div
+        onClick={() => onCardClick?.(card)}
+        className={`flex items-center gap-2.5 bg-surface-800 border rounded-xl px-4 mb-2 h-[76px] transition-all cursor-pointer ${
+          confirmingRemove ? 'border-red-500/40' : 'border-surface-600 hover:border-surface-500 hover:bg-surface-700/50'
+        }`}
+      >
+        {/* Thumbnail */}
+        <div className="w-8 h-12 flex-shrink-0 rounded overflow-hidden bg-surface-900">
+          {card.imageUrl && (
+            <img src={card.imageUrl} alt={card.name} className="w-full h-full object-contain" />
+          )}
+        </div>
+
+        <TDiv />
+
+        {/* Identity — name + series/set */}
+        <div className="w-52 flex-shrink-0 min-w-0">
+          <p className="text-sm font-semibold text-white leading-tight truncate">{card.name}</p>
+          <p className="text-[11px] text-slate-500 truncate mt-0.5">
+            {[seriesFromSetId(card.setId), card.setName].filter(Boolean).join(' · ')}
+          </p>
+        </div>
+
+        <TDiv />
+
+        {/* Grade — own column so all rows align */}
+        <div className="w-14 flex-shrink-0 flex items-center justify-center">
+          <span className={`text-[10px] px-1.5 py-px rounded-full font-semibold whitespace-nowrap ${condColor}`}>{condLabel}</span>
+        </div>
+
+        <TDiv />
+
+        {/* 1D / 1W / 1M — fixed-width container so dividers always align */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 w-[252px]">
+          {[
+            { label: '1D', value: card.changeDay },
+            { label: '1W', value: card.changeWeek },
+            { label: '1M', value: card.changeMonth },
+          ].map(({ label, value }) => {
+            const color = value == null ? 'text-slate-600' : value > 0 ? 'text-emerald-400' : value < 0 ? 'text-red-400' : 'text-slate-500'
+            const bg    = value == null ? 'bg-surface-700' : value > 0 ? 'bg-emerald-400/10' : value < 0 ? 'bg-red-400/10' : 'bg-slate-700/40'
+            const pct   = value == null ? '—' : (value > 0 ? '+' : '') + value.toFixed(1) + '%'
+            return (
+              <span key={label} className={`flex-1 text-xs font-semibold py-1 rounded text-center ${color} ${bg}`}>
+                {label} {pct}
+              </span>
+            )
+          })}
+        </div>
+
+        <TDiv />
+
+        {/* Sparkline */}
+        <div className="flex-1 self-stretch py-2 min-w-[80px]">
+          <Sparkline history={card.recentHistory || []} cardId={card.id} height="100%" />
+        </div>
+
+        <TDiv />
+
+        {/* Alert price — click to edit $ value */}
+        <div className="flex-shrink-0 text-center w-24" onClick={(e) => e.stopPropagation()}>
+          <p className="text-[10px] text-slate-600 leading-none mb-2">Alert</p>
+          {editingTableAlert ? (
+            <div className="relative">
+              <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">$</span>
+              <input
+                autoFocus
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={tableAlertInput}
+                onChange={(e) => setTableAlertInput(e.target.value)}
+                onBlur={saveTableAlertPrice}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') e.target.blur()
+                  if (e.key === 'Escape') setEditingTableAlert(false)
+                }}
+                className="w-full bg-surface-700 border border-accent/50 rounded pl-4 pr-1 py-0.5 text-sm font-bold text-white text-center focus:outline-none focus:border-accent"
+              />
+            </div>
+          ) : (
+            <p
+              className="text-lg font-bold text-slate-400 leading-none cursor-pointer hover:text-white transition-colors"
+              title="Click to set alert price"
+              onClick={() => {
+                setTableAlertInput(card.alertPrice != null ? String(card.alertPrice) : '')
+                setEditingTableAlert(true)
+              }}
+            >
+              {card.alertPrice != null ? format(card.alertPrice) : '—'}
+            </p>
+          )}
+        </div>
+
+        <TDiv />
+
+        {/* Market price */}
+        <div className="flex-shrink-0 text-center w-20">
+          <p className="text-[10px] text-slate-600 leading-none mb-2">Market</p>
+          <p className="text-lg font-bold text-accent leading-none">
+            {marketPrice != null ? format(marketPrice) : '—'}
+          </p>
+        </div>
+
+        <TDiv />
+
+        {/* P&L */}
+        <div className="flex-shrink-0 text-center w-20">
+          <p className="text-[10px] text-slate-600 leading-none mb-2">P&L</p>
+          <p className={`text-lg font-bold leading-none ${profit == null ? 'text-slate-600' : profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {profit == null ? '—' : `${profit >= 0 ? '+' : ''}${format(profit)}`}
+          </p>
+        </div>
+
+        {/* Alert triggered badge */}
+        {isUpAlert && (
+          <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-400/15 border border-emerald-400/50 text-emerald-300 whitespace-nowrap">
+            ↑ ALERT
+          </span>
+        )}
+        {isDownAlert && (
+          <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-400/15 border border-red-400/50 text-red-300 whitespace-nowrap">
+            ↓ ALERT
+          </span>
+        )}
+
+        {/* Remove */}
+        <div className="flex-shrink-0 relative ml-1" onClick={(e) => e.stopPropagation()}>
+          {confirmingRemove && (
+            <div className="absolute right-full mr-2 top-1/2 -translate-y-1/2 bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 flex items-center gap-2 z-10 whitespace-nowrap shadow-xl">
+              <span className="text-slate-300 text-xs font-medium">Remove card?</span>
+              <button
+                onClick={() => onRemove(card.id)}
+                className="bg-red-700 hover:bg-red-600 text-white text-xs px-2.5 py-1 rounded font-semibold transition-colors"
+              >
+                Remove
+              </button>
+              <button
+                onClick={() => setConfirmingRemove(false)}
+                className="text-slate-500 hover:text-white text-base leading-none transition-colors px-1"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+          <button
+            onClick={() => setConfirmingRemove(true)}
+            className="text-slate-600 hover:text-red-400 transition-colors text-xl leading-none"
+            title="Remove card"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+    )
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <div
@@ -1089,7 +1286,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
 
           {/* Chart */}
           <div className="flex-1 self-stretch min-h-0">
-            <Sparkline history={card.recentHistory || []} cardId={card.id} height="100%" />
+            <Sparkline history={card.recentHistory || []} cardId={card.id} height="100%" showXAxis />
           </div>
         </div>
 
@@ -1146,7 +1343,6 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
               <div className="mb-1">
                 <p className="text-slate-500 text-xs mb-0.5">Market · {condLabel}</p>
                 <p className="text-slate-600 text-xl">—</p>
-                <ManualPriceEntry cardId={card.id} onSaved={onRefresh} />
               </div>
             )}
           </div>

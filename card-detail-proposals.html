@@ -1,0 +1,1906 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CardDetailModal — Design Proposals</title>
+<style>
+/* ── Design Tokens (from DESIGN.md) ─────────────────────────────────── */
+:root {
+  --void:        #0f1117;
+  --deep:        #161b27;
+  --raised:      #1e2535;
+  --divider:     #252d3d;
+  --border:      #2e3850;
+  --ink:         #e2e8f0;
+  --muted:       #94a3b8;
+  --amber:       #f59e0b;
+  --amber-h:     #fbbf24;
+  --gain:        #34d399;
+  --loss:        #f87171;
+  --font-ui: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Code', 'Consolas', monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: #080b10;
+  font-family: var(--font-ui);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+/* ── Sticky Proposal Nav ─────────────────────────────────────────────── */
+.pnav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(8, 11, 16, 0.92);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 24px;
+  height: 52px;
+}
+.pnav-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-right: 20px;
+  flex-shrink: 0;
+}
+.pnav a {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  height: 52px;
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+}
+.pnav a:hover { color: var(--ink); }
+.pnav a.active { color: var(--amber); border-bottom-color: var(--amber); }
+.pnav-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--divider);
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+/* ── Proposal Section Wrapper ────────────────────────────────────────── */
+.proposal {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 48px 24px 72px;
+  border-bottom: 1px solid var(--border);
+}
+.proposal-header {
+  width: 100%;
+  max-width: 960px;
+  margin-bottom: 32px;
+}
+.proposal-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+.proposal-tag span {
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--amber);
+  font-weight: 700;
+}
+.proposal-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+}
+.proposal-desc {
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.6;
+  max-width: 640px;
+}
+.proposal-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 12px;
+}
+.pill {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-weight: 500;
+}
+.pill.amber { background: rgba(245,158,11,0.12); border-color: rgba(245,158,11,0.3); color: var(--amber); }
+
+/* ── Backdrop (simulates overlay) ────────────────────────────────────── */
+.modal-backdrop {
+  width: 100%;
+  max-width: 960px;
+  background: rgba(15, 17, 23, 0.7);
+  border-radius: 16px;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   SHARED CARD ART
+   ═══════════════════════════════════════════════════════════════════════ */
+.card-art-wrap {
+  perspective: 1000px;
+  cursor: pointer;
+}
+.card-art {
+  width: 200px;
+  height: 280px;
+  border-radius: 12px;
+  background:
+    radial-gradient(ellipse 140% 80% at 50% 110%, rgba(88,28,220,0.45) 0%, transparent 60%),
+    radial-gradient(ellipse 100% 60% at 20% 20%, rgba(60,0,160,0.3) 0%, transparent 55%),
+    linear-gradient(160deg, #1c0b38 0%, #0e0820 40%, #180530 70%, #1a0830 100%);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  box-shadow:
+    0 0 0 1px rgba(180,130,255,0.25),
+    0 20px 60px rgba(0,0,0,0.7),
+    inset 0 1px 0 rgba(200,160,255,0.15);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  transition: transform 0.05s linear;
+  user-select: none;
+}
+.card-art-holographic {
+  position: absolute;
+  inset: 0;
+  border-radius: 12px;
+  background: conic-gradient(
+    from 180deg at 50% 50%,
+    rgba(255,100,200,0.0) 0deg,
+    rgba(180,120,255,0.04) 60deg,
+    rgba(100,200,255,0.04) 120deg,
+    rgba(180,255,180,0.03) 180deg,
+    rgba(255,200,100,0.04) 240deg,
+    rgba(255,100,200,0.02) 300deg,
+    rgba(255,100,200,0.0) 360deg
+  );
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+}
+.card-art-wrap:hover .card-art-holographic { opacity: 1; }
+.card-art-stage {
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(200,170,255,0.7);
+  text-transform: uppercase;
+  padding: 8px 10px 0;
+}
+.card-art-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 2px 10px 0;
+}
+.card-art-name {
+  font-size: 12px;
+  font-weight: 800;
+  color: #e8d8ff;
+  letter-spacing: -0.01em;
+}
+.card-art-hp {
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(200,170,255,0.7);
+}
+.card-art-hp strong {
+  font-size: 13px;
+  color: #e8d8ff;
+}
+.card-art-image-zone {
+  flex: 1;
+  margin: 6px 8px;
+  border-radius: 6px;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse 80% 60% at 60% 40%, rgba(120,0,255,0.4) 0%, transparent 70%),
+    radial-gradient(ellipse 60% 80% at 30% 70%, rgba(40,0,120,0.5) 0%, transparent 60%),
+    linear-gradient(135deg, #0d061e, #200540);
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.card-art-ghost {
+  width: 90px;
+  height: 100px;
+  opacity: 0.8;
+  filter: drop-shadow(0 0 12px rgba(160,0,255,0.7));
+}
+.card-art-ability {
+  padding: 4px 8px 2px;
+  border-top: 1px solid rgba(200,170,255,0.1);
+}
+.card-art-ability-name {
+  font-size: 7.5px;
+  font-weight: 700;
+  color: rgba(200,255,180,0.8);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.card-art-ability-text {
+  font-size: 6.5px;
+  color: rgba(200,170,255,0.5);
+  line-height: 1.3;
+  margin-top: 1px;
+}
+.card-art-attack {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 8px;
+}
+.card-art-attack-name {
+  font-size: 8px;
+  font-weight: 700;
+  color: #d4c4f4;
+  letter-spacing: -0.01em;
+}
+.card-art-attack-dmg {
+  font-size: 13px;
+  font-weight: 900;
+  color: #e8d8ff;
+  letter-spacing: -0.02em;
+}
+.card-art-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 6px;
+  border-top: 1px solid rgba(200,170,255,0.08);
+}
+.card-art-number {
+  font-size: 7px;
+  color: rgba(200,170,255,0.4);
+  font-weight: 600;
+}
+.card-art-set {
+  font-size: 6.5px;
+  color: rgba(200,170,255,0.35);
+  letter-spacing: 0.03em;
+}
+
+/* Ghost Gengar SVG placeholder */
+.ghost-svg { display: block; }
+
+/* ── Shared Chart SVG ────────────────────────────────────────────────── */
+.chart-container {
+  width: 100%;
+  position: relative;
+}
+.chart-svg { width: 100%; height: 160px; overflow: visible; }
+
+/* ── Shared Condition Chip ───────────────────────────────────────────── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 0.01em;
+}
+.chip-raw    { background: #1e293b; color: #94a3b8; }
+.chip-psa10  { background: rgba(180,120,0,0.25); color: #fde047; border: 1px solid rgba(200,160,0,0.3); }
+.chip-psa9   { background: rgba(120,120,120,0.2); color: #cbd5e1; }
+.chip-psa8   { background: rgba(180,70,0,0.25); color: #fda4af; }
+
+/* ── Shared Range Pills ──────────────────────────────────────────────── */
+.range-pills {
+  display: flex;
+  gap: 4px;
+}
+.range-pill {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--divider);
+  color: var(--muted);
+  cursor: pointer;
+  border: none;
+  transition: background 0.12s, color 0.12s;
+}
+.range-pill.active { background: var(--amber); color: #000; font-weight: 700; }
+.range-pill:hover:not(.active) { background: var(--border); color: var(--ink); }
+
+/* ── Shared CTA Buttons ──────────────────────────────────────────────── */
+.btn-primary {
+  background: var(--amber);
+  color: #000;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 11px 20px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.1s;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+.btn-primary:hover { background: var(--amber-h); }
+.btn-primary:active { transform: scale(0.98); }
+.btn-secondary {
+  background: #1d4ed8;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 11px 20px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.12s, transform 0.1s;
+  text-align: center;
+  letter-spacing: 0.01em;
+}
+.btn-secondary:hover { background: #2563eb; }
+.btn-secondary:active { transform: scale(0.98); }
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PROPOSAL A — Collector's Terminal Refined
+   ═══════════════════════════════════════════════════════════════════════ */
+.a-modal {
+  background: var(--deep);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 920px;
+  overflow: hidden;
+  display: flex;
+  max-height: 86vh;
+  box-shadow: 0 32px 80px rgba(0,0,0,0.6);
+}
+
+/* Left: Card image panel */
+.a-left {
+  flex-shrink: 0;
+  width: 260px;
+  background: var(--void);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px 28px;
+  gap: 14px;
+  overflow: hidden;
+}
+.a-left-glow {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 120px;
+  background: linear-gradient(to top, rgba(245,158,11,0.12) 0%, transparent 100%);
+  pointer-events: none;
+}
+.a-card-meta {
+  text-align: center;
+}
+.a-card-meta h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+}
+.a-card-meta .number {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.a-card-meta-sub {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.a-rarity {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* Right: Content panel */
+.a-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.a-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px 16px;
+  border-bottom: 1px solid var(--divider);
+}
+.a-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.a-fav {
+  font-size: 20px;
+  color: var(--muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 0.15s;
+  flex-shrink: 0;
+}
+.a-fav:hover { color: var(--amber); }
+.a-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.a-title .num {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 6px;
+}
+.a-close {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 16px;
+  transition: background 0.12s, color 0.12s;
+}
+.a-close:hover { background: var(--raised); color: var(--ink); }
+
+.a-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+
+/* Price hero */
+.a-price-zone {
+  padding: 16px 20px 14px;
+  border-bottom: 1px solid var(--divider);
+  display: flex;
+  align-items: flex-end;
+  gap: 16px;
+}
+.a-price-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.a-price-figure {
+  font-size: 36px;
+  font-weight: 800;
+  color: var(--amber);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.a-price-delta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 3px;
+}
+.a-delta-pct {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--loss);
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+.a-delta-usd {
+  font-size: 11px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--loss) 70%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.a-last-updated {
+  font-size: 11px;
+  color: var(--muted);
+  align-self: flex-end;
+  margin-left: auto;
+  padding-bottom: 4px;
+}
+
+/* Metadata rows */
+.a-meta {
+  padding: 0 20px;
+}
+.a-meta-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.a-meta-row:last-child { border-bottom: none; }
+.a-meta-key {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.a-meta-val {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+  text-align: right;
+}
+.a-meta-val.link {
+  color: var(--amber);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* Chart */
+.a-chart-zone {
+  padding: 14px 20px 12px;
+  border-top: 1px solid var(--divider);
+}
+.a-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+/* CTAs */
+.a-ctas {
+  flex-shrink: 0;
+  display: flex;
+  gap: 10px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid var(--divider);
+  background: linear-gradient(to top, var(--void) 0%, transparent 100%);
+}
+.a-ctas .btn-primary,
+.a-ctas .btn-secondary {
+  flex: 1;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PROPOSAL B — Obsidian Vault
+   ═══════════════════════════════════════════════════════════════════════ */
+.b-modal {
+  background: #12192a;
+  border: 1px solid rgba(100,120,160,0.25);
+  border-radius: 20px;
+  width: 100%;
+  max-width: 920px;
+  overflow: hidden;
+  display: flex;
+  max-height: 86vh;
+  box-shadow:
+    0 40px 100px rgba(0,0,0,0.7),
+    inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+/* Left: full-height image panel */
+.b-left {
+  flex-shrink: 0;
+  width: 300px;
+  background: #0a0d14;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px 24px;
+  overflow: hidden;
+}
+.b-left-vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 120% 50% at 50% 0%, rgba(88,28,220,0.08) 0%, transparent 60%),
+    radial-gradient(ellipse 80% 40% at 50% 100%, rgba(0,0,0,0.8) 0%, transparent 70%);
+  pointer-events: none;
+}
+.b-left-shimmer {
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(
+    from 0deg at 50% 50%,
+    transparent 0deg,
+    rgba(180,100,255,0.03) 90deg,
+    rgba(100,200,255,0.04) 180deg,
+    rgba(255,180,100,0.03) 270deg,
+    transparent 360deg
+  );
+  animation: shimmer-rotate 8s linear infinite;
+  opacity: 0;
+  transition: opacity 0.5s;
+  pointer-events: none;
+}
+.b-modal:hover .b-left-shimmer { opacity: 1; }
+@keyframes shimmer-rotate {
+  from { transform: rotate(0deg) scale(1.5); }
+  to   { transform: rotate(360deg) scale(1.5); }
+}
+.b-left-bottom {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 100px;
+  background: linear-gradient(to top, #0a0d14 0%, transparent 100%);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 20px;
+  gap: 8px;
+}
+
+/* Right: 3-zone panel */
+.b-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: #12192a;
+  overflow: hidden;
+}
+
+/* Zone 1: Price Signal */
+.b-zone-price {
+  flex-shrink: 0;
+  padding: 22px 24px 20px;
+  border-bottom: 1px solid rgba(100,120,160,0.15);
+  background: linear-gradient(135deg, #141d30 0%, #12192a 100%);
+}
+.b-close-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.b-card-title {
+  font-size: 19px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+.b-card-title .num {
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+  margin-left: 6px;
+}
+.b-close {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(100,120,160,0.15);
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+}
+.b-close:hover { background: rgba(100,120,160,0.3); color: var(--ink); }
+.b-price-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  margin-bottom: 12px;
+}
+.b-price-main {
+  font-size: 42px;
+  font-weight: 800;
+  color: var(--amber);
+  letter-spacing: -0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.b-price-sub {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-bottom: 5px;
+}
+.b-price-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+.b-price-delta-pct {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--loss);
+  font-variant-numeric: tabular-nums;
+}
+.b-price-delta-usd {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--loss) 60%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.b-grade-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Zone 2: Card Identity */
+.b-zone-identity {
+  flex-shrink: 0;
+  padding: 16px 24px;
+  border-bottom: 1px solid rgba(100,120,160,0.15);
+}
+.b-meta-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.b-meta-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(100,120,160,0.08);
+}
+.b-meta-item:last-child { border-bottom: none; }
+.b-meta-key {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.b-meta-val {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+.b-meta-val.link {
+  color: var(--amber);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* Zone 3: Price History */
+.b-zone-history {
+  flex: 1;
+  overflow: hidden;
+  padding: 14px 24px 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.b-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  flex-shrink: 0;
+}
+.b-chart-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--muted);
+}
+.b-chart-body {
+  flex: 1;
+  min-height: 0;
+}
+
+/* CTAs — full-width stacked */
+.b-ctas {
+  flex-shrink: 0;
+  display: flex;
+  gap: 10px;
+  padding: 14px 24px 20px;
+  border-top: 1px solid rgba(100,120,160,0.15);
+}
+.b-ctas .btn-primary,
+.b-ctas .btn-secondary {
+  flex: 1;
+  padding: 13px 20px;
+  font-size: 13px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════════════
+   PROPOSAL C — Price Intelligence (Terminal Dense)
+   ═══════════════════════════════════════════════════════════════════════ */
+.c-modal {
+  background: var(--deep);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  width: 100%;
+  max-width: 960px;
+  overflow: hidden;
+  display: flex;
+  max-height: 86vh;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.6);
+}
+
+/* Left: narrow card column */
+.c-left {
+  flex-shrink: 0;
+  width: 220px;
+  background: var(--void);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 16px;
+  gap: 12px;
+  border-right: 1px solid var(--divider);
+}
+.c-card-label {
+  width: 100%;
+  text-align: left;
+}
+.c-card-label h2 {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+.c-card-label .num { color: var(--muted); font-weight: 400; }
+.c-card-meta-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  width: 100%;
+}
+.c-chip {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.c-card-close-row {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+}
+.c-close {
+  font-size: 15px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.12s;
+  padding: 2px;
+}
+.c-close:hover { color: var(--ink); }
+.c-fav-close {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+.c-fav {
+  font-size: 16px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.c-fav:hover { color: var(--amber); }
+
+/* Right: data-first layout */
+.c-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Zone 1: Ticker header */
+.c-ticker {
+  flex-shrink: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border-bottom: 1px solid var(--divider);
+  padding: 0;
+}
+.c-ticker-price {
+  padding: 14px 20px;
+  border-right: 1px solid var(--divider);
+}
+.c-ticker-price-label {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+  font-family: var(--font-mono);
+}
+.c-ticker-price-figure {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--amber);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.c-ticker-delta {
+  padding: 14px 20px;
+  border-right: 1px solid var(--divider);
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 3px;
+}
+.c-ticker-delta-pct {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--loss);
+  font-variant-numeric: tabular-nums;
+}
+.c-ticker-delta-usd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: color-mix(in srgb, var(--loss) 60%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.c-ticker-delta-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-family: var(--font-mono);
+}
+.c-ticker-meta {
+  flex: 1;
+  padding: 14px 20px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: flex-end;
+}
+.c-meta-chip {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 3px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  color: var(--muted);
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+.c-meta-chip.type { background: rgba(30,40,60,0.8); border-color: var(--border); }
+
+/* Zone 2: Grade price grid */
+.c-grades {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border-bottom: 1px solid var(--divider);
+}
+.c-grade-cell {
+  padding: 12px 16px;
+  border-right: 1px solid var(--divider);
+}
+.c-grade-cell:last-child { border-right: none; }
+.c-grade-label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.c-grade-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.c-grade-badge.raw   { background: #1e293b; color: #94a3b8; }
+.c-grade-badge.psa8  { background: rgba(180,70,0,0.25); color: #fda4af; border: 1px solid rgba(220,80,0,0.3); }
+.c-grade-badge.psa9  { background: rgba(120,120,120,0.2); color: #cbd5e1; }
+.c-grade-badge.psa10 { background: rgba(180,120,0,0.25); color: #fde047; border: 1px solid rgba(200,160,0,0.3); }
+.c-grade-price {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+.c-grade-delta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.c-grade-delta-pct {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.c-grade-delta-usd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.pos { color: var(--gain); }
+.neg { color: var(--loss); }
+
+/* Zone 3: Large chart */
+.c-chart-zone {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px 0;
+  overflow: hidden;
+}
+.c-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+.c-chart-label {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+.c-chart-body {
+  flex: 1;
+  min-height: 0;
+}
+.c-range-pills .range-pill {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+/* CTAs — compact row at bottom */
+.c-ctas {
+  flex-shrink: 0;
+  display: flex;
+  gap: 8px;
+  padding: 10px 16px 14px;
+  border-top: 1px solid var(--divider);
+}
+.c-ctas .btn-primary,
+.c-ctas .btn-secondary {
+  flex: 1;
+  padding: 9px 16px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+/* ── Scrollbar ───────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Proposal-level comparison annotations ───────────────────────────── */
+.annotation-bar {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid var(--divider);
+  width: 100%;
+  max-width: 960px;
+}
+.annotation {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.annotation-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+  margin-top: 5px;
+  flex-shrink: 0;
+}
+.annotation-text {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .b-left-shimmer { animation: none; }
+  * { transition-duration: 0.01ms !important; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── Navigation ──────────────────────────────────────────────────────── -->
+<nav class="pnav">
+  <span class="pnav-label">CardDetailModal</span>
+  <a href="#proposal-a" class="active">
+    <span class="pnav-badge">A</span>
+    Collector's Terminal
+  </a>
+  <a href="#proposal-b">
+    <span class="pnav-badge">B</span>
+    Obsidian Vault
+  </a>
+  <a href="#proposal-c">
+    <span class="pnav-badge">C</span>
+    Price Intelligence
+  </a>
+</nav>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PROPOSAL A — Collector's Terminal Refined
+     ════════════════════════════════════════════════════════════════════ -->
+<section class="proposal" id="proposal-a">
+  <div class="proposal-header">
+    <div class="proposal-tag"><span>A</span> Design Direction</div>
+    <div class="proposal-title">Collector's Terminal — Refined</div>
+    <div class="proposal-desc">Evolutionary polish on the existing layout. Same two-column structure, but the price becomes the typographic anchor, metadata uses clean hairline-separated rows instead of boxed cells, and spacing is tightened throughout for a more premium feel.</div>
+    <div class="proposal-pills">
+      <span class="pill amber">Lowest risk</span>
+      <span class="pill">Price as hero datum</span>
+      <span class="pill">Hairline metadata rows</span>
+      <span class="pill">Amber glow at card base</span>
+      <span class="pill">Tactile CTA press states</span>
+    </div>
+  </div>
+
+  <div class="modal-backdrop">
+    <div class="a-modal">
+
+      <!-- Left: Card image -->
+      <div class="a-left">
+        <div class="a-left-glow"></div>
+        <div class="card-art-wrap" id="card-a">
+          <div class="card-art">
+            <div class="card-art-holographic"></div>
+            <div class="card-art-stage">Stage 2</div>
+            <div class="card-art-header">
+              <span class="card-art-name">Mega Gengar ex</span>
+              <span class="card-art-hp"><strong>350</strong> HP ◉</span>
+            </div>
+            <div class="card-art-image-zone">
+              <svg class="card-art-ghost ghost-svg" viewBox="0 0 90 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <ellipse cx="45" cy="62" rx="32" ry="28" fill="rgba(40,0,100,0.6)"/>
+                <path d="M20 62 C20 42 28 28 45 26 C62 28 70 42 70 62 L70 78 C70 82 67 85 64 83 L60 80 C58 78 55 78 53 80 L49 84 C47 86 43 86 41 84 L37 80 C35 78 32 78 30 80 L26 83 C23 85 20 82 20 78 Z" fill="#9333ea" opacity="0.9"/>
+                <path d="M22 62 C22 44 30 30 45 28 C60 30 68 44 68 62" stroke="rgba(180,100,255,0.4)" stroke-width="1" fill="none"/>
+                <ellipse cx="36" cy="54" rx="7" ry="8" fill="white" opacity="0.95"/>
+                <ellipse cx="54" cy="54" rx="7" ry="8" fill="white" opacity="0.95"/>
+                <circle cx="37" cy="55" r="4" fill="#1a0040"/>
+                <circle cx="55" cy="55" r="4" fill="#1a0040"/>
+                <circle cx="38" cy="54" r="1.5" fill="rgba(160,80,255,0.8)"/>
+                <circle cx="56" cy="54" r="1.5" fill="rgba(160,80,255,0.8)"/>
+                <path d="M30 45 Q30 36 38 38 Q35 45 30 45" fill="rgba(80,0,180,0.5)"/>
+                <path d="M60 45 Q60 36 52 38 Q55 45 60 45" fill="rgba(80,0,180,0.5)"/>
+                <ellipse cx="45" cy="85" rx="28" ry="8" fill="rgba(0,0,0,0.3)"/>
+              </svg>
+            </div>
+            <div class="card-art-ability">
+              <div class="card-art-ability-name">Ability: Shadowy Concealment</div>
+              <div class="card-art-ability-text">If one of your Pokemon is Knocked Out from damage, that player takes 1 fewer Prize card.</div>
+            </div>
+            <div class="card-art-attack">
+              <span class="card-art-attack-name">◉◉ Void Gale</span>
+              <span class="card-art-attack-dmg">230</span>
+            </div>
+            <div class="card-art-footer">
+              <span class="card-art-number">284/217</span>
+              <span class="card-art-set">Ascended Heroes</span>
+            </div>
+          </div>
+        </div>
+        <div class="a-card-meta">
+          <div class="a-card-meta-sub">
+            <span class="chip chip-raw">Raw</span>
+            <span class="a-rarity">Special Illustration Rare</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: Content -->
+      <div class="a-right">
+        <div class="a-header">
+          <div class="a-header-left">
+            <button class="a-fav">☆</button>
+            <span class="a-title">Mega Gengar ex<span class="num">#284</span></span>
+          </div>
+          <button class="a-close">✕</button>
+        </div>
+
+        <div class="a-body">
+
+          <!-- Price hero -->
+          <div class="a-price-zone">
+            <div>
+              <div class="a-price-label">Market Price · Raw</div>
+              <div class="a-price-figure">$1,305.13</div>
+            </div>
+            <div class="a-price-delta">
+              <span class="a-delta-pct">-8.4%</span>
+              <span class="a-delta-usd">-$119.22</span>
+            </div>
+            <span class="a-last-updated">Updated today</span>
+          </div>
+
+          <!-- Metadata rows -->
+          <div class="a-meta">
+            <div class="a-meta-row">
+              <span class="a-meta-key">Set</span>
+              <span class="a-meta-val">Mega Evolution — Ascended Heroes</span>
+            </div>
+            <div class="a-meta-row">
+              <span class="a-meta-key">Rarity</span>
+              <span class="a-meta-val">Special Illustration Rare</span>
+            </div>
+            <div class="a-meta-row">
+              <span class="a-meta-key">Pokemon Type</span>
+              <span class="a-meta-val">Darkness</span>
+            </div>
+            <div class="a-meta-row">
+              <span class="a-meta-key">Variant</span>
+              <span class="a-meta-val">Holo</span>
+            </div>
+            <div class="a-meta-row">
+              <span class="a-meta-key">Illustrator</span>
+              <span class="a-meta-val link">danciao</span>
+            </div>
+          </div>
+
+          <!-- Chart -->
+          <div class="a-chart-zone">
+            <div class="a-chart-header">
+              <div class="range-pills">
+                <button class="range-pill">1M</button>
+                <button class="range-pill active">3M</button>
+                <button class="range-pill">6M</button>
+                <button class="range-pill">1Y</button>
+                <button class="range-pill">YTD</button>
+                <button class="range-pill">All</button>
+              </div>
+            </div>
+            <div class="chart-container">
+              <svg class="chart-svg" viewBox="0 0 540 155" xmlns="http://www.w3.org/2000/svg">
+                <defs>
+                  <linearGradient id="a-synth-g" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#6b7280" stop-opacity="0.12"/>
+                    <stop offset="100%" stop-color="#6b7280" stop-opacity="0"/>
+                  </linearGradient>
+                  <linearGradient id="a-real-g" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stop-color="#f87171" stop-opacity="0.22"/>
+                    <stop offset="100%" stop-color="#f87171" stop-opacity="0"/>
+                  </linearGradient>
+                </defs>
+                <!-- Grid lines -->
+                <line x1="52" y1="18" x2="530" y2="18" stroke="#1e2535" stroke-width="1"/>
+                <line x1="52" y1="62" x2="530" y2="62" stroke="#1e2535" stroke-width="1"/>
+                <line x1="52" y1="106" x2="530" y2="106" stroke="#1e2535" stroke-width="1"/>
+                <!-- Y labels -->
+                <text x="0" y="22" fill="#475569" font-size="10" font-family="ui-monospace,monospace">$1.5k</text>
+                <text x="0" y="66" fill="#475569" font-size="10" font-family="ui-monospace,monospace">$1.4k</text>
+                <text x="0" y="110" fill="#475569" font-size="10" font-family="ui-monospace,monospace">$1.3k</text>
+                <!-- Synthetic path (dashed) -->
+                <path d="M52,70 C65,64 78,76 95,68 S118,57 138,64 S158,72 176,68"
+                      stroke="#4b5563" stroke-width="1.5" stroke-dasharray="5,4" fill="none"/>
+                <path d="M52,70 C65,64 78,76 95,68 S118,57 138,64 S158,72 176,68 L176,140 L52,140 Z"
+                      fill="url(#a-synth-g)"/>
+                <!-- Live data marker -->
+                <line x1="176" y1="10" x2="176" y2="140" stroke="#2e3850" stroke-width="1" stroke-dasharray="3,3"/>
+                <text x="180" y="20" fill="#475569" font-size="9" font-family="ui-monospace,monospace">Live data</text>
+                <!-- Real data path -->
+                <path d="M176,68 C192,62 208,66 224,60 S248,52 268,56 S290,48 310,52 S332,46 352,50 S372,54 392,60 S412,68 432,80 S452,94 472,108 S492,120 512,126 S525,129 530,131"
+                      stroke="#f87171" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M176,68 C192,62 208,66 224,60 S248,52 268,56 S290,48 310,52 S332,46 352,50 S372,54 392,60 S412,68 432,80 S452,94 472,108 S492,120 512,126 S525,129 530,131 L530,140 L176,140 Z"
+                      fill="url(#a-real-g)"/>
+                <!-- X labels -->
+                <text x="52"  y="152" fill="#475569" font-size="9" font-family="ui-monospace,monospace">03/04</text>
+                <text x="140" y="152" fill="#475569" font-size="9" font-family="ui-monospace,monospace">03/28</text>
+                <text x="240" y="152" fill="#475569" font-size="9" font-family="ui-monospace,monospace">04/21</text>
+                <text x="336" y="152" fill="#475569" font-size="9" font-family="ui-monospace,monospace">05/03</text>
+                <text x="454" y="152" fill="#475569" font-size="9" font-family="ui-monospace,monospace">05/15</text>
+              </svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- CTAs -->
+        <div class="a-ctas">
+          <button class="btn-primary">+ Add to Collection</button>
+          <button class="btn-secondary">+ Add to Watchlist</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="annotation-bar">
+    <div class="annotation">
+      <div class="annotation-dot"></div>
+      <div class="annotation-text"><strong style="color:var(--ink)">Price as anchor.</strong> The $1,305.13 figure is now 36px/800 weight — 40% larger than current, making it impossible to miss on first glance.</div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-dot"></div>
+      <div class="annotation-text"><strong style="color:var(--ink)">Metadata as rows.</strong> Replaces the boxed 2-col grid with hairline-separated label/value rows — less visual noise, same information density.</div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-dot"></div>
+      <div class="annotation-text"><strong style="color:var(--ink)">Amber base glow.</strong> A 30% opacity amber gradient at the bottom of the card panel grounds the image without adding decorative clutter.</div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-dot"></div>
+      <div class="annotation-text"><strong style="color:var(--ink)">Safest path.</strong> Zero layout risk — same structure, same component slots — easiest to implement directly in existing JSX.</div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PROPOSAL B — Obsidian Vault
+     ════════════════════════════════════════════════════════════════════ -->
+<section class="proposal" id="proposal-b">
+  <div class="proposal-header">
+    <div class="proposal-tag"><span>B</span> Design Direction</div>
+    <div class="proposal-title">Obsidian Vault — Dark Luxury</div>
+    <div class="proposal-desc">Same two-column structure pushed harder. The card panel becomes immersive with a deep vignette and holographic shimmer on hover. The right side organizes into three clearly delineated zones: price signal, card identity, price history. More dramatic, higher perceived value.</div>
+    <div class="proposal-pills">
+      <span class="pill amber">Most distinctive</span>
+      <span class="pill">3-zone right panel</span>
+      <span class="pill">Holographic shimmer on hover</span>
+      <span class="pill">Giant price figure</span>
+      <span class="pill">Full-width CTAs</span>
+    </div>
+  </div>
+
+  <div class="modal-backdrop">
+    <div class="b-modal">
+
+      <!-- Left: immersive card panel -->
+      <div class="b-left">
+        <div class="b-left-vignette"></div>
+        <div class="b-left-shimmer"></div>
+
+        <div class="card-art-wrap" id="card-b" style="z-index:1">
+          <div class="card-art" style="width:210px;height:294px">
+            <div class="card-art-holographic"></div>
+            <div class="card-art-stage">Stage 2</div>
+            <div class="card-art-header">
+              <span class="card-art-name">Mega Gengar ex</span>
+              <span class="card-art-hp"><strong>350</strong> HP ◉</span>
+            </div>
+            <div class="card-art-image-zone" style="margin:8px;border-radius:8px;">
+              <svg class="card-art-ghost ghost-svg" style="width:100px;height:112px;" viewBox="0 0 90 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <ellipse cx="45" cy="62" rx="32" ry="28" fill="rgba(40,0,100,0.6)"/>
+                <path d="M20 62 C20 42 28 28 45 26 C62 28 70 42 70 62 L70 78 C70 82 67 85 64 83 L60 80 C58 78 55 78 53 80 L49 84 C47 86 43 86 41 84 L37 80 C35 78 32 78 30 80 L26 83 C23 85 20 82 20 78 Z" fill="#9333ea" opacity="0.9"/>
+                <ellipse cx="36" cy="54" rx="7" ry="8" fill="white" opacity="0.95"/>
+                <ellipse cx="54" cy="54" rx="7" ry="8" fill="white" opacity="0.95"/>
+                <circle cx="37" cy="55" r="4" fill="#1a0040"/>
+                <circle cx="55" cy="55" r="4" fill="#1a0040"/>
+                <circle cx="38" cy="54" r="1.5" fill="rgba(160,80,255,0.8)"/>
+                <circle cx="56" cy="54" r="1.5" fill="rgba(160,80,255,0.8)"/>
+                <path d="M30 45 Q30 36 38 38 Q35 45 30 45" fill="rgba(80,0,180,0.5)"/>
+                <path d="M60 45 Q60 36 52 38 Q55 45 60 45" fill="rgba(80,0,180,0.5)"/>
+                <ellipse cx="45" cy="85" rx="28" ry="8" fill="rgba(0,0,0,0.3)"/>
+              </svg>
+            </div>
+            <div class="card-art-ability">
+              <div class="card-art-ability-name">Ability: Shadowy Concealment</div>
+              <div class="card-art-ability-text">If one of your Pokemon is Knocked Out from damage, that player takes 1 fewer Prize card.</div>
+            </div>
+            <div class="card-art-attack">
+              <span class="card-art-attack-name">◉◉ Void Gale</span>
+              <span class="card-art-attack-dmg">230</span>
+            </div>
+            <div class="card-art-footer">
+              <span class="card-art-number">284/217</span>
+              <span class="card-art-set">Ascended Heroes</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom: chips on card panel -->
+        <div class="b-left-bottom" style="position:relative; display:flex; gap:8px; justify-content:center; padding-top:14px; flex-direction:column; align-items:center; width:100%;">
+          <div style="display:flex;gap:6px;z-index:1">
+            <span class="chip chip-raw">Raw</span>
+            <span style="font-size:11px;color:var(--muted);align-self:center;">Special Illustration Rare</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right: 3 zones -->
+      <div class="b-right">
+
+        <!-- Zone 1: Price Signal -->
+        <div class="b-zone-price">
+          <div class="b-close-row">
+            <span class="b-card-title">
+              Mega Gengar ex<span class="num">#284</span>
+            </span>
+            <button class="b-close">✕</button>
+          </div>
+          <div class="b-price-row">
+            <div class="b-price-main">$1,305.13</div>
+            <div class="b-price-sub">
+              <span class="b-price-label">Market Price · Raw</span>
+              <span class="b-price-delta-pct">-8.4%</span>
+              <span class="b-price-delta-usd">-$119.22 today</span>
+            </div>
+          </div>
+          <div class="b-grade-row">
+            <span class="chip chip-raw" style="font-size:10px;padding:2px 7px;">Raw: $1,305</span>
+            <span class="chip chip-psa9" style="font-size:10px;padding:2px 7px;">PSA 9: $2,840</span>
+            <span class="chip chip-psa10" style="font-size:10px;padding:2px 7px;">PSA 10: $4,200</span>
+          </div>
+        </div>
+
+        <!-- Zone 2: Card Identity -->
+        <div class="b-zone-identity">
+          <div class="b-meta-list">
+            <div class="b-meta-item">
+              <span class="b-meta-key">Set</span>
+              <span class="b-meta-val">Mega Evolution — Ascended Heroes</span>
+            </div>
+            <div class="b-meta-item">
+              <span class="b-meta-key">Rarity</span>
+              <span class="b-meta-val">Special Illustration Rare</span>
+            </div>
+            <div class="b-meta-item">
+              <span class="b-meta-key">Pokemon Type</span>
+              <span class="b-meta-val">Darkness</span>
+            </div>
+            <div class="b-meta-item">
+              <span class="b-meta-key">Variant</span>
+              <span class="b-meta-val">Holo</span>
+            </div>
+            <div class="b-meta-item">
+              <span class="b-meta-key">Illustrator</span>
+              <span class="b-meta-val link">danciao</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Zone 3: Price History -->
+        <div class="b-zone-history">
+          <div class="b-chart-header">
+            <span class="b-chart-title">Price History</span>
+            <div class="range-pills">
+              <button class="range-pill">1M</button>
+              <button class="range-pill active">3M</button>
+              <button class="range-pill">6M</button>
+              <button class="range-pill">1Y</button>
+              <button class="range-pill">All</button>
+            </div>
+          </div>
+          <div class="b-chart-body">
+            <svg viewBox="0 0 500 120" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;min-height:100px;">
+              <defs>
+                <linearGradient id="b-synth-g" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#6b7280" stop-opacity="0.1"/>
+                  <stop offset="100%" stop-color="#6b7280" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="b-real-g" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#f87171" stop-opacity="0.2"/>
+                  <stop offset="100%" stop-color="#f87171" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <line x1="0" y1="16" x2="500" y2="16" stroke="rgba(46,56,80,0.5)" stroke-width="1"/>
+              <line x1="0" y1="55" x2="500" y2="55" stroke="rgba(46,56,80,0.5)" stroke-width="1"/>
+              <line x1="0" y1="94" x2="500" y2="94" stroke="rgba(46,56,80,0.5)" stroke-width="1"/>
+              <path d="M0,52 C14,46 30,58 50,50 S75,40 100,46 S125,54 150,50"
+                    stroke="#4b5563" stroke-width="1.5" stroke-dasharray="5,4" fill="none"/>
+              <path d="M0,52 C14,46 30,58 50,50 S75,40 100,46 S125,54 150,50 L150,110 L0,110 Z"
+                    fill="url(#b-synth-g)"/>
+              <line x1="150" y1="4" x2="150" y2="110" stroke="#2e3850" stroke-width="1" stroke-dasharray="3,3"/>
+              <text x="154" y="14" fill="#475569" font-size="8" font-family="ui-monospace,monospace">Live data</text>
+              <path d="M150,50 C164,44 180,48 196,42 S220,34 244,38 S268,30 292,34 S316,28 340,32 S364,36 384,44 S404,54 424,66 S444,80 464,92 S482,100 500,104"
+                    stroke="#f87171" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <path d="M150,50 C164,44 180,48 196,42 S220,34 244,38 S268,30 292,34 S316,28 340,32 S364,36 384,44 S404,54 424,66 S444,80 464,92 S482,100 500,104 L500,110 L150,110 Z"
+                    fill="url(#b-real-g)"/>
+              <text x="0"   y="110" fill="#475569" font-size="8" font-family="ui-monospace,monospace">03/04</text>
+              <text x="160" y="110" fill="#475569" font-size="8" font-family="ui-monospace,monospace">04/09</text>
+              <text x="305" y="110" fill="#475569" font-size="8" font-family="ui-monospace,monospace">05/03</text>
+              <text x="444" y="110" fill="#475569" font-size="8" font-family="ui-monospace,monospace">05/27</text>
+            </svg>
+          </div>
+        </div>
+
+        <!-- CTAs -->
+        <div class="b-ctas">
+          <button class="btn-primary">+ Add to Collection</button>
+          <button class="btn-secondary">+ Add to Watchlist</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="annotation-bar">
+    <div class="annotation">
+      <div class="annotation-dot"></div>
+      <div class="annotation-text"><strong style="color:var(--ink)">42px price figure.</strong> The market price completely owns its zone — hard to miss, reads before anything else on the right panel.</div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-dot"></div>
+      <div class="annotation-text"><strong style="color:var(--ink)">3-zone hierarchy.</strong> Price Signal / Card Identity / History replaces the scrollable soup with a clear spatial reading order.</div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-dot"></div>
+      <div class="annotation-text"><strong style="color:var(--ink)">Hover shimmer.</strong> The holographic shimmer on the left panel activates when the modal is hovered — rewards attention without being distracting at rest.</div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-dot"></div>
+      <div class="annotation-text"><strong style="color:var(--ink)">Grade quick-scan row.</strong> Raw / PSA 9 / PSA 10 prices sit inline below the main price — the collector can compare grades without scrolling.</div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PROPOSAL C — Price Intelligence
+     ════════════════════════════════════════════════════════════════════ -->
+<section class="proposal" id="proposal-c">
+  <div class="proposal-header">
+    <div class="proposal-tag"><span>C</span> Design Direction</div>
+    <div class="proposal-title">Price Intelligence — Terminal Dense</div>
+    <div class="proposal-desc">Bloomberg-inspired. The card image is a supporting element — price data and the chart are the heroes. A narrow 220px card column holds the image and identity chips. The right panel is all data: a ticker header, a full grade price grid with live deltas, and a large chart area. Every number is monospace.</div>
+    <div class="proposal-pills">
+      <span class="pill amber">Most data-forward</span>
+      <span class="pill">Monospace numbers</span>
+      <span class="pill">Grade price grid</span>
+      <span class="pill">Ticker-style header</span>
+      <span class="pill">Large chart</span>
+    </div>
+  </div>
+
+  <div class="modal-backdrop">
+    <div class="c-modal">
+
+      <!-- Left: narrow card column -->
+      <div class="c-left">
+        <div class="c-fav-close">
+          <button class="c-fav">☆</button>
+          <button class="c-close">✕</button>
+        </div>
+        <div class="c-card-label">
+          <h2>Mega Gengar ex <span class="num" style="color:var(--muted);font-weight:400">#284</span></h2>
+        </div>
+        <div class="card-art-wrap" id="card-c" style="margin:4px 0">
+          <div class="card-art" style="width:170px;height:238px">
+            <div class="card-art-holographic"></div>
+            <div class="card-art-stage" style="font-size:7px">Stage 2</div>
+            <div class="card-art-header" style="padding:1px 8px 0">
+              <span class="card-art-name" style="font-size:10px">Mega Gengar ex</span>
+              <span class="card-art-hp" style="font-size:8px"><strong style="font-size:11px">350</strong> HP</span>
+            </div>
+            <div class="card-art-image-zone" style="margin:5px 6px;border-radius:5px;">
+              <svg viewBox="0 0 90 100" fill="none" style="width:75px;height:85px;" xmlns="http://www.w3.org/2000/svg">
+                <ellipse cx="45" cy="62" rx="32" ry="28" fill="rgba(40,0,100,0.6)"/>
+                <path d="M20 62 C20 42 28 28 45 26 C62 28 70 42 70 62 L70 78 C70 82 67 85 64 83 L60 80 C58 78 55 78 53 80 L49 84 C47 86 43 86 41 84 L37 80 C35 78 32 78 30 80 L26 83 C23 85 20 82 20 78 Z" fill="#9333ea" opacity="0.9"/>
+                <ellipse cx="36" cy="54" rx="7" ry="8" fill="white" opacity="0.95"/>
+                <ellipse cx="54" cy="54" rx="7" ry="8" fill="white" opacity="0.95"/>
+                <circle cx="37" cy="55" r="4" fill="#1a0040"/>
+                <circle cx="55" cy="55" r="4" fill="#1a0040"/>
+                <circle cx="38" cy="54" r="1.5" fill="rgba(160,80,255,0.8)"/>
+                <circle cx="56" cy="54" r="1.5" fill="rgba(160,80,255,0.8)"/>
+                <path d="M30 45 Q30 36 38 38 Q35 45 30 45" fill="rgba(80,0,180,0.5)"/>
+                <path d="M60 45 Q60 36 52 38 Q55 45 60 45" fill="rgba(80,0,180,0.5)"/>
+              </svg>
+            </div>
+            <div class="card-art-ability" style="padding:3px 6px 1px">
+              <div class="card-art-ability-name" style="font-size:6.5px">Ability: Shadowy Concealment</div>
+            </div>
+            <div class="card-art-attack" style="padding:2px 6px">
+              <span class="card-art-attack-name" style="font-size:7px">◉◉ Void Gale</span>
+              <span class="card-art-attack-dmg" style="font-size:11px">230</span>
+            </div>
+            <div class="card-art-footer" style="padding:3px 6px 5px">
+              <span class="card-art-number">284/217</span>
+              <span class="card-art-set">Ascended Heroes</span>
+            </div>
+          </div>
+        </div>
+        <div class="c-card-meta-chips">
+          <span class="c-chip">Mega Evolution</span>
+          <span class="c-chip">Ascended Heroes</span>
+          <span class="c-chip">Spec Illus Rare</span>
+          <span class="c-chip">Darkness</span>
+          <span class="c-chip">Holo</span>
+          <span class="c-chip">danciao</span>
+        </div>
+      </div>
+
+      <!-- Right: data zones -->
+      <div class="c-right">
+
+        <!-- Zone 1: Ticker header -->
+        <div class="c-ticker">
+          <div class="c-ticker-price">
+            <div class="c-ticker-price-label">MGNX · Raw · Market</div>
+            <div class="c-ticker-price-figure">$1,305.13</div>
+          </div>
+          <div class="c-ticker-delta">
+            <span class="c-ticker-delta-label">24h Change</span>
+            <span class="c-ticker-delta-pct">-8.37%</span>
+            <span class="c-ticker-delta-usd">-$119.22</span>
+          </div>
+          <div class="c-ticker-meta">
+            <span class="c-meta-chip">3M High: $1,498</span>
+            <span class="c-meta-chip">3M Low: $1,289</span>
+            <span class="c-meta-chip">Updated today</span>
+            <span class="c-meta-chip">Source: PriceCharting</span>
+          </div>
+        </div>
+
+        <!-- Zone 2: Grade price grid -->
+        <div class="c-grades">
+          <div class="c-grade-cell">
+            <div class="c-grade-label-row">
+              <span class="c-grade-badge raw">Ungraded</span>
+            </div>
+            <div class="c-grade-price">$1,305</div>
+            <div class="c-grade-delta">
+              <span class="c-grade-delta-pct neg">-8.4%</span>
+              <span class="c-grade-delta-usd">-$119</span>
+            </div>
+          </div>
+          <div class="c-grade-cell">
+            <div class="c-grade-label-row">
+              <span class="c-grade-badge psa8">PSA 8</span>
+            </div>
+            <div class="c-grade-price">$1,840</div>
+            <div class="c-grade-delta">
+              <span class="c-grade-delta-pct neg">-4.2%</span>
+              <span class="c-grade-delta-usd">-$80</span>
+            </div>
+          </div>
+          <div class="c-grade-cell">
+            <div class="c-grade-label-row">
+              <span class="c-grade-badge psa9">PSA 9</span>
+            </div>
+            <div class="c-grade-price">$2,840</div>
+            <div class="c-grade-delta">
+              <span class="c-grade-delta-pct pos">+1.8%</span>
+              <span class="c-grade-delta-usd" style="color:color-mix(in srgb, var(--gain) 60%, transparent)">+$50</span>
+            </div>
+          </div>
+          <div class="c-grade-cell">
+            <div class="c-grade-label-row">
+              <span class="c-grade-badge psa10">PSA 10</span>
+            </div>
+            <div class="c-grade-price">$4,200</div>
+            <div class="c-grade-delta">
+              <span class="c-grade-delta-pct pos">+3.2%</span>
+              <span class="c-grade-delta-usd" style="color:color-mix(in srgb, var(--gain) 60%, transparent)">+$130</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Zone 3: Chart -->
+        <div class="c-chart-zone">
+          <div class="c-chart-header">
+            <span class="c-chart-label">Price History · 3M</span>
+            <div class="range-pills c-range-pills">
+              <button class="range-pill">1M</button>
+              <button class="range-pill active">3M</button>
+              <button class="range-pill">6M</button>
+              <button class="range-pill">1Y</button>
+              <button class="range-pill">All</button>
+            </div>
+          </div>
+          <div class="c-chart-body">
+            <svg viewBox="0 0 700 130" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;min-height:120px;">
+              <defs>
+                <linearGradient id="c-synth-g" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#6b7280" stop-opacity="0.1"/>
+                  <stop offset="100%" stop-color="#6b7280" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="c-real-g" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stop-color="#f87171" stop-opacity="0.18"/>
+                  <stop offset="100%" stop-color="#f87171" stop-opacity="0"/>
+                </linearGradient>
+              </defs>
+              <text x="0"   y="15" fill="#334155" font-size="9" font-family="ui-monospace,monospace">$1.5k</text>
+              <text x="0"   y="60" fill="#334155" font-size="9" font-family="ui-monospace,monospace">$1.4k</text>
+              <text x="0"   y="105" fill="#334155" font-size="9" font-family="ui-monospace,monospace">$1.3k</text>
+              <line x1="38" y1="11" x2="700" y2="11" stroke="#1e2535" stroke-width="1"/>
+              <line x1="38" y1="56" x2="700" y2="56" stroke="#1e2535" stroke-width="1"/>
+              <line x1="38" y1="101" x2="700" y2="101" stroke="#1e2535" stroke-width="1"/>
+              <path d="M38,60 C55,54 74,66 95,58 S122,46 148,52 S172,60 198,56"
+                    stroke="#4b5563" stroke-width="1.5" stroke-dasharray="5,4" fill="none"/>
+              <path d="M38,60 C55,54 74,66 95,58 S122,46 148,52 S172,60 198,56 L198,120 L38,120 Z"
+                    fill="url(#c-synth-g)"/>
+              <line x1="198" y1="4" x2="198" y2="120" stroke="#2e3850" stroke-width="1" stroke-dasharray="3,3"/>
+              <text x="202" y="14" fill="#475569" font-size="8" font-family="ui-monospace,monospace">Live data</text>
+              <path d="M198,56 C218,50 238,54 260,48 S288,40 314,44 S342,36 368,40 S394,36 420,40 S446,46 468,56 S490,68 514,80 S538,92 564,102 S590,110 618,114 S650,116 680,118 S695,119 700,120"
+                    stroke="#f87171" stroke-width="2" fill="none" stroke-linecap="round"/>
+              <path d="M198,56 C218,50 238,54 260,48 S288,40 314,44 S342,36 368,40 S394,36 420,40 S446,46 468,56 S490,68 514,80 S538,92 564,102 S590,110 618,114 S650,116 680,118 S695,119 700,120 L700,120 L198,120 Z"
+                    fill="url(#c-real-g)"/>
+              <text x="38"  y="128" fill="#475569" font-size="8" font-family="ui-monospace,monospace">03/04</text>
+              <text x="194" y="128" fill="#475569" font-size="8" font-family="ui-monospace,monospace">03/28</text>
+              <text x="356" y="128" fill="#475569" font-size="8" font-family="ui-monospace,monospace">04/21</text>
+              <text x="520" y="128" fill="#475569" font-size="8" font-family="ui-monospace,monospace">05/15</text>
+            </svg>
+          </div>
+        </div>
+
+        <!-- CTAs -->
+        <div class="c-ctas">
+          <button class="btn-primary">+ Add to Collection</button>
+          <button class="btn-secondary">+ Add to Watchlist</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="annotation-bar">
+    <div class="annotation">
+      <div class="annotation-dot"></div>
+      <div class="annotation-text"><strong style="color:var(--ink)">Ticker header.</strong> A Bloomberg-style row surfaces the price, 24h delta, and 3M range stats at a glance — no scrolling needed for the financial summary.</div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-dot"></div>
+      <div class="annotation-text"><strong style="color:var(--ink)">Full grade grid.</strong> All four condition prices with their own daily delta are always visible — the modal's raison d'etre for active collectors comparing grade economics.</div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-dot"></div>
+      <div class="annotation-text"><strong style="color:var(--ink)">Mono everywhere.</strong> All figures use ui-monospace — columns stay aligned, numbers feel authoritative and financial rather than decorative.</div>
+    </div>
+    <div class="annotation">
+      <div class="annotation-dot"></div>
+      <div class="annotation-text"><strong style="color:var(--ink)">Card as context.</strong> The image is still present and still gets the 3D tilt effect — it just doesn't compete with the data, which is the actual reason the modal was opened.</div>
+    </div>
+  </div>
+</section>
+
+
+<script>
+// ── 3D Tilt Effect ─────────────────────────────────────────────────────────
+function addTilt(wrapId) {
+  const wrap = document.getElementById(wrapId);
+  if (!wrap) return;
+  const card = wrap.querySelector('.card-art');
+  if (!card) return;
+  wrap.addEventListener('mousemove', (e) => {
+    const r = card.getBoundingClientRect();
+    const dx = (e.clientX - r.left - r.width / 2) / (r.width / 2);
+    const dy = (e.clientY - r.top - r.height / 2) / (r.height / 2);
+    card.style.transform = `perspective(900px) rotateX(${dy * -12}deg) rotateY(${dx * 14}deg)`;
+  });
+  wrap.addEventListener('mouseleave', () => {
+    card.style.transition = 'transform 0.5s cubic-bezier(0.16,1,0.3,1)';
+    card.style.transform = 'perspective(900px) rotateX(0deg) rotateY(0deg)';
+    setTimeout(() => { card.style.transition = 'transform 0.05s linear'; }, 500);
+  });
+}
+addTilt('card-a');
+addTilt('card-b');
+addTilt('card-c');
+
+// ── Range pill interactivity ────────────────────────────────────────────────
+document.querySelectorAll('.range-pills').forEach(group => {
+  group.querySelectorAll('.range-pill').forEach(btn => {
+    btn.addEventListener('click', () => {
+      group.querySelectorAll('.range-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    });
+  });
+});
+
+// ── Nav active state on scroll ──────────────────────────────────────────────
+const sections = ['proposal-a','proposal-b','proposal-c'];
+const links = document.querySelectorAll('.pnav a');
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      const id = e.target.id;
+      links.forEach(l => {
+        l.classList.toggle('active', l.getAttribute('href') === '#' + id);
+      });
+    }
+  });
+}, { threshold: 0.4 });
+sections.forEach(id => {
+  const el = document.getElementById(id);
+  if (el) observer.observe(el);
+});
+</script>
+</body>
+</html>

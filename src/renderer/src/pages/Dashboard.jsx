@@ -547,6 +547,9 @@ export default function Dashboard() {
   const [showAccount, setShowAccount] = useState(false)
   const [showPlPct, setShowPlPct] = useState(false)
   const [showDollarChanges, setShowDollarChanges] = useState(false)
+  const [watchlistView, setWatchlistView] = useState(
+    () => localStorage.getItem('pokeprice:cardRowView') || 'detailed'
+  )
   const [binderFilter, setBinderFilter] = useState('')
   const [alertFilter, setAlertFilter] = useState('')
   const [nameSearch, setNameSearch] = useState('')
@@ -570,6 +573,11 @@ export default function Dashboard() {
   const [soldCollapsed, setSoldCollapsed] = useState(false)
   const [editingSoldCard, setEditingSoldCard] = useState(null)
   const [listCollapsed, setListCollapsed] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
+
+  useEffect(() => {
+    localStorage.setItem('pokeprice:cardRowView', watchlistView)
+  }, [watchlistView])
 
   const cardListRef = useRef(null)
   const scrollTimerRef = useRef(null)
@@ -781,6 +789,7 @@ export default function Dashboard() {
     }
     setNameSearch('')
     setListCollapsed(false)
+    setShowFilters(false)
   }, [activeTab])
 
   const tabCards = cards.filter((c) => (c.section || 'watchlist') === activeTab)
@@ -980,54 +989,7 @@ export default function Dashboard() {
             {activeTab === 'collection' ? 'My Collection' : 'My Watchlist'}
           </h2>
 
-          {/* Binder dropdown — right of title */}
-          <div className="flex items-center gap-1">
-            <select
-              value={binderFilter}
-              onChange={(e) => {
-                if (e.target.value === '__add__') {
-                  setNewBinderName('')
-                  setShowAddBinderModal(true)
-                } else {
-                  setBinderFilter(e.target.value)
-                }
-              }}
-              className="w-44 bg-surface-700 border border-surface-500 rounded px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-accent"
-            >
-              <option value="">All Binders</option>
-              <option value="__none__">No Binder Assigned</option>
-              {availableBinders.map((f) => <option key={f} value={f}>{f}</option>)}
-              <option value="__add__">+ Add binder…</option>
-            </select>
-            {binderFilter && binderFilter !== '__none__' && (
-              <>
-                <button
-                  onClick={() => { setRenameValue(binderFilter); setRenamingBinder(true) }}
-                  className="w-7 h-7 flex items-center justify-center text-slate-500 hover:text-accent hover:bg-accent/10 rounded transition-colors flex-shrink-0"
-                  title={`Rename binder "${binderFilter}"`}
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                  </svg>
-                </button>
-                <button
-                  onClick={async () => {
-                    await window.api.deleteBinder(activeTab, binderFilter)
-                    setBinderFilter('')
-                    await reloadBinders()
-                  }}
-                  className="w-7 h-7 flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors flex-shrink-0"
-                  title={`Delete binder "${binderFilter}"`}
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                  </svg>
-                </button>
-              </>
-            )}
-          </div>
-
-          {/* Add button */}
+          {/* Add button — right of title */}
           {activeTab === 'collection' && (
             <button
               onClick={() => setShowSearch('collection')}
@@ -1045,7 +1007,7 @@ export default function Dashboard() {
             </button>
           )}
 
-          {/* Bulk edit — inline after Add button */}
+          {/* Bulk edit — right of Add */}
           {!bulkMode ? (
             <button
               onClick={() => setBulkMode(true)}
@@ -1057,7 +1019,6 @@ export default function Dashboard() {
           ) : (
             <div className="flex items-center gap-2">
               <span className="text-slate-500 text-xs whitespace-nowrap">{selectedCards.size} selected</span>
-              {/* Move to Binder */}
               <div className="relative">
                 <button
                   onClick={() => setShowBulkBinderPicker((v) => !v)}
@@ -1114,51 +1075,155 @@ export default function Dashboard() {
 
           <div className="flex-1" />
 
-          {/* Right: name search, alerts, sort, export, share */}
+          {/* View toggle — watchlist + collection */}
+          {(activeTab === 'watchlist' || activeTab === 'collection') && (
+            <div className="flex items-center gap-0.5 bg-surface-900 border border-surface-600 rounded-lg p-0.5 flex-shrink-0">
+              <button
+                onClick={() => setWatchlistView('detailed')}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${watchlistView === 'detailed' ? 'bg-surface-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+              >
+                Detailed
+              </button>
+              <button
+                onClick={() => setWatchlistView('table')}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${watchlistView === 'table' ? 'bg-surface-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+              >
+                Table
+              </button>
+            </div>
+          )}
+
+          {/* Filters & Sort dropdown — now includes binders */}
           <div className="relative">
-            <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
-            </svg>
-            <input
-              type="text"
-              value={nameSearch}
-              onChange={(e) => setNameSearch(e.target.value)}
-              placeholder="Filter by name…"
-              className="pl-8 pr-7 py-1.5 text-sm bg-surface-700 border border-surface-500 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-accent transition-colors w-44"
-            />
-            {nameSearch && (
-              <button onClick={() => setNameSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors text-xs">✕</button>
+            {showFilters && (
+              <div className="fixed inset-0 z-40" onClick={() => setShowFilters(false)} />
+            )}
+            <button
+              onClick={() => setShowFilters((v) => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 border text-sm font-medium rounded-lg transition-colors ${
+                showFilters
+                  ? 'bg-surface-600 border-surface-400 text-white'
+                  : 'bg-surface-700 border-surface-500 text-slate-300 hover:text-white hover:bg-surface-600'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M7 10h10M11 16h2" />
+              </svg>
+              Filters
+              <span className={`w-1.5 h-1.5 rounded-full bg-slate-300 flex-shrink-0 transition-opacity ${nameSearch || alertFilter || binderFilter || sortBy !== 'addedDate' ? 'opacity-100' : 'opacity-0'}`} />
+              <svg className={`w-3 h-3 transition-transform flex-shrink-0 ${showFilters ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <polyline points="6 9 12 15 18 9" />
+              </svg>
+            </button>
+            {showFilters && (
+              <div className="absolute right-0 top-full mt-1.5 bg-surface-800 border border-surface-600 rounded-xl shadow-2xl z-50 p-4 w-72 space-y-3">
+                {/* Name search — first */}
+                <div>
+                  <label className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider mb-1.5 block">Filter by name</label>
+                  <div className="relative">
+                    <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+                    </svg>
+                    <input
+                      type="text"
+                      value={nameSearch}
+                      onChange={(e) => setNameSearch(e.target.value)}
+                      placeholder="Filter by name…"
+                      className="w-full pl-8 pr-7 py-1.5 text-sm bg-surface-700 border border-surface-500 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-accent transition-colors"
+                    />
+                    {nameSearch && (
+                      <button onClick={() => setNameSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-white transition-colors text-xs">✕</button>
+                    )}
+                  </div>
+                </div>
+                {/* Binder filter */}
+                <div>
+                  <label className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider mb-1.5 block">Binder</label>
+                  <div className="flex items-center gap-1">
+                    <select
+                      value={binderFilter}
+                      onChange={(e) => {
+                        if (e.target.value === '__add__') {
+                          setNewBinderName('')
+                          setShowAddBinderModal(true)
+                        } else {
+                          setBinderFilter(e.target.value)
+                        }
+                      }}
+                      className="flex-1 bg-surface-700 border border-surface-500 rounded-lg px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-accent"
+                    >
+                      <option value="">All Binders</option>
+                      <option value="__none__">No Binder Assigned</option>
+                      {availableBinders.map((f) => <option key={f} value={f}>{f}</option>)}
+                      <option value="__add__">+ Add binder…</option>
+                    </select>
+                    {binderFilter && binderFilter !== '__none__' && (
+                      <>
+                        <button
+                          onClick={() => { setRenameValue(binderFilter); setRenamingBinder(true) }}
+                          className="w-7 h-7 flex items-center justify-center text-slate-500 hover:text-accent hover:bg-accent/10 rounded transition-colors flex-shrink-0"
+                          title={`Rename binder "${binderFilter}"`}
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={async () => {
+                            await window.api.deleteBinder(activeTab, binderFilter)
+                            setBinderFilter('')
+                            await reloadBinders()
+                          }}
+                          className="w-7 h-7 flex items-center justify-center text-slate-500 hover:text-red-400 hover:bg-red-900/20 rounded transition-colors flex-shrink-0"
+                          title={`Delete binder "${binderFilter}"`}
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                {/* Alert filter */}
+                <div>
+                  <label className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider mb-1.5 block">Filter by alerts</label>
+                  <select
+                    value={alertFilter}
+                    onChange={(e) => setAlertFilter(e.target.value)}
+                    className="w-full bg-surface-700 border border-surface-500 rounded-lg px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-accent"
+                  >
+                    <option value="">All Cards</option>
+                    <option value="up">Price Up Alerts</option>
+                    <option value="down">Price Down Alerts</option>
+                  </select>
+                </div>
+                {/* Sort */}
+                <div>
+                  <label className="text-slate-500 text-[11px] font-semibold uppercase tracking-wider mb-1.5 block">Sort by</label>
+                  <select
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className="w-full bg-surface-700 border border-surface-500 rounded-lg px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-accent"
+                  >
+                    <option value="addedDate">Recently Added</option>
+                    <option value="name">Name (A→Z)</option>
+                    <option value="set_asc">Set</option>
+                    <option value="released_desc">Released (Newest First)</option>
+                    <option value="released_asc">Released (Oldest First)</option>
+                    <option value="price">Current Price</option>
+                    <option value="priceAlert">Price Alert</option>
+                    {activeTab === 'collection' && <option value="pnl_best">P&amp;L — Largest Profit</option>}
+                    {activeTab === 'collection' && <option value="pnl_worst">P&amp;L — Largest Loss</option>}
+                    <option value="changeDay">1D % Change</option>
+                    <option value="changeWeek">1W % Change</option>
+                    <option value="changeMonth">1M % Change</option>
+                  </select>
+                </div>
+              </div>
             )}
           </div>
-          <span className="text-slate-500 text-sm whitespace-nowrap">Alerts</span>
-          <select
-            value={alertFilter}
-            onChange={(e) => setAlertFilter(e.target.value)}
-            className="w-36 bg-surface-700 border border-surface-500 rounded px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-accent"
-          >
-            <option value="">All Cards</option>
-            <option value="up">Price Up Alerts</option>
-            <option value="down">Price Down Alerts</option>
-          </select>
-          <span className="text-slate-500 text-sm whitespace-nowrap">Sort by</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="w-44 bg-surface-700 border border-surface-500 rounded px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:border-accent"
-          >
-            <option value="addedDate">Recently Added</option>
-            <option value="name">Name (A→Z)</option>
-            <option value="set_asc">Set</option>
-            <option value="released_desc">Released (Newest First)</option>
-            <option value="released_asc">Released (Oldest First)</option>
-            <option value="price">Current Price</option>
-            <option value="priceAlert">Price Alert</option>
-            {activeTab === 'collection' && <option value="pnl_best">P&amp;L — Largest Profit</option>}
-            {activeTab === 'collection' && <option value="pnl_worst">P&amp;L — Largest Loss</option>}
-            <option value="changeDay">1D % Change</option>
-            <option value="changeWeek">1W % Change</option>
-            <option value="changeMonth">1M % Change</option>
-          </select>
+
           <button
             onClick={() => setShowExportModal(true)}
             disabled={sorted.length === 0}
@@ -1263,6 +1328,7 @@ export default function Dashboard() {
                     bulkMode={bulkMode}
                     isSelected={selectedCards.has(card.id)}
                     onToggleSelect={handleToggleSelect}
+                    viewMode={watchlistView}
                   />
                 ))
               ))}

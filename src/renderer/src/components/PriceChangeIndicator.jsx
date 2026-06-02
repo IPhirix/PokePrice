@@ -6,10 +6,10 @@ export default function PriceChangeIndicator({ value, label, size = 'sm', showDo
   if (value === null || value === undefined) {
     return (
       <div className={`flex items-center gap-1.5 ${onClick ? 'cursor-pointer select-none' : ''}`} onClick={onClick}>
+        {label && <span className="text-slate-500 text-xs w-5 text-right flex-shrink-0">{label}</span>}
         <span className={`text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded font-medium text-right ${size === 'sm' ? 'text-xs min-w-[3.5rem]' : 'text-sm min-w-[4.5rem]'}`}>
           {showDollar ? '—' : '0.00%'}
         </span>
-        {label && <span className="text-slate-500 text-xs">{label}</span>}
       </div>
     )
   }
@@ -26,10 +26,10 @@ export default function PriceChangeIndicator({ value, label, size = 'sm', showDo
 
   return (
     <div className={`flex items-center gap-1.5 ${onClick ? 'cursor-pointer select-none' : ''}`} onClick={onClick}>
+      {label && <span className="text-slate-500 text-xs w-5 text-right flex-shrink-0">{label}</span>}
       <span className={`${color} ${bg} px-1.5 py-0.5 rounded font-medium text-right ${size === 'sm' ? 'text-xs min-w-[3.5rem]' : 'text-sm min-w-[4.5rem]'}`}>
         {displayText}
       </span>
-      {label && <span className="text-slate-500 text-xs">{label}</span>}
     </div>
   )
 }

@@ -49,6 +49,7 @@ contextBridge.exposeInMainWorld('api', {
   getLocale: () => ipcRenderer.invoke('app:locale'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (s) => ipcRenderer.invoke('settings:set', s),
+  pickProfileImage: () => ipcRenderer.invoke('profile:pickImage'),
   sendTestEmail: () => ipcRenderer.invoke('email:test'),
   getAllConditionPrices: (cardId) => ipcRenderer.invoke('prices:allConditions', cardId),
   getPriceForTcgCard: (opts) => ipcRenderer.invoke('prices:forTcgCard', opts),

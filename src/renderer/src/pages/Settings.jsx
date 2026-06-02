@@ -34,11 +34,8 @@ const SECTION_KEYWORDS = {
   sort:       ['sort', 'order', 'default sort', 'recently added', 'name', 'set', 'portfolio', 'watchlist'],
   condition:  ['condition', 'grade', 'psa', 'cgc', 'raw', 'ungraded', 'default condition', 'graded', 'adding'],
   targets:    ['target', 'buy', 'sell', 'price', 'percentage', 'pct', 'alert', 'default target', 'auto'],
-  alerts:     ['alert', 'notification', 'notify', 'buy alert', 'sell alert', 'price alert', 'enable', 'disable'],
   email:      ['email', 'resend', 'api key', 'email alert', 'send email', 'notification email', 'email notification'],
   management: ['remove', 'confirm', 'delete', 'management', 'card management', 'portfolio', 'watchlist'],
-  refresh:    ['refresh', 'update', 'fetch', 'prices', 'ppt', 'data', 'refresh card'],
-  history:    ['history', 'clear', 'reset', 'data', 'historical', 'price history', 'delete history'],
   security:   ['security', 'login', 'password', 'stay logged in', 'session', 'auth', 'account', 'sign in'],
 }
 
@@ -65,23 +62,16 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   const { logout } = useAuth()
   const [loading, setLoading] = useState(true)
   const [confirmRemove, setConfirmRemove] = useState(true)
-  const [clearingHistory, setClearingHistory] = useState(false)
-  const [clearResult, setClearResult] = useState(null)
-  const [confirmClear, setConfirmClear] = useState(false)
   const [defaultBuyPct, setDefaultBuyPct] = useState('')
   const [defaultSellPct, setDefaultSellPct] = useState('')
   const [defaultCondition, setDefaultCondition] = useState('')
   const [defaultSortBy, setDefaultSortBy] = useState('')
   const [targetApplyMsg, setTargetApplyMsg] = useState('')
   const [clearBuyMsg, setClearBuyMsg] = useState('')
-  const [alertEnabled, setAlertEnabled] = useState(true)
   const [emailAlertsEnabled, setEmailAlertsEnabled] = useState(false)
   const [profileEmail, setProfileEmail] = useState('')
   const [testEmailMsg, setTestEmailMsg] = useState(null)
   const [sendingTestEmail, setSendingTestEmail] = useState(false)
-  const [refreshSection, setRefreshSection] = useState('all')
-  const [isRefreshing, setIsRefreshing] = useState(false)
-  const [refreshResult, setRefreshResult] = useState(null)
   const [settingsSearch, setSettingsSearch] = useState('')
   const [defaultStartTab, setDefaultStartTab] = useState('collection')
   const [portfolioFolders, setPortfolioFolders] = useState([])
@@ -116,7 +106,6 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
       setDefaultSellPct(s.defaultAlertUpPct != null ? String(s.defaultAlertUpPct) : '')
       setDefaultCondition(s.defaultCondition || '')
       setDefaultSortBy(s.defaultSortBy || '')
-      setAlertEnabled(s.alertEnabled !== false)
       setEmailAlertsEnabled(s.emailAlertsEnabled === true)
       setProfileEmail(s.profile?.email || '')
       if (s.defaultStartTab) setDefaultStartTab(s.defaultStartTab)
@@ -134,24 +123,6 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
   }
 
   const anyVisible = Object.keys(SECTION_KEYWORDS).some((id) => shows(id))
-
-  async function handleRefreshData() {
-    setIsRefreshing(true)
-    setRefreshResult(null)
-    await window.api.refreshPrices(null, refreshSection)
-    setRefreshResult('Prices updated successfully.')
-    setIsRefreshing(false)
-    setTimeout(() => setRefreshResult(null), 4000)
-  }
-
-  async function handleClearHistory() {
-    setClearingHistory(true)
-    const result = await window.api.clearPriceHistory()
-    setClearResult(result.cleared)
-    setClearingHistory(false)
-    setConfirmClear(false)
-    setTimeout(() => setClearResult(null), 4000)
-  }
 
   async function handleToggleConfirmRemove() {
     const newVal = !confirmRemove
@@ -192,12 +163,6 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
     setClearBuyMsg(`Cleared price alert for ${cleared} card${cleared !== 1 ? 's' : ''}.`)
     setTimeout(() => setClearBuyMsg(''), 4000)
     if (cleared > 0) onCardDataChanged?.()
-  }
-
-  async function handleToggleAlert() {
-    const newVal = !alertEnabled
-    setAlertEnabled(newVal)
-    await window.api.setSettings({ alertEnabled: newVal })
   }
 
   async function handleToggleEmailAlerts() {
@@ -456,28 +421,6 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
           </div>
         )}
 
-        {/* Alert Notifications */}
-        {shows('alerts') && (
-          <div className="mb-4 bg-surface-800 border border-surface-600 rounded-xl p-5">
-            <h2 className="text-white font-semibold text-sm mb-1">Alert Notifications</h2>
-            <p className="text-slate-500 text-xs mb-4">
-              Show price alerts in the notification panel when a card's price reaches its target. Disabling this hides all alerts from the bell icon.
-            </p>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-300 text-sm font-medium">Price alerts</p>
-                <p className="text-slate-500 text-xs mt-0.5">Notify when a card's price reaches its alert target.</p>
-              </div>
-              <button
-                onClick={handleToggleAlert}
-                className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors ${alertEnabled ? 'bg-accent' : 'bg-surface-600'}`}
-              >
-                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${alertEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
-              </button>
-            </div>
-          </div>
-        )}
-
         {/* Email Alerts */}
         {shows('email') && (
           <div className="mb-4 bg-surface-800 border border-surface-600 rounded-xl p-5">
@@ -536,36 +479,6 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
                 className={`relative flex-shrink-0 w-11 h-6 rounded-full transition-colors ${confirmRemove ? 'bg-accent' : 'bg-surface-600'}`}
               >
                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${confirmRemove ? 'translate-x-5' : 'translate-x-0'}`} />
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Refresh Card Data */}
-        {shows('refresh') && (
-          <div className="mb-4 bg-surface-800 border border-surface-600 rounded-xl p-5">
-            <h2 className="text-white font-semibold text-sm mb-1">Refresh Card Data</h2>
-            <p className="text-slate-500 text-xs mb-4">
-              Fetch the latest prices from Pokemon Price Tracker for your cards. Choose which section to refresh, or refresh all cards at once.
-            </p>
-            {refreshResult && <p className="text-emerald-400 text-sm mb-3">{refreshResult}</p>}
-            <div className="flex items-center gap-3 flex-wrap">
-              <select
-                value={refreshSection}
-                onChange={(e) => setRefreshSection(e.target.value)}
-                disabled={isRefreshing}
-                className="bg-surface-700 border border-surface-500 rounded px-3 py-2 text-sm text-white focus:outline-none focus:border-accent disabled:opacity-50"
-              >
-                <option value="all">All Cards</option>
-                <option value="portfolio">Collection Only</option>
-                <option value="watchlist">Watchlist Only</option>
-              </select>
-              <button
-                onClick={handleRefreshData}
-                disabled={isRefreshing}
-                className="px-4 py-2 bg-surface-700 hover:bg-surface-600 disabled:opacity-50 border border-surface-500 text-slate-300 text-sm font-medium rounded-lg transition-colors"
-              >
-                {isRefreshing ? 'Refreshing…' : 'Refresh Now'}
               </button>
             </div>
           </div>
@@ -788,43 +701,6 @@ export default function Settings({ onBack, onSortChange, onCardDataChanged }) {
           </div>
         )}
 
-        {/* Price History */}
-        {shows('history') && (
-          <div className="mb-4 bg-surface-800 border border-surface-600 rounded-xl p-5">
-            <h2 className="text-white font-semibold text-sm mb-1">Price History</h2>
-            <p className="text-slate-500 text-xs mb-4">
-              Clear historical price data for all cards, keeping only today's prices. Use this if your pricing data was captured with an incorrect API key.
-            </p>
-            {clearResult != null && (
-              <p className="text-emerald-400 text-sm mb-3">Cleared history for {clearResult} card{clearResult !== 1 ? 's' : ''}.</p>
-            )}
-            {!confirmClear ? (
-              <button
-                onClick={() => setConfirmClear(true)}
-                className="px-4 py-2 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 text-sm font-medium rounded-lg transition-colors"
-              >
-                Clear Historical Prices
-              </button>
-            ) : (
-              <div className="flex items-center gap-3">
-                <span className="text-slate-400 text-sm">Remove all price history before today?</span>
-                <button
-                  onClick={handleClearHistory}
-                  disabled={clearingHistory}
-                  className="px-3 py-1.5 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors"
-                >
-                  {clearingHistory ? 'Clearing…' : 'Yes, clear it'}
-                </button>
-                <button
-                  onClick={() => setConfirmClear(false)}
-                  className="px-3 py-1.5 bg-surface-600 hover:bg-surface-500 text-slate-300 text-sm rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
-          </div>
-        )}
 
       </div>
     </div>

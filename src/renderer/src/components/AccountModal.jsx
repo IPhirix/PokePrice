@@ -100,6 +100,71 @@ function ProfileField({ label, value }) {
   )
 }
 
+function ProfilePicturePicker({ current, initials, onSave, onClose }) {
+  const [preview, setPreview] = useState(current || null)
+  const [loading, setLoading] = useState(false)
+
+  async function handlePick() {
+    setLoading(true)
+    try {
+      const dataUrl = await window.api.pickProfileImage()
+      if (dataUrl) setPreview(dataUrl)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-xl">
+      <div className="bg-surface-800 border border-surface-600 rounded-xl shadow-2xl p-6 w-72 flex flex-col items-center gap-4">
+        <h3 className="text-white font-semibold text-sm self-start">Profile Picture</h3>
+
+        {/* Preview */}
+        <div className="w-28 h-28 rounded-full bg-accent/20 border-2 border-accent/40 flex items-center justify-center overflow-hidden">
+          {preview
+            ? <img src={preview} alt="Preview" className="w-full h-full object-cover" />
+            : <span className="text-accent font-bold text-3xl">{initials}</span>
+          }
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-col gap-2 w-full">
+          <button
+            onClick={handlePick}
+            disabled={loading}
+            className="w-full py-2 text-sm font-medium bg-accent hover:bg-amber-400 text-black rounded-lg transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Opening…' : preview ? 'Change Photo' : 'Upload Photo'}
+          </button>
+          {preview && (
+            <button
+              onClick={() => setPreview(null)}
+              className="w-full py-2 text-sm font-medium bg-surface-600 hover:bg-surface-500 border border-surface-500 text-slate-300 rounded-lg transition-colors"
+            >
+              Remove Photo
+            </button>
+          )}
+        </div>
+
+        <div className="flex gap-2 w-full">
+          <button
+            onClick={() => onSave(preview)}
+            className="flex-1 py-2 text-sm font-medium bg-emerald-900/30 hover:bg-emerald-900/50 border border-emerald-600/50 text-emerald-400 rounded-lg transition-colors"
+          >
+            Save
+          </button>
+          <button
+            onClick={onClose}
+            className="flex-1 py-2 text-sm font-medium bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-400 rounded-lg transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function AccountModal({ onClose }) {
   const { format, currency, setCurrency } = useCurrency()
   const { logout } = useAuth()
@@ -115,6 +180,7 @@ export default function AccountModal({ onClose }) {
   const [showDelete, setShowDelete] = useState(false)
   const [deleteInput, setDeleteInput] = useState('')
   const [busy, setBusy] = useState(false)
+  const [showPicturePicker, setShowPicturePicker] = useState(false)
 
   useEffect(() => {
     window.api.getSettings().then((s) => {
@@ -157,6 +223,13 @@ export default function AccountModal({ onClose }) {
       setCurrency(draft.currency)
     }
     setEditing(false)
+  }
+
+  async function saveProfilePicture(dataUrl) {
+    const updated = { ...profile, profilePicture: dataUrl }
+    await window.api.setSettings({ profile: updated })
+    setProfile(updated)
+    setShowPicturePicker(false)
   }
 
 
@@ -208,6 +281,16 @@ export default function AccountModal({ onClose }) {
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       <div className="relative w-full max-w-xl mx-4 bg-surface-800 border border-surface-600 rounded-xl shadow-2xl overflow-hidden flex flex-col h-[85vh]">
+
+        {/* Profile picture picker overlay */}
+        {showPicturePicker && (
+          <ProfilePicturePicker
+            current={profile.profilePicture}
+            initials={initials}
+            onSave={saveProfilePicture}
+            onClose={() => setShowPicturePicker(false)}
+          />
+        )}
 
         {/* Confirmation overlay */}
         {confirmClearTarget && (
@@ -289,6 +372,7 @@ export default function AccountModal({ onClose }) {
                   </div>
                   <button
                     title="Add profile picture"
+                    onClick={() => setShowPicturePicker(true)}
                     className="absolute bottom-0 right-0 w-6 h-6 bg-accent rounded-full flex items-center justify-center border-2 border-surface-800 hover:bg-amber-400 transition-colors"
                   >
                     <svg className="w-3 h-3 text-black" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>

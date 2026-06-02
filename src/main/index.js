@@ -11,10 +11,41 @@ const axios = require('axios')
 const cron = require('node-cron')
 const { Resend } = require('resend')
 const { Pool } = require('pg')
+const { createClient } = require('@supabase/supabase-js')
+const ws = require('ws')
 require('dotenv').config({ override: true })
 
 const sbPool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL, max: 2 })
+  : null
+
+let _persistSession = true
+
+const supabase = (process.env.SUPABASE_URL && process.env.SUPABASE_ANON_KEY)
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY, {
+      realtime: { transport: ws },
+      auth: {
+        storage: {
+          getItem: (key) => {
+            try { return JSON.parse(fs.readFileSync(path.join(getDataDir(), 'supabase-session.json'), 'utf8'))[key] ?? null } catch { return null }
+          },
+          setItem: (key, value) => {
+            if (!_persistSession) return
+            const f = path.join(getDataDir(), 'supabase-session.json')
+            const s = (() => { try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return {} } })()
+            s[key] = value
+            fs.writeFileSync(f, JSON.stringify(s, null, 2))
+          },
+          removeItem: (key) => {
+            const f = path.join(getDataDir(), 'supabase-session.json')
+            try { const s = JSON.parse(fs.readFileSync(f, 'utf8')); delete s[key]; fs.writeFileSync(f, JSON.stringify(s, null, 2)) } catch {}
+          },
+        },
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: false,
+      }
+    })
   : null
 
 // Force consistent userData path across dev and production builds (productName
@@ -282,9 +313,11 @@ function extractTcgdexSetId(cardId, localId) {
 }
 
 function isPocketCard(card) {
-  const series = (card.set?.series || '').toLowerCase()
+  const series = (card.set?.series || card.setSeries || '').toLowerCase()
   if (series.includes('pocket')) return true
-  return /^(A\d|PROMO-A)/i.test(card.set?.id || '')
+  const setId = card.set?.id || card.setId || ''
+  // Pocket set IDs: A1, A1a, A2, B1, B1a, B2 ... and promos P-A, P-B
+  return /^([A-Z]\d|P-[A-Z])/i.test(setId)
 }
 
 function mapTcgdexCard(d) {
@@ -380,24 +413,25 @@ async function resolveSupabaseId(card) {
   if (card.pricechartingId) return card.pricechartingId
   if (card.pricechartingName) {
     const res = await sbPool.query(
-      `SELECT pricecharting_id FROM pokemon_card_prices WHERE product_name = $1 LIMIT 1`,
+      `SELECT pricecharting_id FROM pokemon_card_prices WHERE product_name ILIKE $1 LIMIT 1`,
       [card.pricechartingName]
     )
     if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
   }
-  // For new cards: construct PriceCharting's product_name format "{Name} #{number}"
+  // For new cards: construct PriceCharting's product_name format "{Name} #{number}".
+  // Use ILIKE so "Mega Lucario ex #179" matches "Mega Lucario EX #179" in PriceCharting.
   if (card.name && card.number) {
     const productName = `${card.name} #${card.number}`
     if (card.setName) {
       const res = await sbPool.query(
-        `SELECT pricecharting_id FROM pokemon_card_prices WHERE product_name = $1 AND console_name ILIKE $2 LIMIT 1`,
+        `SELECT pricecharting_id FROM pokemon_card_prices WHERE product_name ILIKE $1 AND console_name ILIKE $2 LIMIT 1`,
         [productName, `%${card.setName}%`]
       )
       if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
     }
     // Fallback: match product_name only (no set filter)
     const res = await sbPool.query(
-      `SELECT pricecharting_id FROM pokemon_card_prices WHERE product_name = $1 LIMIT 1`,
+      `SELECT pricecharting_id FROM pokemon_card_prices WHERE product_name ILIKE $1 LIMIT 1`,
       [productName]
     )
     if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
@@ -667,6 +701,14 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 
+app.on('before-quit', () => {
+  try {
+    if (readAuthPrefs().stayLoggedIn === false) {
+      try { fs.unlinkSync(path.join(getDataDir(), 'supabase-session.json')) } catch {}
+    }
+  } catch {}
+})
+
 // ── IPC Handlers ─────────────────────────────────────────────────────────────
 
 ipcMain.on('window:minimize', () => mainWindow?.minimize())
@@ -677,6 +719,18 @@ ipcMain.handle('app:version', () => app.getVersion())
 ipcMain.handle('app:locale', () => app.getLocale())
 
 ipcMain.handle('settings:get', () => readSettings())
+ipcMain.handle('profile:pickImage', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
+    title: 'Choose Profile Picture',
+    filters: [{ name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] }],
+    properties: ['openFile'],
+  })
+  if (canceled || !filePaths.length) return null
+  const buf = require('fs').readFileSync(filePaths[0])
+  const ext = filePaths[0].split('.').pop().toLowerCase()
+  const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg'
+  return `data:${mime};base64,${buf.toString('base64')}`
+})
 ipcMain.handle('settings:set', (_, s) => {
   writeSettings({ ...readSettings(), ...s })
   if (s.profile) {
@@ -693,7 +747,7 @@ ipcMain.handle('settings:set', (_, s) => {
 })
 
 ipcMain.handle('account:getStats', () => {
-  const cards = readCards()
+  const cards = readCards().filter((c) => !isPocketCard(c))
   const trades = readTrades()
   const portfolioCards = cards.filter((c) => (c.section || 'watchlist') === 'collection')
   const watchlistCards = cards.filter((c) => (c.section || 'watchlist') === 'watchlist')
@@ -733,22 +787,27 @@ ipcMain.handle('account:clear', (_, target) => {
   return true
 })
 
-ipcMain.handle('account:delete', () => {
-  const auth = readAuth()
-  const username = _currentUser || _memorySessionUser || (auth && auth.sessionUsername) || null
+ipcMain.handle('account:delete', async () => {
+  const username = _currentUser
   if (username) {
     const userDir = path.join(getDataDir(), 'users', username)
     try { fs.rmSync(userDir, { recursive: true, force: true }) } catch {}
+    // Remove from known-users list
+    writeKnownUsers(readKnownUsers().filter(u => u.username !== username))
   }
-  if (auth) {
-    if (username) auth.users = auth.users.filter(u => u.username !== username)
-    auth.sessionToken = null
-    auth.sessionUsername = null
-    writeAuth(auth)
+  // Sign out from Supabase (clears session file and remote session)
+  if (supabase) {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        // Delete the user_profiles row (credentials remain in auth.users but are orphaned)
+        await supabase.from('user_profiles').delete().eq('id', session.user.id)
+      }
+      await supabase.auth.signOut()
+    } catch {}
   }
+  try { fs.unlinkSync(path.join(getDataDir(), 'supabase-session.json')) } catch {}
   _currentUser = null
-  _memorySessionToken = null
-  _memorySessionUser = null
   return true
 })
 
@@ -826,31 +885,51 @@ ipcMain.handle('cards:search-advanced', async (_, q) => {
     } catch { return [] }
   }
 
-  // Set browse: fetch all cards in a set ordered by card number
+  // Set browse: fetch the set detail directly so we only get cards that actually belong to this set.
+  // The generic /cards?set.id=... filter is not reliably honoured by TCGdex and can return cards
+  // from unrelated sets; /sets/{setId} always returns the exact card list for that set.
   if (params['set.id'] && Object.keys(params).length === 1) {
     const setId = params['set.id']
     try {
-      const [res, setMap] = await Promise.all([
-        axios.get(`${TCGDEX_BASE}/cards`, {
-          params: { 'set.id': setId, 'pagination:itemsPerPage': 250, 'sort:field': 'localId', 'sort:order': 'ASC' },
-          timeout: 30000
-        }),
-        getTcgdexSetMap().catch(() => new Map())
-      ])
-      const setData = setMap.get(setId) || { name: '', series: '', releaseDate: '' }
-      return (res.data || [])
-        .map((card) => mapTcgdexCard({ ...card, set: { id: setId, name: setData.name, series: setData.series, releaseDate: setData.releaseDate } }))
+      const setMap = await getTcgdexSetMap().catch(() => new Map())
+      const res = await axios.get(`${TCGDEX_BASE}/sets/${setId}`, { timeout: 30000 })
+      const detail = res.data || {}
+      const cards = detail.cards || []
+      const setData = setMap.get(setId) || {}
+      const setInfo = {
+        id: setId,
+        name: setData.name || detail.name || '',
+        series: setData.series || detail.serie?.name || '',
+        releaseDate: setData.releaseDate || detail.releaseDate || ''
+      }
+      return cards
+        .map((card) => mapTcgdexCard({ ...card, set: setInfo }))
         .filter((c) => !isPocketCard(c))
+        .sort((a, b) => {
+          const na = parseInt(a.number, 10)
+          const nb = parseInt(b.number, 10)
+          if (!isNaN(na) && !isNaN(nb)) return na - nb
+          return (a.number || '').localeCompare(b.number || '')
+        })
     } catch { return [] }
   }
 
-  // General multi-filter search
-  params['pagination:itemsPerPage'] = 250
-  const [res, setMap] = await Promise.all([
-    axios.get(`${TCGDEX_BASE}/cards`, { params, timeout: 30000 }),
-    getTcgdexSetMap().catch(() => new Map())
-  ])
-  return (res.data || []).map((card) => {
+  // General multi-filter search — paginate to capture secret rares beyond the first 250
+  const PAGE_SIZE_GEN = 250
+  const setMap = await getTcgdexSetMap().catch(() => new Map())
+  const allCards = []
+  let page = 1
+  while (true) {
+    const res = await axios.get(`${TCGDEX_BASE}/cards`, {
+      params: { ...params, 'pagination:itemsPerPage': PAGE_SIZE_GEN, 'pagination:page': page },
+      timeout: 30000
+    })
+    const batch = res.data || []
+    allCards.push(...batch)
+    if (batch.length < PAGE_SIZE_GEN) break
+    page++
+  }
+  return allCards.map((card) => {
     const localId = card.localId != null ? String(card.localId) : ''
     const setId = extractTcgdexSetId(card.id, localId)
     const setData = setMap.get(setId) || { name: '', series: '', releaseDate: '' }
@@ -861,7 +940,7 @@ ipcMain.handle('cards:search-advanced', async (_, q) => {
 ipcMain.handle('cards:list', () => {
   const d90 = new Date(); d90.setDate(d90.getDate() - 90)
   const cutoff90 = localDateStr(d90)
-  return readCards().filter((card) => card.section !== 'sold').map((card) => {
+  return readCards().filter((card) => card.section !== 'sold' && !isPocketCard(card)).map((card) => {
     const history = readPrices(card.id)
     const latest = history[history.length - 1] || null
     const yesterday = history[history.length - 2] || null
@@ -964,7 +1043,7 @@ ipcMain.handle('cards:sell', (_, cardId, soldInfo) => {
 ipcMain.handle('cards:listSold', () => {
   const d90 = new Date(); d90.setDate(d90.getDate() - 90)
   const cutoff90 = localDateStr(d90)
-  return readCards().filter((card) => card.section === 'sold').map((card) => {
+  return readCards().filter((card) => card.section === 'sold' && !isPocketCard(card)).map((card) => {
     const history = readPrices(card.id)
     const latest = history[history.length - 1] || null
     return {
@@ -1448,7 +1527,7 @@ ipcMain.handle('prices:forTcgCard', async (_, { name, number, setName }) => {
 })
 
 ipcMain.handle('prices:portfolio', (_, binder) => {
-  const allCards = readCards()
+  const allCards = readCards().filter((c) => !isPocketCard(c))
   const portfolioCards = allCards.filter((c) => {
     if ((c.section || 'watchlist') !== 'collection') return false
     if (binder) return (c.binder || c.folder) === binder
@@ -1693,7 +1772,7 @@ ipcMain.handle('sets:list', async () => {
   const filterPocketSets = (sets) => sets.filter((s) => {
     const series = (s.series || '').toLowerCase()
     if (series.includes('pocket')) return false
-    if (/^(A\d|PROMO-A)/i.test(s.id || '')) return false
+    if (/^([A-Z]\d|P-[A-Z])/i.test(s.id || '')) return false
     return true
   })
 
@@ -1744,7 +1823,7 @@ ipcMain.handle('sets:list', async () => {
     .filter((s) => {
       const series = (s.series || '').toLowerCase()
       if (series.includes('pocket')) return false
-      if (/^(A\d|PROMO-A)/i.test(s.id || '')) return false
+      if (/^([A-Z]\d|P-[A-Z])/i.test(s.id || '')) return false
       return true
     })
     .sort((a, b) => (b.releaseDate || '').localeCompare(a.releaseDate || ''))
@@ -2233,33 +2312,44 @@ ipcMain.handle('upcoming:remove', (_, showId) => {
 // ── Auth ─────────────────────────────────────────────────────────────────────
 
 function authFile() { return path.join(getDataDir(), 'auth.json') }
+function authPrefsFile() { return path.join(getDataDir(), 'auth-prefs.json') }
+function knownUsersFile() { return path.join(getDataDir(), 'known-users.json') }
 
 function generateSalt() { return randomBytes(32).toString('hex') }
 async function hashPassword(password, salt) {
   const buf = await pbkdf2Async(password, salt, 100000, 64, 'sha512')
   return buf.toString('hex')
 }
-function generateToken() { return randomBytes(32).toString('hex') }
 
-// Migrate old single-user auth.json to multi-user format
+function readAuthPrefs() {
+  try { return JSON.parse(fs.readFileSync(authPrefsFile(), 'utf8')) } catch { return {} }
+}
+function writeAuthPrefs(prefs) {
+  fs.writeFileSync(authPrefsFile(), JSON.stringify(prefs, null, 2))
+}
+
+function readKnownUsers() {
+  try { return JSON.parse(fs.readFileSync(knownUsersFile(), 'utf8')) } catch { return [] }
+}
+function writeKnownUsers(list) {
+  fs.writeFileSync(knownUsersFile(), JSON.stringify(list, null, 2))
+}
+function upsertKnownUser(entry) {
+  const list = readKnownUsers()
+  const idx = list.findIndex(u => u.username === entry.username)
+  if (idx >= 0) list[idx] = { ...list[idx], ...entry }
+  else list.push(entry)
+  writeKnownUsers(list)
+}
+
+// Legacy auth.json helpers — used only during one-time migration
 function migrateAuth(data) {
   if (!data || data.users) return data
   return {
-    users: [{
-      username: data.username,
-      passwordHash: data.passwordHash,
-      salt: data.salt,
-      securityQuestion: data.securityQuestion || '',
-      securityAnswerHash: data.securityAnswerHash || '',
-      securityAnswerSalt: data.securityAnswerSalt || '',
-      profile: {},
-    }],
-    sessionUsername: data.username,
-    sessionToken: data.sessionToken || null,
-    stayLoggedIn: data.stayLoggedIn !== false,
+    users: [{ username: data.username, passwordHash: data.passwordHash, salt: data.salt, securityQuestion: data.securityQuestion || '', securityAnswerHash: data.securityAnswerHash || '', securityAnswerSalt: data.securityAnswerSalt || '', profile: {} }],
+    sessionUsername: data.username, sessionToken: data.sessionToken || null, stayLoggedIn: data.stayLoggedIn !== false,
   }
 }
-
 function readAuth() {
   const f = authFile()
   if (!fs.existsSync(f)) return null
@@ -2270,275 +2360,296 @@ function readAuth() {
     return migrated
   } catch { return null }
 }
-function writeAuth(data) {
-  fs.writeFileSync(authFile(), JSON.stringify(data, null, 2))
-}
-function getCurrentUser(auth) {
-  if (!auth || !auth.sessionUsername) return null
-  return auth.users.find(u => u.username === auth.sessionUsername) || null
-}
 
-// In-memory session (used when stayLoggedIn is false)
-let _memorySessionToken = null
-let _memorySessionUser = null
-
-// In-memory email reset code: { code, username, expiry }
-let _emailResetCode = null
-
-// In-memory reset tokens: Map<token, username>
+// In-memory state for password reset flows
+let _otpResetEmail = null
 const _resetTokens = new Map()
 
+// Ensures user_profiles row exists. If missing (e.g. migration interrupted),
+// rebuilds it from known-users.json, settings.json, and auth.json.migrated.
+async function ensureUserProfile(userId) {
+  const { data: existing } = await supabase.from('user_profiles').select('username').eq('id', userId).single()
+  if (existing) return existing.username
+
+  const knownUsers = readKnownUsers()
+  const knownUser = knownUsers[0] || {}
+  const username = knownUser.username || ''
+  if (!username) return null
+
+  _currentUser = username
+  const settings = readSettings()
+  const prof = settings.profile || {}
+
+  let secData = {}
+  try {
+    const archived = JSON.parse(fs.readFileSync(authFile() + '.migrated', 'utf8'))
+    const lu = archived?.users?.find(u => u.username === username)
+    if (lu) secData = { security_question: lu.securityQuestion || '', security_answer_hash: lu.securityAnswerHash || '', security_answer_salt: lu.securityAnswerSalt || '' }
+  } catch {}
+
+  await supabase.from('user_profiles').insert({
+    id: userId,
+    username,
+    first_name: knownUser.firstName || prof.firstName || '',
+    currency: prof.currency || 'USD',
+    state: prof.state || null,
+    zip_code: prof.zipCode || null,
+    profile_picture: prof.profilePicture || null,
+    ...secData,
+  })
+
+  return username
+}
+
 ipcMain.handle('auth:isSetup', () => {
+  if (readKnownUsers().length > 0) return true
   const auth = readAuth()
-  return !!(auth && auth.users && auth.users.length > 0)
+  return !!(auth?.users?.length > 0)
 })
 
-ipcMain.handle('auth:isSessionValid', () => {
-  const auth = readAuth()
-  if (!auth) return false
-  if (auth.stayLoggedIn && auth.sessionToken && auth.sessionUsername) {
-    _currentUser = auth.sessionUsername
-    migrateUserData(auth.sessionUsername)
+ipcMain.handle('auth:isSessionValid', async () => {
+  if (!supabase) return false
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return false
+    if (readAuthPrefs().stayLoggedIn === false) {
+      await supabase.auth.signOut()
+      return false
+    }
+    const username = await ensureUserProfile(session.user.id)
+    if (!username) return false
+    _currentUser = username
+    migrateUserData(username)
     runUserMigrations()
     return true
-  }
-  if (!auth.stayLoggedIn && _memorySessionToken && _memorySessionUser) {
-    _currentUser = _memorySessionUser
-    runUserMigrations()
-    return true
-  }
-  return false
+  } catch { return false }
 })
 
 ipcMain.handle('auth:createUser', async (_, { username, password, securityQuestion, securityAnswer, stayLoggedIn, profile }) => {
-  const auth = readAuth() || { users: [], sessionUsername: null, sessionToken: null, stayLoggedIn: true }
+  if (!supabase) return { ok: false, error: 'Cloud auth not configured.' }
+  const email = (profile?.email || '').trim().toLowerCase()
+  if (!email) return { ok: false, error: 'An email address is required to create an account.' }
   const normalizedUsername = username.trim().toLowerCase()
-  if (auth.users.find(u => u.username === normalizedUsername)) {
-    return { ok: false, error: 'That username is already taken.' }
-  }
-  const salt = generateSalt()
+  const { data: existing } = await supabase.from('user_profiles').select('username').eq('username', normalizedUsername).maybeSingle()
+  if (existing) return { ok: false, error: 'That username is already taken.' }
+  const { data, error } = await supabase.auth.signUp({ email, password })
+  if (error) return { ok: false, error: error.message }
   const secAnswerSalt = generateSalt()
-  const [passwordHash, securityAnswerHash] = await Promise.all([
-    hashPassword(password, salt),
-    hashPassword((securityAnswer || '').trim().toLowerCase(), secAnswerSalt),
-  ])
-  const token = generateToken()
-  const userProfile = { ...(profile || {}), username: normalizedUsername, dateJoined: new Date().toISOString() }
-  const newUser = { username: normalizedUsername, passwordHash, salt, securityQuestion: securityQuestion || '', securityAnswerHash, securityAnswerSalt: secAnswerSalt, profile: userProfile }
-  auth.users.push(newUser)
-  auth.sessionUsername = normalizedUsername
-  auth.stayLoggedIn = stayLoggedIn !== false
-  auth.sessionToken = auth.stayLoggedIn ? token : null
-  writeAuth(auth)
-  if (!auth.stayLoggedIn) { _memorySessionToken = token; _memorySessionUser = normalizedUsername }
+  const securityAnswerHash = await hashPassword((securityAnswer || '').trim().toLowerCase(), secAnswerSalt)
+  const { error: profileErr } = await supabase.from('user_profiles').insert({
+    id: data.user.id,
+    username: normalizedUsername,
+    first_name: profile?.firstName || '',
+    currency: profile?.currency || 'USD',
+    state: profile?.state || null,
+    zip_code: profile?.zipCode || null,
+    profile_picture: profile?.profilePicture || null,
+    security_question: securityQuestion || '',
+    security_answer_hash: securityAnswerHash,
+    security_answer_salt: secAnswerSalt,
+  })
+  if (profileErr) return { ok: false, error: 'Failed to save profile: ' + profileErr.message }
+  const stay = stayLoggedIn !== false
+  writeAuthPrefs({ ...readAuthPrefs(), stayLoggedIn: stay })
+  _persistSession = stay
+  upsertKnownUser({ username: normalizedUsername, firstName: profile?.firstName || '', email })
   _currentUser = normalizedUsername
   runUserMigrations()
+  const userProfile = { ...(profile || {}), username: normalizedUsername, dateJoined: new Date().toISOString() }
   const settings = readSettings()
   writeSettings({ ...settings, profile: userProfile, currency: userProfile.currency || settings.currency || 'USD', dateJoined: userProfile.dateJoined })
   return { ok: true }
 })
 
-ipcMain.handle('auth:login', async (_, { username, password }) => {
-  const auth = readAuth()
-  if (!auth || !auth.users || auth.users.length === 0) return { ok: false, error: 'No account set up.' }
+ipcMain.handle('auth:login', async (_, { username, password, email: providedEmail }) => {
+  if (!supabase) return { ok: false, error: 'Cloud auth not configured.' }
   const normalizedUsername = username.trim().toLowerCase()
-  const user = auth.users.find(u => u.username === normalizedUsername)
-  if (!user) return { ok: false, error: 'Invalid username or password.' }
-  const hash = await hashPassword(password, user.salt)
-  if (hash !== user.passwordHash) return { ok: false, error: 'Invalid username or password.' }
-  const token = generateToken()
-  auth.sessionUsername = normalizedUsername
-  if (auth.stayLoggedIn) {
-    auth.sessionToken = token
-    writeAuth(auth)
-  } else {
-    _memorySessionToken = token
-    _memorySessionUser = normalizedUsername
-    writeAuth(auth)
+
+  // ── Seamless one-time migration: auth.json still exists ──────────────────
+  const legacyAuth = readAuth()
+  if (legacyAuth?.users?.length > 0) {
+    const legacyUser = legacyAuth.users.find(u => u.username === normalizedUsername)
+    if (legacyUser) {
+      const hash = await hashPassword(password, legacyUser.salt)
+      if (hash !== legacyUser.passwordHash) return { ok: false, error: 'Invalid username or password.' }
+      const email = ((legacyUser.profile?.email || providedEmail) || '').trim().toLowerCase()
+      if (!email) return { ok: false, needsEmail: true, error: 'Enter your email address to activate your cloud account.' }
+      let userId
+      const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
+      if (!signInErr && signInData.user) {
+        userId = signInData.user.id
+      } else {
+        const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({ email, password })
+        if (signUpErr) return { ok: false, error: 'Migration failed: ' + signUpErr.message }
+        userId = signUpData.user.id
+      }
+      await supabase.from('user_profiles').upsert({
+        id: userId, username: normalizedUsername,
+        first_name: legacyUser.profile?.firstName || '',
+        currency: legacyUser.profile?.currency || 'USD',
+        state: legacyUser.profile?.state || null,
+        zip_code: legacyUser.profile?.zipCode || null,
+        profile_picture: legacyUser.profile?.profilePicture || null,
+        security_question: legacyUser.securityQuestion || '',
+        security_answer_hash: legacyUser.securityAnswerHash || '',
+        security_answer_salt: legacyUser.securityAnswerSalt || '',
+      })
+      upsertKnownUser({ username: normalizedUsername, firstName: legacyUser.profile?.firstName || '', email })
+      _currentUser = normalizedUsername
+      migrateUserData(normalizedUsername)
+      runUserMigrations()
+      try { fs.renameSync(authFile(), authFile() + '.migrated') } catch {}
+      const settings = readSettings()
+      const mergedProfile = { ...(settings.profile || {}), ...(legacyUser.profile || {}), username: normalizedUsername }
+      writeSettings({ ...settings, profile: mergedProfile, currency: mergedProfile.currency || settings.currency || 'USD' })
+      return { ok: true, migrated: true }
+    }
   }
+
+  // ── Normal Supabase login ─────────────────────────────────────────────────
+  const knownUser = readKnownUsers().find(u => u.username === normalizedUsername)
+  if (!knownUser) return { ok: false, error: 'Invalid username or password.' }
+  const { data, error } = await supabase.auth.signInWithPassword({ email: knownUser.email, password })
+  if (error) return { ok: false, error: 'Invalid username or password.' }
   _currentUser = normalizedUsername
   migrateUserData(normalizedUsername)
   runUserMigrations()
   const settings = readSettings()
-  const existingProfile = settings.profile || {}
-  const mergedProfile = { ...existingProfile, ...(user.profile || {}), username: normalizedUsername }
-  writeSettings({ ...settings, profile: mergedProfile, currency: mergedProfile.currency || settings.currency || 'USD' })
-  // Persist the merged profile back to auth.json so future logins have it
-  const idx = auth.users.findIndex(u => u.username === normalizedUsername)
-  if (idx >= 0 && JSON.stringify(auth.users[idx].profile) !== JSON.stringify(mergedProfile)) {
-    auth.users[idx].profile = mergedProfile
-    writeAuth(auth)
+  const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', data.user.id).single()
+  if (profile) {
+    const mergedProfile = { ...(settings.profile || {}), username: normalizedUsername, firstName: profile.first_name, email: knownUser.email, currency: profile.currency, state: profile.state, zipCode: profile.zip_code, profilePicture: profile.profile_picture }
+    writeSettings({ ...settings, profile: mergedProfile, currency: mergedProfile.currency || settings.currency || 'USD' })
   }
   return { ok: true }
 })
 
-ipcMain.handle('auth:logout', () => {
-  const auth = readAuth()
+ipcMain.handle('auth:logout', async () => {
+  if (supabase) await supabase.auth.signOut()
   _currentUser = null
-  _memorySessionToken = null
-  _memorySessionUser = null
-  if (auth) { auth.sessionToken = null; auth.sessionUsername = null; writeAuth(auth) }
 })
 
-ipcMain.handle('auth:getUsername', () => {
-  const auth = readAuth()
-  if (!auth) return null
-  return auth.stayLoggedIn ? auth.sessionUsername : _memorySessionUser
-})
+ipcMain.handle('auth:getUsername', () => _currentUser)
 
 ipcMain.handle('auth:getUserList', () => {
+  const ku = readKnownUsers()
+  if (ku.length > 0) return ku.map(u => ({ username: u.username, firstName: u.firstName || '' }))
   const auth = readAuth()
-  if (!auth || !auth.users) return []
+  if (!auth?.users) return []
   return auth.users.map(u => ({ username: u.username, firstName: u.profile?.firstName || '' }))
 })
 
-ipcMain.handle('auth:getSecurityQuestionForUser', (_, { username }) => {
-  const auth = readAuth()
-  if (!auth) return null
-  const user = auth.users.find(u => u.username === username.trim().toLowerCase())
-  return user ? user.securityQuestion : null
+ipcMain.handle('auth:getSecurityQuestionForUser', async (_, { username }) => {
+  if (!supabase) return null
+  const { data } = await supabase.rpc('get_security_question', { p_username: username.trim().toLowerCase() })
+  return data || null
 })
 
-// Kept for backward compat (Settings page uses this for logged-in user)
-ipcMain.handle('auth:getSecurityQuestion', () => {
-  const auth = readAuth()
-  const user = getCurrentUser(auth)
-  return user ? user.securityQuestion : null
+ipcMain.handle('auth:getSecurityQuestion', async () => {
+  if (!supabase || !_currentUser) return null
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) return null
+  const { data } = await supabase.from('user_profiles').select('security_question').eq('id', session.user.id).single()
+  return data?.security_question ?? null
 })
 
 ipcMain.handle('auth:verifySecurityAnswerForUser', async (_, { username, answer }) => {
-  const auth = readAuth()
-  if (!auth) return { ok: false }
-  const user = auth.users.find(u => u.username === username.trim().toLowerCase())
-  if (!user) return { ok: false, error: 'User not found.' }
-  const hash = await hashPassword(answer.trim().toLowerCase(), user.securityAnswerSalt)
-  if (hash !== user.securityAnswerHash) return { ok: false, error: 'Incorrect answer.' }
-  const token = generateToken()
-  _resetTokens.set(token, user.username)
+  if (!supabase) return { ok: false }
+  const normalizedUsername = username.trim().toLowerCase()
+  const { data: salt } = await supabase.rpc('get_security_salt', { p_username: normalizedUsername })
+  if (!salt) return { ok: false, error: 'User not found.' }
+  const hash = await hashPassword(answer.trim().toLowerCase(), salt)
+  const { data: isValid } = await supabase.rpc('verify_security_answer_hash', { p_username: normalizedUsername, p_hash: hash })
+  if (!isValid) return { ok: false, error: 'Incorrect answer.' }
+  const token = randomBytes(32).toString('hex')
+  _resetTokens.set(token, normalizedUsername)
   setTimeout(() => _resetTokens.delete(token), 15 * 60 * 1000)
   return { ok: true, resetToken: token }
 })
 
-// Kept for backward compat (Settings page)
 ipcMain.handle('auth:verifySecurityAnswer', async (_, { answer }) => {
-  const auth = readAuth()
-  const user = getCurrentUser(auth)
-  if (!user) return { ok: false }
-  const hash = await hashPassword(answer.trim().toLowerCase(), user.securityAnswerSalt)
-  if (hash !== user.securityAnswerHash) return { ok: false, error: 'Incorrect answer.' }
-  const token = generateToken()
-  _resetTokens.set(token, user.username)
+  if (!supabase || !_currentUser) return { ok: false }
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) return { ok: false }
+  const { data } = await supabase.from('user_profiles').select('security_answer_hash, security_answer_salt').eq('id', session.user.id).single()
+  if (!data) return { ok: false }
+  const hash = await hashPassword(answer.trim().toLowerCase(), data.security_answer_salt)
+  if (hash !== data.security_answer_hash) return { ok: false, error: 'Incorrect answer.' }
+  const token = randomBytes(32).toString('hex')
+  _resetTokens.set(token, _currentUser)
   setTimeout(() => _resetTokens.delete(token), 15 * 60 * 1000)
   return { ok: true, resetToken: token }
 })
 
-ipcMain.handle('auth:sendResetEmail', async (_, { username, email }) => {
-  const resendApiKey = process.env.RESEND_KEY || ''
-  if (!resendApiKey) return { ok: false, error: 'Email service not configured. Use the security question instead.' }
-  const code = String(Math.floor(100000 + Math.random() * 900000))
-  _emailResetCode = { code, username: (username || '').trim().toLowerCase(), email: email.trim().toLowerCase(), expiry: Date.now() + 15 * 60 * 1000 }
-  try {
-    const resend = new Resend(resendApiKey)
-    const { error: sendErr } = await resend.emails.send({
-      from: 'PokePrice <onboarding@resend.dev>',
-      to: email.trim(),
-      subject: 'PokePrice — Password Reset Code',
-      html: `<div style="background:#0f1117;color:#e2e8f0;font-family:sans-serif;padding:32px;max-width:420px;margin:0 auto;border-radius:12px">
-        <h2 style="color:#f59e0b;margin:0 0 16px">PokePrice</h2>
-        <p style="margin:0 0 24px;color:#cbd5e1">Your password reset code is:</p>
-        <div style="background:#1e2535;border-radius:8px;padding:20px;text-align:center;font-size:36px;font-weight:bold;letter-spacing:8px;color:#f59e0b">${code}</div>
-        <p style="color:#475569;font-size:12px;margin:24px 0 0">This code expires in 15 minutes. If you did not request a password reset, you can ignore this email.</p>
-      </div>`
-    })
-    if (sendErr) return { ok: false, error: 'Failed to send email. Check your Resend API key.' }
-    return { ok: true }
-  } catch { return { ok: false, error: 'Failed to send email.' } }
+ipcMain.handle('auth:sendResetEmail', async (_, { username, email: providedEmail }) => {
+  if (!supabase) return { ok: false, error: 'Cloud auth not configured.' }
+  const knownUser = username ? readKnownUsers().find(u => u.username === username.trim().toLowerCase()) : null
+  const email = (knownUser?.email || providedEmail || '').trim().toLowerCase()
+  if (!email) return { ok: false, error: 'No email address on file. Use the security question instead.' }
+  _otpResetEmail = { email, username: knownUser?.username || username }
+  const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
+  if (error) return { ok: false, error: 'Failed to send reset code. Check the email address.' }
+  return { ok: true }
 })
 
-ipcMain.handle('auth:verifyEmailCode', (_, { code }) => {
-  if (!_emailResetCode) return { ok: false, error: 'No reset code found. Request a new one.' }
-  if (Date.now() > _emailResetCode.expiry) { _emailResetCode = null; return { ok: false, error: 'Code has expired. Request a new one.' } }
-  if (code.trim() !== _emailResetCode.code) return { ok: false, error: 'Incorrect code.' }
-  const { username } = _emailResetCode
-  _emailResetCode = null
-  const token = generateToken()
-  _resetTokens.set(token, username)
+ipcMain.handle('auth:verifyEmailCode', async (_, { code }) => {
+  if (!supabase || !_otpResetEmail) return { ok: false, error: 'No reset email on record. Request a new code.' }
+  const { error } = await supabase.auth.verifyOtp({ email: _otpResetEmail.email, token: code.trim(), type: 'email' })
+  if (error) return { ok: false, error: 'Incorrect or expired code.' }
+  const token = randomBytes(32).toString('hex')
+  _resetTokens.set(token, _otpResetEmail.username)
   setTimeout(() => _resetTokens.delete(token), 15 * 60 * 1000)
+  _otpResetEmail = null
   return { ok: true, resetToken: token }
 })
 
 ipcMain.handle('auth:resetPassword', async (_, { resetToken, newPassword }) => {
   const username = _resetTokens.get(resetToken)
   if (!username) return { ok: false, error: 'Invalid or expired reset token.' }
-  const auth = readAuth()
-  if (!auth) return { ok: false, error: 'No account found.' }
-  const idx = auth.users.findIndex(u => u.username === username)
-  if (idx < 0) return { ok: false, error: 'User not found.' }
   _resetTokens.delete(resetToken)
-  const salt = generateSalt()
-  const passwordHash = await hashPassword(newPassword, salt)
-  auth.users[idx].passwordHash = passwordHash
-  auth.users[idx].salt = salt
-  writeAuth(auth)
+  if (!supabase) return { ok: false, error: 'Cloud auth not configured.' }
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) return { ok: false, error: 'Failed to update password: ' + error.message }
   return { ok: true }
 })
 
 ipcMain.handle('auth:changePassword', async (_, { currentPassword, newPassword }) => {
-  const auth = readAuth()
-  const user = getCurrentUser(auth)
-  if (!user) return { ok: false, error: 'No account found.' }
-  const hash = await hashPassword(currentPassword, user.salt)
-  if (hash !== user.passwordHash) return { ok: false, error: 'Current password is incorrect.' }
-  const salt = generateSalt()
-  const passwordHash = await hashPassword(newPassword, salt)
-  const idx = auth.users.findIndex(u => u.username === auth.sessionUsername)
-  auth.users[idx].passwordHash = passwordHash
-  auth.users[idx].salt = salt
-  writeAuth(auth)
+  if (!supabase || !_currentUser) return { ok: false, error: 'Not authenticated.' }
+  const knownUser = readKnownUsers().find(u => u.username === _currentUser)
+  if (!knownUser) return { ok: false, error: 'No account found.' }
+  const { error: verifyErr } = await supabase.auth.signInWithPassword({ email: knownUser.email, password: currentPassword })
+  if (verifyErr) return { ok: false, error: 'Current password is incorrect.' }
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) return { ok: false, error: 'Failed to update password.' }
   return { ok: true }
 })
 
 ipcMain.handle('auth:updateSecurityQuestion', async (_, { currentPassword, securityQuestion, securityAnswer }) => {
-  const auth = readAuth()
-  const user = getCurrentUser(auth)
-  if (!user) return { ok: false, error: 'No account found.' }
-  const hash = await hashPassword(currentPassword, user.salt)
-  if (hash !== user.passwordHash) return { ok: false, error: 'Current password is incorrect.' }
+  if (!supabase || !_currentUser) return { ok: false, error: 'Not authenticated.' }
+  const knownUser = readKnownUsers().find(u => u.username === _currentUser)
+  if (!knownUser) return { ok: false, error: 'No account found.' }
+  const { error: verifyErr } = await supabase.auth.signInWithPassword({ email: knownUser.email, password: currentPassword })
+  if (verifyErr) return { ok: false, error: 'Current password is incorrect.' }
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) return { ok: false, error: 'Session lost during verification.' }
   const secAnswerSalt = generateSalt()
   const securityAnswerHash = await hashPassword(securityAnswer.trim().toLowerCase(), secAnswerSalt)
-  const idx = auth.users.findIndex(u => u.username === auth.sessionUsername)
-  auth.users[idx].securityQuestion = securityQuestion
-  auth.users[idx].securityAnswerHash = securityAnswerHash
-  auth.users[idx].securityAnswerSalt = secAnswerSalt
-  writeAuth(auth)
+  const { error } = await supabase.from('user_profiles').update({
+    security_question: securityQuestion,
+    security_answer_hash: securityAnswerHash,
+    security_answer_salt: secAnswerSalt,
+  }).eq('id', session.user.id)
+  if (error) return { ok: false, error: 'Failed to update security question.' }
   return { ok: true }
 })
 
 ipcMain.handle('auth:setStayLoggedIn', (_, stayLoggedIn) => {
-  const auth = readAuth()
-  if (!auth) return
-  if (stayLoggedIn) {
-    const token = _memorySessionToken || generateToken()
-    const user = _memorySessionUser || auth.sessionUsername
-    _memorySessionToken = null; _memorySessionUser = null
-    auth.sessionUsername = user
-    auth.stayLoggedIn = true
-    auth.sessionToken = token
-    writeAuth(auth)
-  } else {
-    const token = auth.sessionToken || generateToken()
-    const user = auth.sessionUsername
-    _memorySessionToken = token; _memorySessionUser = user
-    auth.stayLoggedIn = false
-    auth.sessionToken = null
-    writeAuth(auth)
-  }
+  writeAuthPrefs({ ...readAuthPrefs(), stayLoggedIn })
+  _persistSession = stayLoggedIn !== false
   return true
 })
 
 ipcMain.handle('auth:getStayLoggedIn', () => {
-  const auth = readAuth()
-  return auth ? auth.stayLoggedIn !== false : true
+  return readAuthPrefs().stayLoggedIn !== false
 })
 
 ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
