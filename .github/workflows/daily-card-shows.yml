@@ -32,4 +32,4 @@ jobs:
       - name: Run card shows scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: python card_shows_scraper.py
+        run: python scripts/python/card_shows_scraper.py
