@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import BinderSelector from './BinderSelector'
 import { useCardSearch } from '../hooks/useCardSearch'
@@ -13,14 +13,29 @@ const CONDITIONS = [
   { value: 'cgc9', label: 'CGC 9' }
 ]
 
-const SEALED_KEYWORDS = ['Elite Trainer Box', 'Booster Box', 'Booster Bundle', 'Booster Pack', 'Collection Box', 'Premium Collection', 'Gift Box', 'Mini Tin', 'Tin', 'Theme Deck', 'Starter Deck', 'Blister', 'Bundle', 'Display Box']
+const SEALED_KEYWORDS = ['Elite Trainer Box', 'etb', 'Booster Box', 'Booster Bundle', 'Booster Pack', 'Collection Box', 'Premium Collection', 'Gift Box', 'Mini Tin', 'Tin', 'Theme Deck', 'Starter Deck', 'Blister', 'Bundle', 'Display Box']
+
+function parseCardNum(str) {
+  if (!str) return Infinity
+  const m = str.split('/')[0].match(/(\d+)$/)
+  return m ? parseInt(m[1], 10) : Infinity
+}
 
 export default function CardSearch({ section, onAdd, onClose }) {
   const navigate = useNavigate()
+  const [allSets, setAllSets] = useState([])
+  const [setQuery, setSetQuery] = useState('')
+  const [setSearch, setSetSearch] = useState('')
+  const [setDropdownOpen, setSetDropdownOpen] = useState(false)
+  const [sortOrder, setSortOrder] = useState('default')
+  const setDropdownRef = useRef(null)
+
+  const extraQuery = setQuery ? `set.name:"${setQuery}"` : ''
+
   const {
     query, results, searching, searchCommitted, displayCount, error: searchError,
     handleQueryChange, handleSearch, loadMore,
-  } = useCardSearch({ initialPageSize: 40, pageIncrement: 20 })
+  } = useCardSearch({ initialPageSize: 40, pageIncrement: 20, extraQuery })
   const [selected, setSelected] = useState(null)
   const [condition, setCondition] = useState('raw')
   const [binder, setBinder] = useState('')
@@ -45,11 +60,34 @@ export default function CardSearch({ section, onAdd, onClose }) {
 
   const sectionLabel = section === 'collection' ? 'Collection' : 'Watchlist'
 
+  const sortedResults = useMemo(() => {
+    if (sortOrder === 'default') return results
+    return [...results].sort((a, b) => {
+      if (a._divider || b._divider) return 0
+      if (sortOrder === 'name') return (a.name || '').localeCompare(b.name || '')
+      if (sortOrder === 'set')  return (a.set?.name || '').localeCompare(b.set?.name || '') || parseCardNum(a.number) - parseCardNum(b.number)
+      if (sortOrder === 'number_asc')  return parseCardNum(a.number) - parseCardNum(b.number)
+      if (sortOrder === 'number_desc') return parseCardNum(b.number) - parseCardNum(a.number)
+      return 0
+    })
+  }, [results, sortOrder])
+
   useEffect(() => {
     inputRef.current?.focus()
     window.api.getSettings().then((s) => {
       if (s.defaultCondition) setCondition(s.defaultCondition)
     })
+    window.api.listSets().then(setAllSets).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (setDropdownRef.current && !setDropdownRef.current.contains(e.target)) {
+        setSetDropdownOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
   async function doSearch() {
@@ -162,7 +200,7 @@ export default function CardSearch({ section, onAdd, onClose }) {
       onClick={(e) => e.target === e.currentTarget && !adding && onClose()}
       onKeyDown={(e) => e.key === 'Escape' && !adding && onClose()}
     >
-      <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-3xl mx-4 flex flex-col max-h-[88vh] overflow-hidden">
+      <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-3xl mx-4 flex flex-col h-[88vh] overflow-hidden">
 
         {/* Header */}
         <div className="p-6 border-b border-surface-600">
@@ -199,6 +237,76 @@ export default function CardSearch({ section, onAdd, onClose }) {
               </button>
             }
           />
+
+          {/* Set filter + sort row */}
+          <div className="flex gap-2 mt-2">
+            {/* Set name dropdown */}
+            <div className="flex-1 relative" ref={setDropdownRef}>
+              <button
+                type="button"
+                disabled={adding}
+                onClick={() => { setSetDropdownOpen((v) => !v); setSetSearch('') }}
+                className="w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 text-sm text-left flex items-center justify-between focus:outline-none hover:border-surface-400 disabled:opacity-40"
+              >
+                <span className={setQuery ? 'text-white' : 'text-slate-500'}>{setQuery || 'Any set…'}</span>
+                <svg className={`w-3.5 h-3.5 text-slate-400 flex-shrink-0 transition-transform ${setDropdownOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+              </button>
+              {setDropdownOpen && (
+                <div className="absolute z-50 mt-1 w-full bg-surface-700 border border-surface-500 rounded-lg shadow-xl overflow-hidden">
+                  <div className="p-2 border-b border-surface-600">
+                    <input
+                      autoFocus
+                      value={setSearch}
+                      onChange={(e) => setSetSearch(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Escape') setSetDropdownOpen(false) }}
+                      placeholder="Search sets…"
+                      className="w-full bg-surface-800 border border-surface-600 rounded px-2.5 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div className="max-h-48 overflow-y-auto">
+                    <button
+                      type="button"
+                      onClick={() => { setSetQuery(''); setSetDropdownOpen(false) }}
+                      className="w-full text-left px-3 py-2 text-sm text-slate-400 hover:bg-surface-600 hover:text-white transition-colors"
+                    >
+                      Any set
+                    </button>
+                    {allSets
+                      .filter((s) => {
+                        const q = setSearch.toLowerCase()
+                        return s.name.toLowerCase().includes(q) || (s.ptcgoCode || '').toLowerCase().includes(q)
+                      })
+                      .map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() => { setSetQuery(s.name); setSetDropdownOpen(false) }}
+                          className={`w-full text-left px-3 py-2 text-sm hover:bg-surface-600 transition-colors flex items-center justify-between gap-2 ${setQuery === s.name ? 'text-accent' : 'text-white'}`}
+                        >
+                          <span className="truncate">{s.name}</span>
+                          {s.ptcgoCode && <span className="text-slate-500 text-xs flex-shrink-0">{s.ptcgoCode}</span>}
+                        </button>
+                      ))
+                    }
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Sort order */}
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value)}
+              disabled={adding}
+              className="bg-surface-700 border border-surface-500 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent disabled:opacity-40 flex-shrink-0"
+            >
+              <option value="default">Default order</option>
+              <option value="name">Name (A → Z)</option>
+              <option value="set">Set</option>
+              <option value="number_asc">Number (Low → High)</option>
+              <option value="number_desc">Number (High → Low)</option>
+            </select>
+          </div>
         </div>
 
         {/* Results */}
@@ -229,10 +337,20 @@ export default function CardSearch({ section, onAdd, onClose }) {
                   isSelected ? 'bg-surface-700 border-l-2 border-accent' : ''
                 }`}
               >
-                <div className="w-16 h-[88px] flex-shrink-0 bg-surface-700 rounded flex items-center justify-center text-slate-600">
-                  <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                  </svg>
+                <div className="w-16 h-[88px] flex-shrink-0 bg-surface-700 rounded flex items-center justify-center text-slate-600 overflow-hidden">
+                  {product.imageUrl ? (
+                    <img
+                      src={product.imageUrl}
+                      alt={productName}
+                      className="w-full h-full object-contain"
+                      onError={(e) => { e.target.style.display = 'none'; e.target.nextElementSibling.style.display = 'flex' }}
+                    />
+                  ) : null}
+                  <div style={{ display: product.imageUrl ? 'none' : 'flex' }} className="w-full h-full items-center justify-center">
+                    <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                    </svg>
+                  </div>
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-white text-base font-semibold truncate">{productName}</p>
@@ -261,7 +379,7 @@ export default function CardSearch({ section, onAdd, onClose }) {
               <p className="text-sm">Search to find a card</p>
             </div>
           )}
-          {!isSealedQuery && searchCommitted && results.slice(0, displayCount).map((card) => {
+          {!isSealedQuery && searchCommitted && sortedResults.slice(0, displayCount).map((card) => {
             if (card._divider) {
               return (
                 <div key="__divider__" className="flex items-center gap-3 px-6 py-2 select-none">
@@ -307,8 +425,8 @@ export default function CardSearch({ section, onAdd, onClose }) {
               </button>
             )
           })}
-          {!isSealedQuery && searchCommitted && !searching && results.length > displayCount && (
-            <p className="text-center text-slate-600 text-xs py-3">Showing {displayCount} of {results.length} — scroll for more</p>
+          {!isSealedQuery && searchCommitted && !searching && sortedResults.length > displayCount && (
+            <p className="text-center text-slate-600 text-xs py-3">Showing {displayCount} of {sortedResults.length} — scroll for more</p>
           )}
         </div>
 

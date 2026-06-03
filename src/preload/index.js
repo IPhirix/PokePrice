@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('api', {
 
   searchSealed: (query) => ipcRenderer.invoke('sealed:search', query),
   addSealedProduct: (product, section, purchasePrice, binder) => ipcRenderer.invoke('sealed:add', product, section, purchasePrice, binder),
+  etbLookup: (name) => ipcRenderer.invoke('etb:lookup', name),
+  etbGetAll: () => ipcRenderer.invoke('etb:getAll'),
 
   getAccountStats: () => ipcRenderer.invoke('account:getStats'),
   clearAccountData: (target) => ipcRenderer.invoke('account:clear', target),

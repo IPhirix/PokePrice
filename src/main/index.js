@@ -2,7 +2,7 @@
 
 const { app, shell, BrowserWindow, ipcMain, dialog, Menu } = require('electron')
 const { join } = require('path')
-const { randomUUID, pbkdf2, randomBytes } = require('crypto')
+const { randomUUID, pbkdf2, randomBytes, timingSafeEqual } = require('crypto')
 const { promisify } = require('util')
 const pbkdf2Async = promisify(pbkdf2)
 const fs = require('fs')
@@ -754,7 +754,9 @@ ipcMain.handle('profile:pickImage', async () => {
     properties: ['openFile'],
   })
   if (canceled || !filePaths.length) return null
-  const buf = require('fs').readFileSync(filePaths[0])
+  const stat = fs.statSync(filePaths[0])
+  if (stat.size > 5 * 1024 * 1024) return { error: 'Image must be smaller than 5 MB.' }
+  const buf = fs.readFileSync(filePaths[0])
   const ext = filePaths[0].split('.').pop().toLowerCase()
   const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg'
   return `data:${mime};base64,${buf.toString('base64')}`
@@ -1111,7 +1113,7 @@ ipcMain.handle('binders:list', (_, section) => {
 })
 
 ipcMain.handle('binders:add', (_, section, name) => {
-  if (!name || /[/\\<>:"|?*\x00-\x1f]/.test(name) || name.includes('..')) return false
+  if (!name || name.length > 100 || /[/\\<>:"|?*\x00-\x1f]/.test(name) || name.includes('..')) return false
   const s = readSettings()
   const key = section === 'collection' ? 'portfolioBinders' : 'watchlistBinders'
   const binders = s[key] || s[section === 'collection' ? 'portfolioFolders' : 'watchlistFolders'] || []
@@ -1518,11 +1520,24 @@ ipcMain.handle('prices:refresh', async (_, cardId, section) => {
         if (pcId) {
           if (!card.pricechartingId) sealedIdCache[card.id] = pcId
           if (!card.imageUrl) {
-            const imgRes = await sbPool.query(
-              'SELECT image_url FROM sealed_images WHERE pricecharting_id = $1',
-              [pcId]
+            // Try etb_catalog first (actual box art), fall back to sealed_images (set logo)
+            const etbRes = await sbPool.query(
+              `SELECT image_url FROM etb_catalog
+               WHERE $1 ILIKE '%' || SPLIT_PART(name, ' (variant', 1) || '%'
+                  OR SPLIT_PART(name, ' (variant', 1) ILIKE '%' || $1 || '%'
+               ORDER BY CASE WHEN name NOT LIKE '%(variant%' THEN 0 ELSE 1 END
+               LIMIT 1`,
+              [card.name]
             )
-            if (imgRes.rows[0]?.image_url) sealedImageCache[card.id] = imgRes.rows[0].image_url
+            if (etbRes.rows[0]?.image_url) {
+              sealedImageCache[card.id] = etbRes.rows[0].image_url
+            } else {
+              const imgRes = await sbPool.query(
+                'SELECT image_url FROM sealed_images WHERE pricecharting_id = $1',
+                [pcId]
+              )
+              if (imgRes.rows[0]?.image_url) sealedImageCache[card.id] = imgRes.rows[0].image_url
+            }
           }
         }
       }
@@ -1907,9 +1922,45 @@ const SEALED_PRODUCT_KEYWORDS = [
   'Tin', 'Theme Deck', 'Starter Deck', 'Blister', 'Bundle', 'Display Box',
 ]
 
+ipcMain.handle('etb:lookup', async (_, name) => {
+  if (!sbPool || !name) return null
+  try {
+    // Exact match first, then fuzzy by stripping common suffixes
+    const exact = await sbPool.query(
+      'SELECT name, image_url, release_date, cameos FROM etb_catalog WHERE name ILIKE $1 LIMIT 1',
+      [name]
+    )
+    if (exact.rows[0]) return exact.rows[0]
+    // Partial match — useful when stored name is "Scarlet & Violet Koraidon" vs "Koraidon ETB"
+    const partial = await sbPool.query(
+      `SELECT name, image_url, release_date, cameos FROM etb_catalog
+       WHERE $1 ILIKE '%' || SPLIT_PART(name, ' (variant', 1) || '%'
+          OR SPLIT_PART(name, ' (variant', 1) ILIKE '%' || $1 || '%'
+       LIMIT 1`,
+      [name]
+    )
+    return partial.rows[0] || null
+  } catch { return null }
+})
+
+ipcMain.handle('etb:getAll', async () => {
+  if (!sbPool) return []
+  try {
+    const { rows } = await sbPool.query(
+      'SELECT name, image_url, release_date, cameos FROM etb_catalog ORDER BY release_date ASC NULLS LAST'
+    )
+    return rows
+  } catch { return [] }
+})
+
+const SEALED_ABBREVIATIONS = { etb: 'Elite Trainer Box', bb: 'Booster Box' }
+
 ipcMain.handle('sealed:search', async (_, query) => {
   if (!sbPool || !query?.trim()) return { products: [] }
-  const q = query.trim()
+  let q = query.trim()
+  for (const [abbr, expansion] of Object.entries(SEALED_ABBREVIATIONS)) {
+    q = q.replace(new RegExp(`\\b${abbr}\\b`, 'gi'), expansion)
+  }
   const keyword = SEALED_PRODUCT_KEYWORDS.find(k => q.toLowerCase().includes(k.toLowerCase()))
   if (!keyword) return { products: [] }
   // Extract any series/set name from the query (the part that isn't the product keyword)
@@ -1922,11 +1973,13 @@ ipcMain.handle('sealed:search', async (_, query) => {
       whereClause += ' AND console_name ILIKE $2'
     }
     const res = await sbPool.query(
-      `SELECT DISTINCT ON (pricecharting_id)
-         pricecharting_id, console_name, product_name, loose_price
-       FROM pokemon_card_prices
-       ${whereClause}
-       ORDER BY pricecharting_id, snapshot_date DESC
+      `SELECT DISTINCT ON (p.pricecharting_id)
+         p.pricecharting_id, p.console_name, p.product_name, p.loose_price,
+         si.image_url
+       FROM pokemon_card_prices p
+       LEFT JOIN sealed_images si ON si.pricecharting_id = p.pricecharting_id::text
+       ${whereClause.replace(/pricecharting_id/g, 'p.pricecharting_id').replace(/product_name/g, 'p.product_name').replace(/console_name/g, 'p.console_name')}
+       ORDER BY p.pricecharting_id, p.snapshot_date DESC
        LIMIT 50`,
       params
     )
@@ -1936,6 +1989,7 @@ ipcMain.handle('sealed:search', async (_, query) => {
       name: `${r.console_name} ${r.product_name}`.trim(),
       'console-name': r.console_name,
       setName: r.console_name,
+      imageUrl: r.image_url || null,
       prices: { market: r.loose_price != null ? parseFloat(r.loose_price) : null },
     }))
     return { products }
@@ -2451,7 +2505,7 @@ function readAuth() {
 }
 
 // In-memory state for password reset flows
-let _otpResetEmail = null
+const _otpResetEmails = new Map() // email → { email, username }
 const _resetTokens = new Map()
 // Rate-limit OTP sends: email → timestamp of last send (1 per 60 s)
 const _otpSendCooldown = new Map()
@@ -2574,7 +2628,7 @@ ipcMain.handle('auth:login', async (_, { username, password, email: providedEmai
     const legacyUser = legacyAuth.users.find(u => u.username === normalizedUsername)
     if (legacyUser) {
       const hash = await hashPassword(password, legacyUser.salt)
-      if (hash !== legacyUser.passwordHash) return { ok: false, error: 'Invalid username or password.' }
+      if (!timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(legacyUser.passwordHash, 'hex'))) return { ok: false, error: 'Invalid username or password.' }
       const email = ((legacyUser.profile?.email || providedEmail) || '').trim().toLowerCase()
       if (!email) return { ok: false, needsEmail: true, error: 'Enter your email address to activate your cloud account.' }
       // Default stayLoggedIn to true for migrating users, sync _persistSession before Supabase calls
@@ -2687,7 +2741,7 @@ ipcMain.handle('auth:verifySecurityAnswer', async (_, { answer }) => {
   const { data } = await supabase.from('user_profiles').select('security_answer_hash, security_answer_salt').eq('id', session.user.id).single()
   if (!data) return { ok: false }
   const hash = await hashPassword(answer.trim().toLowerCase(), data.security_answer_salt)
-  if (hash !== data.security_answer_hash) return { ok: false, error: 'Incorrect answer.' }
+  if (!timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(data.security_answer_hash, 'hex'))) return { ok: false, error: 'Incorrect answer.' }
   const token = randomBytes(32).toString('hex')
   _resetTokens.set(token, _currentUser)
   setTimeout(() => _resetTokens.delete(token), 15 * 60 * 1000)
@@ -2704,23 +2758,31 @@ ipcMain.handle('auth:sendResetEmail', async (_, { username, email: providedEmail
   if (Date.now() - lastSent < 60_000) return { ok: false, error: 'Please wait before requesting another code.' }
   _otpSendCooldown.set(email, Date.now())
   _otpAttempts.delete(email)
-  _otpResetEmail = { email, username: knownUser?.username || username }
-  await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
+  _otpResetEmails.set(email, { email, username: knownUser?.username || username })
+  const { error: otpErr } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
+  if (otpErr) {
+    _otpResetEmails.delete(email)
+    _otpSendCooldown.delete(email)
+    return { ok: false, error: 'Failed to send code. Please try again.' }
+  }
   return { ok: true }
 })
 
-ipcMain.handle('auth:verifyEmailCode', async (_, { code }) => {
-  if (!supabase || !_otpResetEmail) return { ok: false, error: 'No reset email on record. Request a new code.' }
-  const attempts = (_otpAttempts.get(_otpResetEmail.email) || 0) + 1
+ipcMain.handle('auth:verifyEmailCode', async (_, { code, email: rawEmail }) => {
+  if (!supabase) return { ok: false, error: 'Cloud auth not configured.' }
+  const email = (rawEmail || '').trim().toLowerCase()
+  const entry = _otpResetEmails.get(email)
+  if (!entry) return { ok: false, error: 'No reset email on record. Request a new code.' }
+  const attempts = (_otpAttempts.get(email) || 0) + 1
   if (attempts > 10) return { ok: false, error: 'Too many attempts. Request a new code.' }
-  _otpAttempts.set(_otpResetEmail.email, attempts)
-  const { error } = await supabase.auth.verifyOtp({ email: _otpResetEmail.email, token: code.trim(), type: 'email' })
+  _otpAttempts.set(email, attempts)
+  const { error } = await supabase.auth.verifyOtp({ email, token: code.trim(), type: 'email' })
   if (error) return { ok: false, error: 'Incorrect or expired code.' }
   const token = randomBytes(32).toString('hex')
-  _resetTokens.set(token, _otpResetEmail.username)
+  _resetTokens.set(token, entry.username)
   setTimeout(() => _resetTokens.delete(token), 15 * 60 * 1000)
-  _otpAttempts.delete(_otpResetEmail.email)
-  _otpResetEmail = null
+  _otpAttempts.delete(email)
+  _otpResetEmails.delete(email)
   return { ok: true, resetToken: token }
 })
 

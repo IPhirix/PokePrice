@@ -71,7 +71,7 @@ export default function ResetPasswordModal({ onClose }) {
   async function handleVerifyCode() {
     if (!code.trim()) return setEmailError('Please enter the code.')
     setEmailLoading(true); setEmailError('')
-    const result = await window.api.auth.verifyEmailCode({ code })
+    const result = await window.api.auth.verifyEmailCode({ code, email: emailAddress })
     setEmailLoading(false)
     if (!result.ok) return setEmailError(result.error || 'Incorrect code.')
     setResetToken(result.resetToken)

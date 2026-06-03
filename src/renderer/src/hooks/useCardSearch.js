@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 
-export function useCardSearch({ initialPageSize = 40, pageIncrement = 20 } = {}) {
+export function useCardSearch({ initialPageSize = 40, pageIncrement = 20, extraQuery = '' } = {}) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState([])
   const [searching, setSearching] = useState(false)
@@ -15,14 +15,25 @@ export function useCardSearch({ initialPageSize = 40, pageIncrement = 20 } = {})
     setSearchCommitted(false)
   }
 
+  function search(q) {
+    const full = extraQuery ? `${q} ${extraQuery}` : q
+    return window.api.searchCardsAdvanced(full).catch(() => [])
+  }
+
   async function handleSearch() {
     const q = query.trim()
-    if (!q) return
+    if (!q && !extraQuery) return
     setSearching(true)
     setSearchCommitted(true)
     setResults([])
     setError(null)
     try {
+      // Filters only — no name query
+      if (!q) {
+        const merged = await window.api.searchCardsAdvanced(extraQuery).catch(() => [])
+        setResults(merged)
+        return
+      }
       // "Charizard #4" or "Charizard #04" — explicit card number
       const hashMatch = q.match(/^(.*?)\s*#(\w+)\s*$/)
       if (hashMatch) {
@@ -31,7 +42,7 @@ export function useCardSearch({ initialPageSize = 40, pageIncrement = 20 } = {})
         const targetNum = parseInt(rawNum, 10)
         const isNumeric = !isNaN(targetNum)
         if (name) {
-          const allCards = await window.api.searchCardsAdvanced(`name:"${name}*"`).catch(() => [])
+          const allCards = await search(`name:"${name}*"`)
           const matched = []; const rest = []
           for (const c of allCards) {
             const cn = String(c.number || '')
@@ -45,9 +56,7 @@ export function useCardSearch({ initialPageSize = 40, pageIncrement = 20 } = {})
           const numVariants = isNumeric
             ? [...new Set([rawNum, String(targetNum), String(targetNum).padStart(3, '0')])]
             : [rawNum]
-          const batches = await Promise.all(numVariants.map((v) =>
-            window.api.searchCardsAdvanced(`number:"${v}"`).catch(() => [])
-          ))
+          const batches = await Promise.all(numVariants.map((v) => search(`number:"${v}"`)))
           const seen = new Set(); const merged = []
           for (const batch of batches) for (const c of batch) if (!seen.has(c.id)) { seen.add(c.id); merged.push(c) }
           setResults(merged)
@@ -61,8 +70,8 @@ export function useCardSearch({ initialPageSize = 40, pageIncrement = 20 } = {})
         const rawNum = trailingMatch[2]
         const targetNum = parseInt(rawNum, 10)
         const [allCards, setCards] = await Promise.all([
-          window.api.searchCardsAdvanced(`name:"${name}*"`).catch(() => []),
-          window.api.searchCardsAdvanced(`name:"${name}*" set.name:"${rawNum}"`).catch(() => [])
+          search(`name:"${name}*"`),
+          search(`name:"${name}*" set.name:"${rawNum}"`),
         ])
         const seen = new Set(); const matched = []; const rest = []
         for (const c of allCards) if (parseInt(String(c.number || ''), 10) === targetNum && !seen.has(c.id)) { seen.add(c.id); matched.push(c) }
@@ -76,13 +85,13 @@ export function useCardSearch({ initialPageSize = 40, pageIncrement = 20 } = {})
       // Plain text: search by card name, set name, and every word-split name+set combo in parallel
       const words = q.split(/\s+/)
       const allSearches = [
-        window.api.searchCardsAdvanced(`name:"${q}*"`).catch(() => []),
-        window.api.searchCardsAdvanced(`set.name:"${q}"`).catch(() => []),
+        search(`name:"${q}*"`),
+        search(`set.name:"${q}"`),
       ]
       for (let i = 1; i < words.length; i++) {
         const namePart = words.slice(0, i).join(' ')
         const setPart = words.slice(i).join(' ')
-        allSearches.push(window.api.searchCardsAdvanced(`name:"${namePart}*" set.name:"${setPart}"`).catch(() => []))
+        allSearches.push(search(`name:"${namePart}*" set.name:"${setPart}"`))
       }
       const allBatches = await Promise.all(allSearches)
       const seen = new Set(); const merged = []

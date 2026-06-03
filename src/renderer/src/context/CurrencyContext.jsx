@@ -44,13 +44,14 @@ export function CurrencyProvider({ children }) {
       .then((r) => r.json())
       .then((d) => {
         if (d.rates) {
+          const safe = (v, fb) => (typeof v === 'number' && isFinite(v) && v > 0) ? v : fb
           setRates({
             USD: 1,
-            EUR: d.rates.EUR ?? FALLBACK.EUR,
-            GBP: d.rates.GBP ?? FALLBACK.GBP,
-            JPY: d.rates.JPY ?? FALLBACK.JPY,
-            CAD: d.rates.CAD ?? FALLBACK.CAD,
-            AUD: d.rates.AUD ?? FALLBACK.AUD,
+            EUR: safe(d.rates.EUR, FALLBACK.EUR),
+            GBP: safe(d.rates.GBP, FALLBACK.GBP),
+            JPY: safe(d.rates.JPY, FALLBACK.JPY),
+            CAD: safe(d.rates.CAD, FALLBACK.CAD),
+            AUD: safe(d.rates.AUD, FALLBACK.AUD),
           })
         }
       })

@@ -1056,7 +1056,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
 
   const canSearch = nameQuery.trim() || setQuery.trim() || rarity || binderFilter || artistFilter.trim() || energyTypeFilter || cardTypeFilter
 
-  const SEALED_KEYWORDS = ['Elite Trainer Box', 'Booster Box', 'Booster Bundle', 'Booster Pack', 'Collection Box', 'Premium Collection', 'Gift Box', 'Mini Tin', 'Tin', 'Theme Deck', 'Starter Deck', 'Blister', 'Bundle', 'Display Box']
+  const SEALED_KEYWORDS = ['Elite Trainer Box', 'etb', 'Booster Box', 'Booster Bundle', 'Booster Pack', 'Collection Box', 'Premium Collection', 'Gift Box', 'Mini Tin', 'Tin', 'Theme Deck', 'Starter Deck', 'Blister', 'Bundle', 'Display Box']
   const isSealedQuery = SEALED_KEYWORDS.some(k => nameQuery.trim().toLowerCase().includes(k.toLowerCase()))
   const hideCardsForSealed = isSealedQuery && (sealedLoading || sealedResults.length > 0)
 
@@ -2060,7 +2060,8 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                 const name = product.name || product['product-name'] || 'Unknown'
                 const category = product.setName || product['console-name'] || 'Sealed Product'
                 const displayPrice = product.prices?.market ?? null
-                const alreadyOwned = ownedCards.some((c) => c.name === (product.name || product['product-name']))
+                const ownedCount = ownedCards.filter((c) => c.name === (product.name || product['product-name'])).length
+                const alreadyOwned = ownedCount > 0
                 return (
                   <div
                     key={product.tcgPlayerId || product.id}
@@ -2083,13 +2084,13 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                       <p className="text-white font-semibold text-sm truncate">{name}</p>
                       <p className="text-slate-500 text-xs">{category}</p>
                     </div>
-                    {displayPrice != null && (
-                      <p className="text-accent font-bold text-sm flex-shrink-0">{format(displayPrice)}</p>
-                    )}
                     {alreadyOwned && (
                       <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex-shrink-0">
-                        Owned
+                        Owned{ownedCount > 1 ? ` ×${ownedCount}` : ''}
                       </span>
+                    )}
+                    {displayPrice != null && (
+                      <p className="text-accent font-bold text-sm flex-shrink-0">{format(displayPrice)}</p>
                     )}
                     <div className="flex gap-2 flex-shrink-0">
                       <button
@@ -2294,8 +2295,10 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                   )
                 }
                 const price = cardPrice(card)
-                const inPortfolio = ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
-                const inWatchlist = ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
+                const portfolioCount = ownedCards.filter((c) => c.tcgId === card.id && c.section === 'collection').length
+                const watchlistCount = ownedCards.filter((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist')).length
+                const inPortfolio = portfolioCount > 0
+                const inWatchlist = watchlistCount > 0
                 const isFav = favNames.some((n) => { const cn = (card.name || '').toLowerCase(); const fn = (n || '').toLowerCase(); return fn && (cn === fn || cn.includes(fn)) })
                 return (
                   <div key={card.id} onClick={() => openCardModal(card)} className="relative border border-surface-600 hover:border-surface-400 rounded-xl p-2 bg-surface-800 transition-colors cursor-pointer">
@@ -2304,8 +2307,8 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                     )}
                     {(inPortfolio || inWatchlist) && (
                       <div className="absolute top-1.5 right-1.5 flex flex-col gap-0.5 z-10 pointer-events-none">
-                        {inPortfolio && <span className="text-[11px] font-bold px-2 py-1 rounded bg-accent text-black leading-none">Collection</span>}
-                        {inWatchlist && <span className="text-[11px] font-bold px-2 py-1 rounded bg-sky-500 text-white leading-none">Watchlist</span>}
+                        {inPortfolio && <span className="text-[11px] font-bold px-2 py-1 rounded bg-accent text-black leading-none">Collection{portfolioCount > 1 ? ` ×${portfolioCount}` : ''}</span>}
+                        {inWatchlist && <span className="text-[11px] font-bold px-2 py-1 rounded bg-sky-500 text-white leading-none">Watchlist{watchlistCount > 1 ? ` ×${watchlistCount}` : ''}</span>}
                       </div>
                     )}
                     <div className="aspect-[5/7] w-full">
@@ -2374,8 +2377,10 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                       )
                     }
                     const price = cardPrice(card)
-                    const inPortfolio = ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
-                    const inWatchlist = ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
+                    const portfolioCount = ownedCards.filter((c) => c.tcgId === card.id && c.section === 'collection').length
+                    const watchlistCount = ownedCards.filter((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist')).length
+                    const inPortfolio = portfolioCount > 0
+                    const inWatchlist = watchlistCount > 0
                     return (
                       <tr key={card.id} onClick={() => openCardModal(card)} className="border-b border-surface-700 last:border-0 hover:bg-surface-700/50 cursor-pointer transition-colors">
                         <td className="px-4 py-2.5">
@@ -2385,8 +2390,8 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                               <p className="text-white text-sm font-semibold leading-tight">{card.name}</p>
                               {card.number && <p className="text-slate-500 text-xs">#{card.number}</p>}
                               <div className="flex gap-1 mt-1">
-                                {inPortfolio && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-accent text-black leading-none">Collection</span>}
-                                {inWatchlist && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500 text-white leading-none">Watchlist</span>}
+                                {inPortfolio && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-accent text-black leading-none">Collection{portfolioCount > 1 ? ` ×${portfolioCount}` : ''}</span>}
+                                {inWatchlist && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-500 text-white leading-none">Watchlist{watchlistCount > 1 ? ` ×${watchlistCount}` : ''}</span>}
                               </div>
                             </div>
                           </div>
@@ -2442,7 +2447,8 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                 const productName = product.name || product['product-name'] || 'Unknown'
                 const category = product.setName || product['console-name'] || 'Sealed Product'
                 const displayPrice = product.prices?.market ?? null
-                const alreadyOwned = ownedCards.some((c) => c.name === (product.name || product['product-name']))
+                const ownedCount = ownedCards.filter((c) => c.name === (product.name || product['product-name'])).length
+                const alreadyOwned = ownedCount > 0
                 const imgSrc = product.imageUrl || product.image || product.img || product['image-url'] || product.thumbnail
                 return (
                   <div
@@ -2461,11 +2467,11 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                       <p className="text-white font-semibold text-sm truncate">{productName}</p>
                       <p className="text-slate-500 text-xs">{category}</p>
                     </div>
+                    {alreadyOwned && (
+                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex-shrink-0">Owned{ownedCount > 1 ? ` ×${ownedCount}` : ''}</span>
+                    )}
                     {displayPrice != null && (
                       <p className="text-accent font-bold text-sm flex-shrink-0">{format(displayPrice)}</p>
-                    )}
-                    {alreadyOwned && (
-                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex-shrink-0">Owned</span>
                     )}
                     <div className="flex gap-2 flex-shrink-0">
                       <button onClick={() => setSealedAddModal({ product, section: 'collection' })} className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-black text-xs font-bold rounded-lg transition-colors whitespace-nowrap">+ Collection</button>

@@ -1049,7 +1049,9 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
 
         {/* Alert price — click to edit $ value */}
         <div className="flex-shrink-0 text-center w-24" onClick={(e) => e.stopPropagation()}>
-          <p className="text-[10px] text-slate-600 leading-none mb-2">Alert</p>
+          <p className={`text-[10px] leading-none mb-2 font-semibold ${isUpAlert ? 'text-emerald-400' : isDownAlert ? 'text-red-400' : 'text-slate-600'}`}>
+            {isUpAlert ? '↑ Alert' : isDownAlert ? '↓ Alert' : 'Alert'}
+          </p>
           {editingTableAlert ? (
             <div className="relative">
               <span className="absolute left-1.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none">$</span>
@@ -1070,7 +1072,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
             </div>
           ) : (
             <p
-              className="text-lg font-bold text-slate-400 leading-none cursor-pointer hover:text-white transition-colors"
+              className={`text-lg font-bold leading-none cursor-pointer hover:text-white transition-colors ${isUpAlert ? 'text-emerald-400' : isDownAlert ? 'text-red-400' : 'text-slate-400'}`}
               title="Click to set alert price"
               onClick={() => {
                 setTableAlertInput(card.alertPrice != null ? String(card.alertPrice) : '')
@@ -1101,18 +1103,6 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
             {profit == null ? '—' : `${profit >= 0 ? '+' : ''}${format(profit)}`}
           </p>
         </div>
-
-        {/* Alert triggered badge */}
-        {isUpAlert && (
-          <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-400/15 border border-emerald-400/50 text-emerald-300 whitespace-nowrap">
-            ↑ ALERT
-          </span>
-        )}
-        {isDownAlert && (
-          <span className="flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-400/15 border border-red-400/50 text-red-300 whitespace-nowrap">
-            ↓ ALERT
-          </span>
-        )}
 
         {/* Remove */}
         <div className="flex-shrink-0 relative ml-1" onClick={(e) => e.stopPropagation()}>
@@ -1247,6 +1237,20 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
         <Divider />
 
         <div className="w-36 flex-shrink-0 text-right">
+          {isAlerted && (
+            <div className="flex justify-end mb-2">
+              {isUpAlert && (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-400/15 border border-emerald-400/50 text-emerald-300 tracking-wide whitespace-nowrap">
+                  ↑ PRICE ALERT
+                </span>
+              )}
+              {isDownAlert && (
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-400/15 border border-red-400/50 text-red-300 tracking-wide whitespace-nowrap">
+                  ↓ PRICE ALERT
+                </span>
+              )}
+            </div>
+          )}
         {isPortfolio ? (
           <div className="space-y-1.5">
             {card.isTrade && (
@@ -1304,21 +1308,6 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
           className="flex-shrink-0 self-stretch flex flex-col items-center justify-center relative"
           onClick={(e) => e.stopPropagation()}
         >
-          {isAlerted && (
-            <div className="absolute top-0 flex flex-col items-center gap-0.5 pt-1">
-              {isUpAlert && (
-                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-400/15 border border-emerald-400/50 text-emerald-300 tracking-wide whitespace-nowrap">
-                  ↑ PRICE ALERT
-                </span>
-              )}
-              {isDownAlert && (
-                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-400/15 border border-red-400/50 text-red-300 tracking-wide whitespace-nowrap">
-                  ↓ PRICE ALERT
-                </span>
-              )}
-            </div>
-          )}
-
           {confirmingRemove && (
             <div className="absolute right-full mr-2 top-1/2 -translate-y-1/2 bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 flex items-center gap-2 z-10 whitespace-nowrap shadow-xl">
               {isPortfolio ? (
