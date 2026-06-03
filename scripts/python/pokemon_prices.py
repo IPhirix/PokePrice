@@ -10,6 +10,7 @@ import psycopg2
 
 from pathlib import Path
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from psycopg2.extras import execute_values
 
 from google.oauth2.credentials import Credentials
@@ -50,8 +51,17 @@ if not GOOGLE_TOKEN_JSON:
         "GOOGLE_TOKEN_JSON missing"
     )
 
-today = datetime.now().strftime("%Y-%m-%d")
-snapshot_date = datetime.today().date()
+chicago_now = datetime.now(ZoneInfo("America/Chicago"))
+today = chicago_now.strftime("%Y-%m-%d")
+snapshot_date = chicago_now.date()
+
+if chicago_now.hour < 6:
+    print(
+        f"It is {chicago_now.strftime('%I:%M %p')} Chicago time — "
+        "PriceCharting data not yet updated (updates at 6:00 AM). "
+        "Skipping pipeline."
+    )
+    raise SystemExit(0)
 
 # -------------------------
 # FILE PATHS

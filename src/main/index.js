@@ -486,20 +486,20 @@ async function fetchSupabaseHistory(card) {
   if (!pcId) return []
   // Query the condition-specific column (e.g. manual_only_price for PSA 10)
   const res = await sbPool.query(
-    `SELECT snapshot_date::date AS date, ${col} AS price FROM pokemon_card_prices WHERE pricecharting_id = $1 AND ${col} IS NOT NULL ORDER BY snapshot_date`,
+    `SELECT snapshot_date::date::text AS date, ${col} AS price FROM pokemon_card_prices WHERE pricecharting_id = $1 AND ${col} IS NOT NULL ORDER BY snapshot_date`,
     [pcId]
   )
   if (res.rows.length > 0) {
-    return res.rows.map(r => ({ date: r.date.toISOString().split('T')[0], price: parseFloat(r.price), source: 'supabase' }))
+    return res.rows.map(r => ({ date: r.date, price: parseFloat(r.price), source: 'supabase' }))
   }
   // Fallback: if this card has no data for the selected grade, use loose_price so
   // at least the sparkline and change % have something to display
   if (col !== 'loose_price') {
     const fallback = await sbPool.query(
-      `SELECT snapshot_date::date AS date, loose_price AS price FROM pokemon_card_prices WHERE pricecharting_id = $1 AND loose_price IS NOT NULL ORDER BY snapshot_date`,
+      `SELECT snapshot_date::date::text AS date, loose_price AS price FROM pokemon_card_prices WHERE pricecharting_id = $1 AND loose_price IS NOT NULL ORDER BY snapshot_date`,
       [pcId]
     )
-    return fallback.rows.map(r => ({ date: r.date.toISOString().split('T')[0], price: parseFloat(r.price), source: 'supabase' }))
+    return fallback.rows.map(r => ({ date: r.date, price: parseFloat(r.price), source: 'supabase' }))
   }
   return []
 }
@@ -1457,7 +1457,7 @@ const UPDATABLE_CARD_FIELDS = new Set([
   'alertPrice', 'alertPct', 'targetBuyPrice', 'targetSellPrice',
   'pricechartingId', 'pricechartingName', 'addedDate', 'soldInfo',
   'lastPriceUpdate', 'changeDay', 'changeWeek', 'changeMonth',
-  'currentPrice', 'priceSource', 'recentHistory',
+  'currentPrice', 'priceSource', 'recentHistory', 'imageUrl',
 ])
 
 ipcMain.handle('cards:update', (_, cardId, updates) => {
@@ -1504,7 +1504,8 @@ ipcMain.handle('prices:refresh', async (_, cardId, section) => {
   }
 
   const today = localDateStr()
-  const sealedIdCache = {} // cardId → resolved pricechartingId (written back below)
+  const sealedIdCache = {}    // cardId → resolved pricechartingId
+  const sealedImageCache = {} // cardId → image_url from sealed_images table
   for (const card of toRefresh) {
     try {
       const history = await fetchSupabaseHistory(card)
@@ -1512,10 +1513,18 @@ ipcMain.handle('prices:refresh', async (_, cardId, section) => {
       bulkLoadHistory(card.id, history)
       const todayEntry = history.find(e => e.date === today)
       if (todayEntry) appendPrice(card.id, { price: todayEntry.price, source: 'supabase' })
-      // Cache the resolved DB id for sealed cards that don't have one yet
-      if (card.type === 'sealed' && !card.pricechartingId) {
-        const pcId = await resolveSupabaseId(card)
-        if (pcId) sealedIdCache[card.id] = pcId
+      if (card.type === 'sealed' && sbPool) {
+        const pcId = card.pricechartingId || (await resolveSupabaseId(card))
+        if (pcId) {
+          if (!card.pricechartingId) sealedIdCache[card.id] = pcId
+          if (!card.imageUrl) {
+            const imgRes = await sbPool.query(
+              'SELECT image_url FROM sealed_images WHERE pricecharting_id = $1',
+              [pcId]
+            )
+            if (imgRes.rows[0]?.image_url) sealedImageCache[card.id] = imgRes.rows[0].image_url
+          }
+        }
       }
     } catch (e) { console.warn(`[prices:refresh] Supabase error for ${card.name}:`, e.message) }
   }
@@ -1525,6 +1534,7 @@ ipcMain.handle('prices:refresh', async (_, cardId, section) => {
     if (i !== -1) {
       updated[i].lastPriceUpdate = today
       if (sealedIdCache[c.id]) updated[i].pricechartingId = sealedIdCache[c.id]
+      if (sealedImageCache[c.id]) updated[i].imageUrl = sealedImageCache[c.id]
     }
   })
   writeCards(updated)

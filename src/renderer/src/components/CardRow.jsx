@@ -995,7 +995,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
         }`}
       >
         {/* Thumbnail */}
-        <div className="w-8 h-12 flex-shrink-0 rounded overflow-hidden bg-surface-900">
+        <div className={`flex-shrink-0 rounded overflow-hidden bg-surface-900 ${card.type === 'sealed' ? 'w-12 h-12' : 'w-8 h-12'}`}>
           {card.imageUrl && (
             <img src={card.imageUrl} alt={card.name} className="w-full h-full object-contain" />
           )}
@@ -1166,9 +1166,9 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
         </div>
       )}
       {/* Card image */}
-      <div className={`w-24 h-36 flex-shrink-0 flex items-center justify-center bg-surface-900 rounded-xl overflow-hidden border-2 ${
+      <div className={`flex-shrink-0 flex items-center justify-center bg-surface-900 rounded-xl overflow-hidden border-2 ${
         isDownAlert ? 'border-red-400' : isUpAlert ? 'border-emerald-400' : 'border-transparent'
-      }`}>
+      } ${card.type === 'sealed' ? 'w-24 h-24' : 'w-24 h-36'}`}>
         {card.imageUrl ? (
           <img src={card.imageUrl} alt={card.name}
             className="h-full w-full object-contain group-hover:scale-105 transition-transform duration-200" />
