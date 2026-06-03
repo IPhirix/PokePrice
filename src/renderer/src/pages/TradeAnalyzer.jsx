@@ -706,7 +706,7 @@ function SidePanel({ side, label, onRename, cards, cash, total, onAddCard, onAdd
 }
 
 // ── Make Trade confirmation modal ─────────────────────────────────────────────
-function MakeTradeModal({ youCards, themCards, youCash, themCash, youTotal, themTotal, themName, error, onConfirm, onClose }) {
+function MakeTradeModal({ youCards, themCards, youCash, themCash, youTotal, themTotal, error, onConfirm, onClose }) {
   const { format } = useCurrency()
   const [executing, setExecuting] = useState(false)
   const collectionRemovals = youCards.filter((c) => c.collectionId)
@@ -1347,8 +1347,6 @@ export default function TradeAnalyzer() {
   const fairLabel = isFair ? 'Fair Trade'
     : diff > 0 ? `${themName ? `${themName} is` : "They're"} getting a better deal by ${format(absDiff)} (${pct}%)`
     : `You're getting a better deal by ${format(absDiff)} (${pct}%)`
-  const labelColor = isFair ? 'text-emerald-400' : diff > 0 ? 'text-orange-400' : 'text-sky-400'
-
   const hasItems = youCards.length > 0 || themCards.length > 0 || youCash > 0 || themCash > 0
   const isLoadedExecuted = loadedTradeId ? trades.find((t) => t.id === loadedTradeId)?.executed === true : false
 

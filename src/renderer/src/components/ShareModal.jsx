@@ -3,7 +3,7 @@ import { useCurrency } from '../context/CurrencyContext'
 
 const COND_LABEL = { raw: 'Raw', psa10: 'PSA 10', psa9: 'PSA 9', psa8: 'PSA 8', cgc10: 'CGC 10', cgc9: 'CGC 9' }
 
-export default function ShareModal({ cards, section, folderFilter, sortBy, onClose }) {
+export default function ShareModal({ cards, section, folderFilter, onClose }) {
   const { format } = useCurrency()
   const [copied, setCopied] = useState(false)
 
@@ -63,7 +63,7 @@ export default function ShareModal({ cards, section, folderFilter, sortBy, onClo
       className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-2xl mx-4 flex flex-col max-h-[80vh] overflow-hidden">
+      <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-4xl mx-4 flex flex-col max-h-[80vh] overflow-hidden">
         <div className="p-5 border-b border-surface-600 flex items-center justify-between flex-shrink-0">
           <div>
             <h2 className="text-lg font-semibold text-white">Share {title}{folderLabel}</h2>
@@ -77,13 +77,13 @@ export default function ShareModal({ cards, section, folderFilter, sortBy, onClo
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="border-b border-surface-600">
-                  <th className="text-left text-slate-400 font-medium pb-2 pr-4">Card</th>
-                  <th className="text-left text-slate-400 font-medium pb-2 pr-4">Set</th>
-                  <th className="text-left text-slate-400 font-medium pb-2 pr-4">Condition</th>
-                  <th className="text-left text-slate-400 font-medium pb-2 pr-4">Folder</th>
-                  {isPortfolio && <th className="text-right text-slate-400 font-medium pb-2 pr-4">Paid</th>}
-                  <th className="text-right text-slate-400 font-medium pb-2 pr-4">Market Price</th>
-                  {isPortfolio && <th className="text-right text-slate-400 font-medium pb-2">P&L</th>}
+                  <th className="text-left text-slate-400 font-medium pb-2 pr-4 whitespace-nowrap">Card</th>
+                  <th className="text-left text-slate-400 font-medium pb-2 pr-4 whitespace-nowrap">Set</th>
+                  <th className="text-left text-slate-400 font-medium pb-2 pr-4 whitespace-nowrap">Condition</th>
+                  <th className="text-left text-slate-400 font-medium pb-2 pr-4 whitespace-nowrap">Folder</th>
+                  {isPortfolio && <th className="text-right text-slate-400 font-medium pb-2 pr-4 whitespace-nowrap">Paid</th>}
+                  <th className="text-right text-slate-400 font-medium pb-2 pr-4 whitespace-nowrap">Market Price</th>
+                  {isPortfolio && <th className="text-right text-slate-400 font-medium pb-2 whitespace-nowrap">P&L</th>}
                 </tr>
               </thead>
               <tbody>
@@ -91,22 +91,22 @@ export default function ShareModal({ cards, section, folderFilter, sortBy, onClo
                   const profit = c.currentPrice != null && c.purchasePrice != null ? c.currentPrice - c.purchasePrice : null
                   return (
                     <tr key={c.id} className="border-b border-surface-700/50 hover:bg-surface-700/30">
-                      <td className="py-2 pr-4 text-white font-medium">
+                      <td className="py-2 pr-4 text-white font-medium whitespace-nowrap">
                         {c.name}{c.number ? ` #${c.number}` : ''}
                       </td>
-                      <td className="py-2 pr-4 text-slate-400">{c.setName}</td>
-                      <td className="py-2 pr-4 text-slate-400">{COND_LABEL[c.condition] || c.condition}</td>
-                      <td className="py-2 pr-4 text-slate-500">{c.folder || '—'}</td>
+                      <td className="py-2 pr-4 text-slate-400 whitespace-nowrap">{c.setName}</td>
+                      <td className="py-2 pr-4 text-slate-400 whitespace-nowrap">{COND_LABEL[c.condition] || c.condition}</td>
+                      <td className="py-2 pr-4 text-slate-500 whitespace-nowrap">{c.folder || '—'}</td>
                       {isPortfolio && (
-                        <td className="py-2 pr-4 text-right text-slate-300">
+                        <td className="py-2 pr-4 text-right text-slate-300 whitespace-nowrap">
                           {c.purchasePrice != null ? format(c.purchasePrice) : '—'}
                         </td>
                       )}
-                      <td className="py-2 pr-4 text-right text-accent font-medium">
+                      <td className="py-2 pr-4 text-right text-accent font-medium whitespace-nowrap">
                         {c.currentPrice != null ? format(c.currentPrice) : '—'}
                       </td>
                       {isPortfolio && (
-                        <td className={`py-2 text-right font-medium ${profit == null ? 'text-slate-500' : profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                        <td className={`py-2 text-right font-medium whitespace-nowrap ${profit == null ? 'text-slate-500' : profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                           {profit != null ? `${profit >= 0 ? '+' : '−'}${format(Math.abs(profit))}` : '—'}
                         </td>
                       )}

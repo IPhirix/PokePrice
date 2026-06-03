@@ -37,7 +37,7 @@ export default function ResetPasswordModal({ onClose }) {
     if (tab === 'security' && usernameConfirmed && !secQuestion) {
       window.api.auth.getSecurityQuestionForUser({ username: usernameInput }).then(setSecQuestion)
     }
-  }, [tab, usernameConfirmed])
+  }, [tab, usernameConfirmed, secQuestion, usernameInput])
 
   async function handleConfirmUsername() {
     if (!usernameInput.trim()) return setUsernameError('Please enter your username.')
@@ -93,6 +93,9 @@ export default function ResetPasswordModal({ onClose }) {
     setSecQuestion(null)
     setSecAnswer(''); setSecError('')
     setEmailAddress(''); setCodeSent(false); setCode(''); setEmailError('')
+    setResetToken(null)
+    setFinalSuccess(false)
+    setFinalError('')
   }
 
   const inputCls = 'w-full bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent'

@@ -125,6 +125,9 @@ export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, on
     setSbPrice(null)
     setSbHistory([])
     if (ownedEntry?.id) {
+      // Pre-seed with cached recentHistory so the chart renders immediately
+      if (ownedEntry.recentHistory?.length) setPriceHistory(ownedEntry.recentHistory)
+      else setPriceHistory([])
       window.api.getPriceHistory(ownedEntry.id).then(setPriceHistory).catch(() => {})
     } else {
       setPriceHistory([])
@@ -137,7 +140,7 @@ export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, on
           .catch(() => {})
       }
     }
-  }, [ownedEntry?.id, card.id])
+  }, [ownedEntry?.id, ownedEntry?.recentHistory, card.id, card.name, card.number, card.set?.name])
 
   function handleMouseMove(e) {
     if (!imgRef.current) return
@@ -724,7 +727,6 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
   const [illustratorFilter, setIllustratorFilter] = useState('')
   const [cardDetails, setCardDetails] = useState({})
   const [viewMode, setViewMode] = useState('grid')
-  const [searchBinderPage, setSearchBinderPage] = useState(0)
   const [browsedBinderPage, setBrowsedBinderPage] = useState(0)
   const [binderCardOrder, setBinderCardOrder] = useState(null)
   const [dragOverIdx, setDragOverIdx] = useState(null)
@@ -792,7 +794,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     window.api.listSets().then((sets) => setAllSets(sets)).catch(() => {})
     window.api.listBinders('collection').then(setPortfolioBinders).catch(() => {})
     window.api.listBinders('watchlist').then(setWatchlistBinders).catch(() => {})
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!browsedSet) return
@@ -1043,6 +1045,10 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
 
   const canSearch = nameQuery.trim() || setQuery.trim() || rarity || binderFilter || artistFilter.trim() || energyTypeFilter || cardTypeFilter
 
+  const SEALED_KEYWORDS = ['Elite Trainer Box', 'Booster Box', 'Booster Bundle', 'Booster Pack', 'Collection Box', 'Premium Collection', 'Gift Box', 'Mini Tin', 'Tin', 'Theme Deck', 'Starter Deck', 'Blister', 'Bundle', 'Display Box']
+  const isSealedQuery = SEALED_KEYWORDS.some(k => nameQuery.trim().toLowerCase().includes(k.toLowerCase()))
+  const hideCardsForSealed = isSealedQuery && (sealedLoading || sealedResults.length > 0)
+
   const binderResults = binderFilter
     ? ownedCards
         .filter((c) => {
@@ -1217,6 +1223,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
     return 0
   }
   const _divIdx = enrichedBaseResults.findIndex((c) => c._divider)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const sortedResults = _divIdx === -1
     ? [...enrichedBaseResults].sort(sortCompareFn)
     : [
@@ -1656,15 +1663,10 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 6h18M3 14h18M3 18h18" />
                       </svg>
                     )},
-                    { mode: 'binder', label: 'Binder', icon: (
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-                      </svg>
-                    )},
                   ].map((v) => (
                     <button
                       key={v.mode}
-                      onClick={() => { setViewMode(v.mode); setSearchBinderPage(0) }}
+                      onClick={() => setViewMode(v.mode)}
                       className={`flex items-center gap-1.5 px-3 py-2 font-medium transition-colors ${
                         viewMode === v.mode
                           ? 'bg-surface-600 text-white'
@@ -1992,15 +1994,10 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 6h18M3 14h18M3 18h18" />
                 </svg>
               )},
-              { mode: 'binder', label: 'Binder', icon: (
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-                </svg>
-              )},
             ].map((v) => (
               <button
                 key={v.mode}
-                onClick={() => { setViewMode(v.mode); setSearchBinderPage(0) }}
+                onClick={() => setViewMode(v.mode)}
                 className={`flex items-center gap-1.5 px-3 py-2 font-medium transition-colors ${
                   viewMode === v.mode
                     ? 'bg-surface-600 text-white'
@@ -2120,7 +2117,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
       )}
 
 
-      {mode === 'cards' && !binderFilter && hasSearched && !loading && results.length === 0 && !error && (
+      {mode === 'cards' && !binderFilter && hasSearched && !loading && results.length === 0 && !error && !hideCardsForSealed && (
         !sealedLoading && sealedResults.length === 0
           ? (
             <div className="flex flex-col items-center justify-center py-16 text-slate-600">
@@ -2138,65 +2135,6 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
         </div>
       )}
 
-      {/* Sealed product results — shown inline in Items mode after card results */}
-      {mode === 'cards' && (sealedLoading || sealedResults.length > 0) && (
-        <div className="mt-4">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="flex-1 h-px bg-surface-700" />
-            <span className="text-slate-500 text-xs font-semibold uppercase tracking-wider flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-              Sealed Products
-            </span>
-            <div className="flex-1 h-px bg-surface-700" />
-          </div>
-          {sealedLoading ? (
-            <p className="text-slate-500 text-sm text-center py-4">Searching sealed products…</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {sealedResults.map((product) => {
-                const name = product.name || product['product-name'] || 'Unknown'
-                const category = product.setName || product['console-name'] || 'Sealed Product'
-                const displayPrice = product.prices?.market ?? null
-                const alreadyOwned = ownedCards.some((c) => c.name === name)
-                return (
-                  <div
-                    key={product.pricechartingId || product.id}
-                    className={`bg-surface-800 border rounded-xl px-4 py-3 flex items-center gap-4 ${alreadyOwned ? 'border-emerald-500/50' : 'border-surface-600'}`}
-                  >
-                    <div className="w-10 h-10 flex-shrink-0 bg-surface-700 rounded-lg flex items-center justify-center">
-                      <svg className="w-5 h-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-                      </svg>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-white font-semibold text-sm truncate">{name}</p>
-                      <p className="text-slate-500 text-xs">{category}</p>
-                    </div>
-                    {displayPrice != null && (
-                      <p className="text-accent font-bold text-sm flex-shrink-0">{format(displayPrice)}</p>
-                    )}
-                    {alreadyOwned && (
-                      <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 flex-shrink-0">Owned</span>
-                    )}
-                    <div className="flex gap-2 flex-shrink-0">
-                      <button onClick={() => setSealedAddModal({ product, section: 'collection' })}
-                        className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-black text-xs font-bold rounded-lg transition-colors whitespace-nowrap">
-                        + Collection
-                      </button>
-                      <button onClick={() => setSealedAddModal({ product, section: 'watchlist' })}
-                        className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold rounded-lg transition-colors whitespace-nowrap">
-                        + Watchlist
-                      </button>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-      )}
 
       {mode === 'sets' && browsedSet && !loading && results.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-slate-600">
@@ -2329,7 +2267,7 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
       })()}
 
       {/* Cards mode + set browse: view toggle + results */}
-      {!loading && baseResults.length > 0 && (mode === 'cards' || browsedSet) && (
+      {!loading && baseResults.length > 0 && !hideCardsForSealed && (mode === 'cards' || browsedSet) && (
         <>
           {/* ── Grid view ── */}
           {viewMode === 'grid' && (
@@ -2475,68 +2413,12 @@ export default function SearchPage({ initialQuery = '', initialArtist = '', onCa
             </div>
           )}
 
-          {/* ── Binder view ── */}
-          {viewMode === 'binder' && (() => {
-            const binderCards = displayResults.filter((c) => !c._divider)
-            const BINDER_PER_PAGE = 9
-            const pageCount = Math.ceil(binderCards.length / BINDER_PER_PAGE)
-            const pageSlice = binderCards.slice(searchBinderPage * BINDER_PER_PAGE, (searchBinderPage + 1) * BINDER_PER_PAGE)
-            return (
-              <div className="w-full flex flex-col items-center gap-4">
-                <div
-                  className="bg-surface-900 rounded-xl border border-surface-700 shadow-2xl p-2"
-                  style={{ height: '60vh', aspectRatio: '5/7', maxWidth: '420px' }}
-                >
-                  <div className="grid grid-cols-3 grid-rows-3 gap-1.5 h-full">
-                    {Array.from({ length: BINDER_PER_PAGE }).map((_, i) => {
-                      const card = pageSlice[i]
-                      if (!card) return <div key={i} className="rounded border border-dashed border-surface-700 bg-surface-800/40" />
-                      const inPortfolio = ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
-                      const inWatchlist = ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
-                      return (
-                        <button
-                          key={card.id}
-                          onClick={() => openCardModal(card)}
-                          className="rounded overflow-hidden relative transition-all hover:scale-[1.03] hover:z-10 bg-surface-800 ring-1 ring-surface-600 hover:ring-accent/60 p-[3px]"
-                        >
-                          <img src={card.images?.small} alt={card.name} className="w-full h-full object-contain rounded-sm" onError={(e) => (e.target.style.display = 'none')} />
-                          {(inPortfolio || inWatchlist) && (
-                            <div className="absolute top-1 right-1 flex flex-col gap-0.5 pointer-events-none">
-                              {inPortfolio && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-accent text-black leading-none">Coll.</span>}
-                              {inWatchlist && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-sky-500 text-white leading-none">Watch.</span>}
-                            </div>
-                          )}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-                {pageCount > 1 && (
-                  <div className="flex items-center gap-3">
-                    <button onClick={() => setSearchBinderPage((p) => Math.max(0, p - 1))} disabled={searchBinderPage === 0} className="px-4 py-2 rounded-lg border border-surface-600 text-slate-400 hover:text-white hover:border-surface-500 disabled:opacity-30 transition-all text-sm">← Prev</button>
-                    <span className="text-slate-500 text-sm">Page {searchBinderPage + 1} of {pageCount}</span>
-                    <button onClick={() => setSearchBinderPage((p) => Math.min(pageCount - 1, p + 1))} disabled={searchBinderPage === pageCount - 1} className="px-4 py-2 rounded-lg border border-surface-600 text-slate-400 hover:text-white hover:border-surface-500 disabled:opacity-30 transition-all text-sm">Next →</button>
-                  </div>
-                )}
-              </div>
-            )
-          })()}
         </>
       )}
 
-      {/* ── Sealed Products section — always shown in Items mode when results exist ── */}
+      {/* ── Sealed results — rendered inline with card results, no separate section header ── */}
       {mode === 'cards' && (sealedLoading || sealedResults.length > 0) && nameQuery.trim() && (
-        <div className="mt-6">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="flex-1 h-px bg-surface-700" />
-            <span className="text-slate-500 text-xs font-medium uppercase tracking-wider flex items-center gap-1.5">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
-              </svg>
-              Sealed Products
-            </span>
-            <div className="flex-1 h-px bg-surface-700" />
-          </div>
+        <div className={baseResults.length > 0 ? 'mt-2' : 'mt-0'}>
           {sealedLoading && (
             <div className="flex items-center justify-center py-6 gap-2.5 text-slate-500">
               <div className="w-4 h-4 rounded-full border-2 border-transparent border-t-emerald-500 animate-spin flex-shrink-0" />

@@ -31,8 +31,6 @@ function PriceSpinner({ size = 'md' }) {
 
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import PriceChart from '../components/PriceChart'
-import PriceChangeIndicator from '../components/PriceChangeIndicator'
-import AppFooter from '../components/AppFooter'
 import BinderSelector from '../components/BinderSelector'
 import { useCurrency } from '../context/CurrencyContext'
 import { CardDetailModal } from './SearchPage'
@@ -151,7 +149,7 @@ function PricesByGrade({ cardId, dayChangeMap = {}, fillHeight = false, onPrices
     window.api.getAllConditionPrices(cardId)
       .then(data => { setPrices(data); onPricesLoaded?.() })
       .finally(() => setLoading(false))
-  }, [cardId])
+  }, [cardId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Build grade label → daily dollar change from the condition-keyed map
   const gradeChanges = {}
@@ -239,7 +237,6 @@ export default function CardDetail() {
   const [allCards, setAllCards] = useState([])
   const [historyCondition, setHistoryCondition] = useState(null)
   const [historyCache, setHistoryCache] = useState({})
-  const [siblings, setSiblings] = useState({})
   const [copyMenu, setCopyMenu] = useState(null)
   const [bannerSearch, setBannerSearch] = useState('')
   const [showAccount, setShowAccount] = useState(false)
@@ -247,6 +244,7 @@ export default function CardDetail() {
   const notifBtnRef = useRef(null)
   const { activeAlerts, alertCount, readIds, dismissAlert, dismissAll, markAllRead } = useAlerts()
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load() }, [id])
 
   async function load() {
@@ -277,7 +275,6 @@ export default function CardDetail() {
     setPriceLoading(false)
     setHistoryCondition(found.condition)
     const sibMap = { [found.condition]: found.id }
-    setSiblings(sibMap)
     const newCache = { [found.condition]: h }
     await Promise.all(
       Object.entries(sibMap)
@@ -289,15 +286,6 @@ export default function CardDetail() {
     )
     setHistoryCache(newCache)
 
-  }
-
-  async function handleSwitchHistoryCondition(cond) {
-    if (cond === historyCondition) return
-    setHistoryCondition(cond)
-    if (!historyCache[cond] && siblings[cond]) {
-      const h = await window.api.getPriceHistory(siblings[cond])
-      setHistoryCache((prev) => ({ ...prev, [cond]: h }))
-    }
   }
 
   async function handleRefresh() {
@@ -427,7 +415,7 @@ export default function CardDetail() {
 
   const dayChangeMap = {}
   Object.entries(historyCache).forEach(([cond, hist]) => {
-    if (hist.length >= 2) {
+    if (Array.isArray(hist) && hist.length >= 2) {
       const curr = hist[hist.length - 1].price
       const prev = hist[hist.length - 2].price
       dayChangeMap[cond] = { dollar: curr - prev, pct: prev > 0 ? ((curr - prev) / prev) * 100 : 0 }
@@ -435,15 +423,6 @@ export default function CardDetail() {
   })
 
   const latest = history[history.length - 1]
-  const priceChangeDay = calcChange(latest?.price, history[history.length - 2]?.price)
-  const priceChangeWeek = calcChange(latest?.price, history.find((p) => {
-    const d = new Date(); d.setDate(d.getDate() - 7)
-    return p.date >= d.toISOString().split('T')[0]
-  })?.price)
-  const priceChangeMonth = calcChange(latest?.price, history.find((p) => {
-    const d = new Date(); d.setDate(d.getDate() - 30)
-    return p.date >= d.toISOString().split('T')[0]
-  })?.price)
 
   return (
     <>
@@ -946,7 +925,3 @@ export default function CardDetail() {
   )
 }
 
-function calcChange(current, previous) {
-  if (!current || !previous) return null
-  return Math.round(((current - previous) / previous) * 10000) / 100
-}

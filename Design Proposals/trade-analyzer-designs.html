@@ -1,0 +1,1715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Trade Analyzer — Design Concepts</title>
+<style>
+/* ─────────────────────────────────────────────────────────────────
+   RESET + SELECTOR
+───────────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; background: #000; }
+body { font-family: system-ui, -apple-system, 'Segoe UI', sans-serif; }
+img { display: block; }
+button { cursor: pointer; font-family: inherit; border: none; }
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
+
+#sel {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+  background: #0c0c0c; border-bottom: 1px solid #222;
+  display: flex; align-items: center; gap: 5px; padding: 5px 14px; height: 36px;
+}
+#sel .lbl {
+  color: #3a3a3a; font-size: 10px; font-family: 'Courier New', monospace;
+  letter-spacing: 0.14em; text-transform: uppercase; margin-right: 6px; white-space: nowrap;
+}
+#sel button {
+  padding: 3px 11px; border-radius: 4px; border: 1px solid #2a2a2a;
+  background: transparent; color: #555; font-size: 11.5px; cursor: pointer;
+  transition: all 0.12s ease; white-space: nowrap;
+}
+#sel button:hover { border-color: #444; color: #aaa; background: #161616; }
+#sel button.on { background: #f59e0b; border-color: #f59e0b; color: #000; font-weight: 700; }
+#sel .tip { color: #2a2a2a; font-size: 10px; margin-left: auto; font-family: monospace; }
+
+.design { display: none; height: 100vh; padding-top: 36px; overflow: hidden; }
+.design.on { display: flex; flex-direction: column; }
+
+/* ─────────────────────────────────────────────────────────────────
+   DESIGN 1 — DUEL ARENA
+───────────────────────────────────────────────────────────────── */
+.d1 { background: #070d1c; color: #e2e8f0; display: flex; flex-direction: column; height: 100%; }
+
+/* nav */
+.d1 .nav {
+  height: 50px; background: #040a14;
+  border-bottom: 1px solid rgba(59,130,246,0.18);
+  display: flex; align-items: center; padding: 0 20px; gap: 0; flex-shrink: 0;
+}
+.d1 .nav-logo { color: #f59e0b; font-weight: 900; font-size: 15px; letter-spacing: 0.06em; margin-right: 28px; }
+.d1 .nav-tabs { display: flex; gap: 2px; flex: 1; }
+.d1 .nav-tab {
+  padding: 5px 14px; border-radius: 6px; background: transparent;
+  color: #3b4a62; font-size: 12.5px; font-weight: 500;
+}
+.d1 .nav-tab.on {
+  background: rgba(245,158,11,0.12); color: #f59e0b;
+  border: 1px solid rgba(245,158,11,0.28);
+}
+.d1 .nav-tab .badge { font-size: 10px; color: #2a3a52; margin-left: 3px; }
+.d1 .nav-search {
+  width: 190px; height: 28px; background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.07); border-radius: 6px;
+  padding: 0 10px; color: #3b4a62; font-size: 12px; margin-right: 12px;
+}
+.d1 .nav-btn {
+  padding: 5px 12px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.08);
+  background: transparent; color: #3b4a62; font-size: 12px; margin-left: 4px;
+}
+
+/* body */
+.d1 .body { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+
+/* sidebar */
+.d1 .sidebar {
+  width: 218px; flex-shrink: 0; background: #04091a;
+  border-right: 1px solid rgba(59,130,246,0.14);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.d1 .sb-head {
+  padding: 13px 14px 10px;
+  border-bottom: 1px solid rgba(59,130,246,0.12); flex-shrink: 0;
+}
+.d1 .sb-title { color: #f59e0b; font-size: 9.5px; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; }
+.d1 .sb-count { color: #1e3050; font-size: 11px; margin-top: 2px; }
+.d1 .sb-filters { display: flex; gap: 4px; margin-top: 8px; }
+.d1 .sb-filter {
+  padding: 2px 8px; border-radius: 20px; border: 1px solid transparent;
+  background: transparent; color: #2e4060; font-size: 10px; cursor: pointer;
+}
+.d1 .sb-filter.on { background: rgba(245,158,11,0.12); color: #f59e0b; border-color: rgba(245,158,11,0.28); }
+.d1 .sb-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+.d1 .sb-yr { padding: 6px 14px 2px; color: #c8d8f0; font-size: 12px; font-weight: 700; }
+.d1 .sb-mo { padding: 3px 22px; color: #2e4060; font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.d1 .sb-entry {
+  padding: 6px 14px 6px 22px; display: flex; align-items: center; gap: 7px;
+  cursor: pointer; transition: background 0.1s;
+}
+.d1 .sb-entry:hover { background: rgba(255,255,255,0.03); }
+.d1 .sb-entry.active { background: rgba(245,158,11,0.07); }
+.d1 .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.d1 .dot.exec { background: #10b981; }
+.d1 .dot.saved { background: #f59e0b; }
+.d1 .sb-name { color: #8aa4c8; font-size: 12px; flex: 1; }
+.d1 .sb-diff { font-size: 11px; font-weight: 600; }
+.d1 .sb-diff.pos { color: #10b981; }
+.d1 .sb-diff.neg { color: #f87171; }
+.d1 .sb-diff.fair { color: #2e4060; }
+
+/* main */
+.d1 .main { flex: 1; display: flex; flex-direction: column; padding: 14px 18px; gap: 10px; min-width: 0; overflow: hidden; }
+
+/* header */
+.d1 .hdr { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.d1 .hdr-title { font-size: 20px; font-weight: 900; color: #f0f6ff; letter-spacing: -0.02em; }
+.d1 .hdr-sub { font-size: 12px; color: #2e4060; margin-top: 2px; }
+.d1 .hdr-btns { display: flex; gap: 7px; align-items: center; }
+.d1 .btn-green {
+  padding: 7px 16px; background: #10b981; border-radius: 8px;
+  color: #fff; font-size: 12.5px; font-weight: 700;
+}
+.d1 .btn-amber {
+  padding: 7px 14px; background: rgba(245,158,11,0.13);
+  border: 1px solid rgba(245,158,11,0.35); border-radius: 8px;
+  color: #f59e0b; font-size: 12.5px; font-weight: 600;
+}
+.d1 .btn-ghost {
+  padding: 7px 10px; background: transparent;
+  border: 1px solid #0e1e34; border-radius: 8px; color: #2e4060; font-size: 12px;
+}
+.d1 .btn-cyan {
+  padding: 7px 10px; background: rgba(6,182,212,0.07);
+  border: 1px solid rgba(6,182,212,0.25); border-radius: 8px; color: #22d3ee; font-size: 12px;
+}
+
+/* metrics */
+.d1 .metrics { display: flex; gap: 9px; flex-shrink: 0; }
+.d1 .metric {
+  flex: 1; background: #060d20; border: 1px solid rgba(59,130,246,0.14);
+  border-radius: 12px; padding: 10px 16px; position: relative; overflow: hidden;
+}
+.d1 .metric::after {
+  content: ''; position: absolute; inset: 0; border-radius: 12px;
+  background: linear-gradient(135deg, rgba(59,130,246,0.07) 0%, transparent 55%);
+  pointer-events: none;
+}
+.d1 .m-label { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.15em; color: #2e4060; }
+.d1 .m-val { font-size: 26px; font-weight: 900; color: #dde8ff; margin-top: 2px; letter-spacing: -0.02em; }
+.d1 .m-val.pos { color: #10b981; }
+.d1 .m-val.neg { color: #f87171; }
+
+/* hp bar */
+.d1 .hpbar { flex-shrink: 0; }
+.d1 .hpbar-track {
+  height: 14px; border-radius: 20px; overflow: visible; position: relative;
+  background: linear-gradient(to right, #16a34a 0%, #22c55e 32%, #374151 50%, #dc2626 68%, #ef4444 100%);
+}
+.d1 .hpbar-thumb {
+  position: absolute; top: 50%; left: 49.4%;
+  transform: translate(-50%, -50%);
+  width: 24px; height: 24px; background: #fff; border-radius: 50%;
+  border: 3px solid #050c1a;
+  box-shadow: 0 0 12px rgba(245,158,11,0.55), 0 0 24px rgba(245,158,11,0.2);
+  z-index: 2;
+}
+.d1 .hpbar-labels { display: flex; justify-content: space-between; align-items: center; margin-top: 7px; }
+.d1 .hpbar-left { color: #22c55e; font-size: 11px; font-weight: 600; }
+.d1 .hpbar-right { color: #ef4444; font-size: 11px; font-weight: 600; }
+.d1 .hpbar-verdict { font-size: 12px; font-weight: 700; color: #64748b; }
+.d1 .hpbar-verdict em { font-style: normal; color: #94a3b8; }
+
+/* panels */
+.d1 .panels { flex: 1; display: flex; gap: 0; min-height: 0; overflow: hidden; }
+.d1 .panel {
+  flex: 1; display: flex; flex-direction: column;
+  border-radius: 14px; overflow: hidden; min-height: 0;
+}
+.d1 .panel.you { background: #060f2a; border: 1px solid rgba(59,130,246,0.32); }
+.d1 .panel.them { background: #1c0808; border: 1px solid rgba(239,68,68,0.32); }
+.d1 .panel-hdr {
+  padding: 12px 14px; flex-shrink: 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.d1 .panel-name { font-size: 22px; font-weight: 900; letter-spacing: -0.02em; }
+.d1 .panel.you .panel-name { color: #60a5fa; }
+.d1 .panel.them .panel-name { color: #f87171; }
+.d1 .panel-total { font-size: 22px; font-weight: 900; color: #f0f6ff; letter-spacing: -0.02em; }
+.d1 .panel-meta { font-size: 11px; color: #2e4060; margin-top: 2px; }
+.d1 .card-list {
+  flex: 1; overflow-y: auto; padding: 8px;
+  display: flex; flex-direction: column; gap: 5px; min-height: 0;
+}
+.d1 .card-row {
+  display: flex; align-items: center; gap: 9px;
+  background: rgba(255,255,255,0.025); border-radius: 9px;
+  padding: 7px 9px; transition: background 0.1s;
+}
+.d1 .card-row:hover { background: rgba(255,255,255,0.05); }
+.d1 .card-img { width: 42px; height: 58px; border-radius: 5px; object-fit: cover; flex-shrink: 0; background: #1a2a3a; }
+.d1 .card-info { flex: 1; min-width: 0; }
+.d1 .card-name { font-size: 13px; font-weight: 700; color: #c8d8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d1 .card-num { color: #2e4060; font-weight: 400; }
+.d1 .cond-pill {
+  display: inline-block; margin-top: 3px; padding: 1px 7px;
+  border-radius: 20px; font-size: 10px; font-weight: 700;
+  background: rgba(245,158,11,0.13); border: 1px solid rgba(245,158,11,0.28); color: #f59e0b;
+}
+.d1 .card-set { font-size: 11px; color: #1e3050; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d1 .card-price { font-size: 15px; font-weight: 800; color: #dde8ff; flex-shrink: 0; }
+.d1 .cash-row {
+  display: flex; align-items: center; gap: 9px;
+  background: rgba(16,185,129,0.05); border: 1px solid rgba(16,185,129,0.18);
+  border-radius: 9px; padding: 8px 10px;
+}
+.d1 .cash-icon {
+  width: 26px; height: 26px; background: rgba(16,185,129,0.12); border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; color: #10b981; font-size: 12px; font-weight: 700; flex-shrink: 0;
+}
+.d1 .cash-label { flex: 1; font-size: 12.5px; color: #4a6a8a; }
+.d1 .cash-amount { font-size: 14px; font-weight: 800; color: #10b981; }
+.d1 .panel-btns {
+  padding: 9px 8px; border-top: 1px solid rgba(255,255,255,0.05);
+  display: flex; gap: 6px; flex-shrink: 0;
+}
+.d1 .btn-add-items {
+  flex: 1; padding: 8px; background: rgba(245,158,11,0.07);
+  border: 1px solid rgba(245,158,11,0.22); border-radius: 8px;
+  color: #f59e0b; font-size: 12px; font-weight: 600;
+}
+.d1 .btn-add-cash {
+  flex: 1; padding: 8px; background: rgba(16,185,129,0.06);
+  border: 1px solid rgba(16,185,129,0.2); border-radius: 8px;
+  color: #10b981; font-size: 12px; font-weight: 600;
+}
+
+/* vs divider */
+.d1 .vs-col {
+  width: 56px; flex-shrink: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 0; padding: 20px 0;
+}
+.d1 .vs-line { flex: 1; width: 1px; background: linear-gradient(to bottom, transparent, rgba(245,158,11,0.35), transparent); }
+.d1 .vs-badge {
+  width: 42px; height: 42px; background: #f59e0b; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 900; color: #000; flex-shrink: 0;
+  box-shadow: 0 0 20px rgba(245,158,11,0.45), 0 0 40px rgba(245,158,11,0.15);
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   DESIGN 2 — PRECISION DESK
+───────────────────────────────────────────────────────────────── */
+.d2 { background: #0a0a0a; color: #c8ccd4; display: flex; flex-direction: column; height: 100%; }
+.d2 * { font-variant-numeric: tabular-nums; }
+
+/* nav */
+.d2 .nav {
+  height: 50px; background: #0a0a0a; border-bottom: 1px solid #181818;
+  display: flex; align-items: center; padding: 0 22px; gap: 0; flex-shrink: 0;
+}
+.d2 .nav-logo { color: #e8eaed; font-weight: 700; font-size: 13px; letter-spacing: 0.1em; margin-right: 32px; }
+.d2 .nav-tabs { display: flex; gap: 1px; flex: 1; }
+.d2 .nav-tab { padding: 5px 14px; border-radius: 5px; background: transparent; color: #303030; font-size: 12.5px; }
+.d2 .nav-tab.on { color: #9ca3af; background: #141414; }
+.d2 .nav-tab .badge { color: #202020; font-size: 10.5px; margin-left: 3px; }
+.d2 .nav-search {
+  width: 180px; height: 27px; background: transparent;
+  border: 1px solid #1a1a1a; border-radius: 4px; padding: 0 10px; color: #303030; font-size: 12px; margin-right: 10px;
+}
+.d2 .nav-btn {
+  padding: 5px 12px; border-radius: 4px; border: 1px solid #1a1a1a;
+  background: transparent; color: #303030; font-size: 12px; margin-left: 4px;
+}
+
+/* body */
+.d2 .body { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+
+/* sidebar */
+.d2 .sidebar {
+  width: 218px; flex-shrink: 0; background: #0a0a0a;
+  border-right: 1px solid #141414; display: flex; flex-direction: column; overflow: hidden;
+}
+.d2 .sb-head { padding: 16px 16px 11px; border-bottom: 1px solid #141414; flex-shrink: 0; }
+.d2 .sb-title { font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.16em; color: #333; }
+.d2 .sb-count { color: #202020; font-size: 11px; margin-top: 2px; }
+.d2 .sb-filters { display: flex; gap: 8px; margin-top: 9px; }
+.d2 .sb-filter { padding: 1px 0; background: transparent; border: none; color: #282828; font-size: 10.5px; cursor: pointer; }
+.d2 .sb-filter.on { color: #f59e0b; }
+.d2 .sb-list { flex: 1; overflow-y: auto; }
+.d2 .sb-group { padding: 10px 16px 4px; font-size: 9.5px; font-weight: 500; color: #202020; text-transform: uppercase; letter-spacing: 0.12em; border-bottom: 1px solid #111; }
+.d2 .sb-entry {
+  padding: 8px 16px; border-bottom: 1px solid #111;
+  display: flex; align-items: center; gap: 8px; cursor: pointer;
+}
+.d2 .sb-entry:hover { background: #0d0d0d; }
+.d2 .sb-entry.active { background: #0d0d0d; }
+.d2 .dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.d2 .dot.exec { background: #10b981; opacity: 0.7; }
+.d2 .dot.saved { background: #f59e0b; opacity: 0.7; }
+.d2 .sb-date { font-size: 10.5px; color: #282828; width: 32px; flex-shrink: 0; }
+.d2 .sb-name { font-size: 12px; color: #4a4a4a; flex: 1; }
+.d2 .sb-diff { font-size: 11px; }
+.d2 .sb-diff.pos { color: #059669; }
+.d2 .sb-diff.neg { color: #b91c1c; }
+.d2 .sb-diff.fair { color: #222; }
+
+/* main */
+.d2 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+
+/* top strip: header + metrics */
+.d2 .top-strip { border-bottom: 1px solid #141414; flex-shrink: 0; }
+.d2 .hdr { padding: 14px 22px 10px; display: flex; align-items: center; justify-content: space-between; }
+.d2 .hdr-title { font-size: 17px; font-weight: 600; color: #d8dce4; letter-spacing: -0.02em; }
+.d2 .hdr-sub { font-size: 11px; color: #242424; margin-top: 2px; }
+.d2 .hdr-btns { display: flex; gap: 7px; align-items: center; }
+.d2 .btn-green {
+  padding: 6px 14px; background: #10b981; border-radius: 5px;
+  color: #fff; font-size: 12.5px; font-weight: 600;
+}
+.d2 .btn-amber {
+  padding: 6px 13px; background: transparent; border: 1px solid #1f1400;
+  border-radius: 5px; color: #f59e0b; font-size: 12.5px;
+}
+.d2 .btn-ghost {
+  padding: 6px 10px; background: transparent;
+  border: 1px solid #1a1a1a; border-radius: 5px; color: #333; font-size: 12px;
+}
+.d2 .btn-cyan {
+  padding: 6px 10px; background: transparent;
+  border: 1px solid #0d1e20; border-radius: 5px; color: #22d3ee; font-size: 12px; opacity: 0.7;
+}
+
+/* metrics strip */
+.d2 .metrics { display: flex; border-top: 1px solid #111; }
+.d2 .metric { flex: 1; padding: 10px 22px; border-right: 1px solid #111; }
+.d2 .metric:last-child { border-right: none; }
+.d2 .m-label { font-size: 9px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.15em; color: #282828; }
+.d2 .m-val { font-size: 22px; font-weight: 300; color: #8c9099; letter-spacing: -0.03em; margin-top: 1px; }
+.d2 .m-val.pos { color: #059669; }
+.d2 .m-val.neg { color: #b91c1c; }
+
+/* balance comparison */
+.d2 .balance {
+  padding: 12px 22px; border-bottom: 1px solid #111;
+  display: flex; align-items: center; flex-shrink: 0;
+}
+.d2 .bal-side { flex: 1; display: flex; flex-direction: column; }
+.d2 .bal-side.right { align-items: flex-end; }
+.d2 .bal-amount { font-size: 28px; font-weight: 200; color: #7a8090; letter-spacing: -0.03em; }
+.d2 .bal-who { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.14em; color: #222; margin-top: 3px; }
+.d2 .bal-center { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 0 24px; }
+.d2 .bal-arrows { font-size: 14px; color: #202020; letter-spacing: -4px; }
+.d2 .bal-diff-amt { font-size: 13px; font-weight: 600; color: #f59e0b; }
+.d2 .bal-diff-lbl { font-size: 9px; color: #222; text-align: center; text-transform: uppercase; letter-spacing: 0.1em; }
+
+/* panels */
+.d2 .panels { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+.d2 .panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #141414; }
+.d2 .panel:last-child { border-right: none; }
+.d2 .panel-hdr {
+  padding: 12px 22px; border-bottom: 1px solid #111;
+  display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.d2 .panel-name { font-size: 15px; font-weight: 600; color: #c8ccd4; }
+.d2 .panel-meta { font-size: 11px; color: #222; margin-top: 2px; }
+.d2 .panel-total { font-size: 20px; font-weight: 200; color: #8c9099; letter-spacing: -0.02em; }
+.d2 .card-list { flex: 1; overflow-y: auto; min-height: 0; }
+.d2 .card-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 22px; border-bottom: 1px solid #111; transition: background 0.1s;
+}
+.d2 .card-row:hover { background: #0d0d0d; }
+.d2 .card-img { width: 26px; height: 36px; border-radius: 3px; object-fit: cover; flex-shrink: 0; background: #181818; opacity: 0.6; }
+.d2 .card-info { flex: 1; min-width: 0; }
+.d2 .card-name { font-size: 12.5px; font-weight: 500; color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d2 .card-num { color: #282828; font-weight: 400; }
+.d2 .card-meta { font-size: 10.5px; color: #282828; margin-top: 2px; }
+.d2 .card-cond { color: #f59e0b; opacity: 0.8; }
+.d2 .card-price { font-size: 13.5px; font-weight: 500; color: #7a8090; flex-shrink: 0; }
+.d2 .cash-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 22px; border-bottom: 1px solid #111;
+}
+.d2 .cash-lbl { flex: 1; font-size: 12px; color: #222; }
+.d2 .cash-amt { font-size: 13.5px; font-weight: 500; color: #059669; opacity: 0.8; }
+.d2 .panel-btns {
+  padding: 10px 22px; display: flex; gap: 8px;
+  border-top: 1px solid #111; flex-shrink: 0;
+}
+.d2 .btn-add-items {
+  flex: 1; padding: 7px; background: transparent;
+  border: 1px solid #1a1000; border-radius: 4px; color: #f59e0b; font-size: 11.5px; opacity: 0.6;
+}
+.d2 .btn-add-cash {
+  flex: 1; padding: 7px; background: transparent;
+  border: 1px solid #00150a; border-radius: 4px; color: #059669; font-size: 11.5px; opacity: 0.6;
+}
+
+/* vs divider */
+.d2 .vs-col {
+  width: 1px; background: #141414; flex-shrink: 0; position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+.d2 .vs-label {
+  position: absolute; background: #0a0a0a;
+  border: 1px solid #1a1a1a; border-radius: 20px;
+  padding: 4px 8px; font-size: 9px; font-weight: 600;
+  color: #252525; letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   DESIGN 3 — TRADING FLOOR
+───────────────────────────────────────────────────────────────── */
+.d3 { background: #0f0e0a; color: #c8a84a; display: flex; flex-direction: column; height: 100%; font-family: 'Courier New', 'Lucida Console', monospace; }
+.d3 .nav { height: 50px; background: #0c0b08; border-bottom: 1px solid rgba(245,158,11,0.2); display: flex; align-items: center; padding: 0 20px; gap: 0; flex-shrink: 0; }
+.d3 .nav-logo { color: #f59e0b; font-weight: 900; font-size: 15px; letter-spacing: 0.1em; margin-right: 28px; }
+.d3 .nav-tabs { display: flex; gap: 1px; flex: 1; }
+.d3 .nav-tab { padding: 5px 13px; background: transparent; color: rgba(245,158,11,0.22); font-size: 12px; border-radius: 3px; font-family: 'Courier New', monospace; border: 1px solid transparent; }
+.d3 .nav-tab.on { background: rgba(245,158,11,0.1); color: #f59e0b; border-color: rgba(245,158,11,0.25); }
+.d3 .nav-tab .badge { color: rgba(245,158,11,0.15); font-size: 10px; margin-left: 3px; }
+.d3 .nav-search { width: 190px; height: 27px; background: rgba(245,158,11,0.03); border: 1px solid rgba(245,158,11,0.1); border-radius: 3px; padding: 0 10px; color: rgba(245,158,11,0.3); font-size: 11px; font-family: 'Courier New', monospace; margin-right: 10px; }
+.d3 .nav-btn { padding: 4px 11px; border-radius: 3px; border: 1px solid rgba(245,158,11,0.1); background: transparent; color: rgba(245,158,11,0.25); font-size: 11px; font-family: 'Courier New', monospace; margin-left: 4px; }
+.d3 .body { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+.d3 .sidebar { width: 218px; flex-shrink: 0; background: #0c0b08; border-right: 1px solid rgba(245,158,11,0.14); display: flex; flex-direction: column; overflow: hidden; }
+.d3 .sb-head { padding: 13px 14px 10px; border-bottom: 1px solid rgba(245,158,11,0.1); flex-shrink: 0; }
+.d3 .sb-title { color: #f59e0b; font-size: 9px; font-weight: 700; letter-spacing: 0.22em; text-transform: uppercase; }
+.d3 .sb-count { color: rgba(245,158,11,0.18); font-size: 10px; margin-top: 2px; }
+.d3 .sb-filters { display: flex; gap: 8px; margin-top: 7px; }
+.d3 .sb-filter { padding: 1px 0; background: transparent; border: none; color: rgba(245,158,11,0.2); font-size: 10px; font-family: 'Courier New', monospace; cursor: pointer; }
+.d3 .sb-filter.on { color: #f59e0b; }
+.d3 .sb-list { flex: 1; overflow-y: auto; }
+.d3 .sb-group { padding: 7px 14px 3px; font-size: 9px; color: rgba(245,158,11,0.18); letter-spacing: 0.16em; text-transform: uppercase; border-bottom: 1px solid rgba(245,158,11,0.05); }
+.d3 .sb-entry { padding: 7px 14px; border-bottom: 1px solid rgba(245,158,11,0.05); display: flex; align-items: center; gap: 7px; cursor: pointer; transition: background 0.1s; }
+.d3 .sb-entry:hover { background: rgba(245,158,11,0.04); }
+.d3 .sb-entry.active { background: rgba(245,158,11,0.06); border-left: 2px solid rgba(245,158,11,0.5); padding-left: 12px; }
+.d3 .dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.d3 .dot.exec { background: #10b981; }
+.d3 .dot.saved { background: #f59e0b; opacity: 0.5; }
+.d3 .sb-date { font-size: 10px; color: rgba(245,158,11,0.18); width: 32px; flex-shrink: 0; }
+.d3 .sb-name { font-size: 11px; color: rgba(245,158,11,0.45); flex: 1; }
+.d3 .sb-diff { font-size: 10px; font-weight: 700; }
+.d3 .sb-diff.pos { color: #10b981; }
+.d3 .sb-diff.neg { color: #ef4444; }
+.d3 .sb-diff.fair { color: rgba(245,158,11,0.18); }
+.d3 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.d3 .hdr { padding: 11px 20px 10px; border-bottom: 1px solid rgba(245,158,11,0.1); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; background: #0c0b08; }
+.d3 .hdr-title { font-size: 16px; font-weight: 700; color: #f59e0b; letter-spacing: 0.08em; }
+.d3 .hdr-sub { font-size: 9.5px; color: rgba(245,158,11,0.22); margin-top: 2px; letter-spacing: 0.1em; }
+.d3 .hdr-btns { display: flex; gap: 7px; align-items: center; }
+.d3 .btn-green { padding: 6px 13px; background: transparent; border: 1px solid rgba(16,185,129,0.45); border-radius: 3px; color: #10b981; font-size: 11px; font-family: 'Courier New', monospace; font-weight: 700; }
+.d3 .btn-amber { padding: 6px 12px; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.28); border-radius: 3px; color: #f59e0b; font-size: 11px; font-family: 'Courier New', monospace; }
+.d3 .btn-ghost { padding: 6px 10px; background: transparent; border: 1px solid rgba(245,158,11,0.1); border-radius: 3px; color: rgba(245,158,11,0.28); font-size: 11px; font-family: 'Courier New', monospace; }
+.d3 .btn-export { padding: 6px 10px; background: transparent; border: 1px solid rgba(6,182,212,0.18); border-radius: 3px; color: rgba(6,182,212,0.45); font-size: 11px; font-family: 'Courier New', monospace; }
+.d3 .metrics { display: flex; border-bottom: 1px solid rgba(245,158,11,0.1); flex-shrink: 0; background: #0c0b08; }
+.d3 .metric { flex: 1; padding: 14px 22px; border-right: 1px solid rgba(245,158,11,0.08); }
+.d3 .metric:last-child { border-right: none; }
+.d3 .m-label { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.2em; color: rgba(245,158,11,0.32); }
+.d3 .m-val { font-size: 34px; font-weight: 700; color: #f59e0b; letter-spacing: -0.01em; margin-top: 3px; font-variant-numeric: tabular-nums; }
+.d3 .m-val.pos { color: #10b981; }
+.d3 .m-val.neg { color: #ef4444; }
+.d3 .balance { padding: 10px 22px; border-bottom: 1px solid rgba(245,158,11,0.08); display: flex; align-items: center; gap: 14px; flex-shrink: 0; background: rgba(245,158,11,0.02); }
+.d3 .bal-dot { width: 8px; height: 8px; border-radius: 50%; background: #10b981; flex-shrink: 0; }
+.d3 .bal-text { flex: 1; font-size: 12px; color: rgba(245,158,11,0.5); letter-spacing: 0.03em; }
+.d3 .bal-text strong { color: #f59e0b; }
+.d3 .bal-amounts { font-size: 11px; color: rgba(245,158,11,0.28); font-variant-numeric: tabular-nums; }
+.d3 .panels { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+.d3 .panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.d3 .panel.you { border-right: none; }
+.d3 .panel-hdr { padding: 9px 20px; border-bottom: 1px solid rgba(245,158,11,0.1); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; background: rgba(245,158,11,0.025); }
+.d3 .panel-name { font-size: 11px; font-weight: 700; color: #f59e0b; letter-spacing: 0.14em; text-transform: uppercase; }
+.d3 .panel-meta { font-size: 9px; color: rgba(245,158,11,0.22); margin-top: 2px; letter-spacing: 0.08em; }
+.d3 .panel-total { font-size: 22px; font-weight: 700; color: #f5d978; font-variant-numeric: tabular-nums; }
+.d3 .col-headers { display: flex; align-items: center; gap: 10px; padding: 4px 20px; border-bottom: 1px solid rgba(245,158,11,0.07); background: rgba(245,158,11,0.015); }
+.d3 .col-h { font-size: 8px; text-transform: uppercase; letter-spacing: 0.15em; color: rgba(245,158,11,0.22); }
+.d3 .col-h.grow { flex: 1; }
+.d3 .col-h.cond { width: 54px; }
+.d3 .col-h.price { width: 68px; text-align: right; }
+.d3 .card-list { flex: 1; overflow-y: auto; min-height: 0; }
+.d3 .card-row { display: flex; align-items: center; gap: 10px; padding: 8px 20px; border-bottom: 1px solid rgba(245,158,11,0.05); transition: background 0.1s; }
+.d3 .card-row:hover { background: rgba(245,158,11,0.03); }
+.d3 .card-img { width: 24px; height: 33px; border-radius: 2px; object-fit: cover; flex-shrink: 0; background: rgba(245,158,11,0.08); opacity: 0.7; }
+.d3 .card-info { flex: 1; min-width: 0; }
+.d3 .card-name { font-size: 11.5px; color: rgba(245,158,11,0.65); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d3 .card-num { color: rgba(245,158,11,0.22); }
+.d3 .card-set { font-size: 9px; color: rgba(245,158,11,0.22); margin-top: 1px; }
+.d3 .card-cond { width: 54px; flex-shrink: 0; font-size: 10px; color: rgba(245,158,11,0.38); }
+.d3 .card-price { width: 68px; text-align: right; font-size: 13px; font-weight: 700; color: #f5d978; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.d3 .cash-row { display: flex; align-items: center; gap: 10px; padding: 8px 20px; border-bottom: 1px solid rgba(245,158,11,0.05); }
+.d3 .cash-info { flex: 1; font-size: 11.5px; color: rgba(16,185,129,0.5); }
+.d3 .cash-cond { width: 54px; font-size: 10px; color: rgba(245,158,11,0.18); }
+.d3 .cash-amt { width: 68px; text-align: right; font-size: 13px; font-weight: 700; color: #10b981; font-variant-numeric: tabular-nums; }
+.d3 .panel-btns { padding: 8px 20px; display: flex; gap: 8px; border-top: 1px solid rgba(245,158,11,0.1); flex-shrink: 0; }
+.d3 .btn-add-items { flex: 1; padding: 7px; background: transparent; border: 1px solid rgba(245,158,11,0.18); border-radius: 3px; color: rgba(245,158,11,0.45); font-size: 11px; font-family: 'Courier New', monospace; }
+.d3 .btn-add-cash { flex: 1; padding: 7px; background: transparent; border: 1px solid rgba(16,185,129,0.18); border-radius: 3px; color: rgba(16,185,129,0.45); font-size: 11px; font-family: 'Courier New', monospace; }
+.d3 .vs-col { width: 40px; flex-shrink: 0; background: rgba(245,158,11,0.02); border-left: 1px solid rgba(245,158,11,0.1); border-right: 1px solid rgba(245,158,11,0.1); display: flex; align-items: center; justify-content: center; }
+.d3 .vs-text { writing-mode: vertical-rl; text-orientation: mixed; font-size: 9px; font-weight: 700; letter-spacing: 0.35em; color: rgba(245,158,11,0.2); text-transform: uppercase; }
+
+/* ─────────────────────────────────────────────────────────────────
+   DESIGN 4 — GLASS STUDIO
+───────────────────────────────────────────────────────────────── */
+.d4 { background: #060b18; color: #c8d4e8; display: flex; flex-direction: column; height: 100%; position: relative; }
+.d4::before { content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 0; background: radial-gradient(ellipse 65% 45% at 12% 8%, rgba(99,102,241,0.16) 0%, transparent 58%), radial-gradient(ellipse 55% 45% at 88% 88%, rgba(16,185,129,0.11) 0%, transparent 56%), radial-gradient(ellipse 40% 35% at 72% 18%, rgba(245,158,11,0.08) 0%, transparent 52%); }
+.d4 > * { position: relative; z-index: 1; }
+.d4 .nav { height: 52px; background: rgba(255,255,255,0.04); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-bottom: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; padding: 0 22px; gap: 0; flex-shrink: 0; }
+.d4 .nav-logo { color: #f59e0b; font-weight: 800; font-size: 14.5px; letter-spacing: 0.06em; margin-right: 30px; }
+.d4 .nav-tabs { display: flex; gap: 2px; flex: 1; }
+.d4 .nav-tab { padding: 5px 14px; border-radius: 8px; background: transparent; color: rgba(148,163,184,0.3); font-size: 12.5px; border: 1px solid transparent; }
+.d4 .nav-tab.on { background: rgba(245,158,11,0.1); color: rgba(245,158,11,0.88); border-color: rgba(245,158,11,0.22); box-shadow: inset 0 1px 0 rgba(255,255,255,0.1); }
+.d4 .nav-tab .badge { color: rgba(148,163,184,0.18); font-size: 10.5px; margin-left: 3px; }
+.d4 .nav-search { width: 190px; height: 28px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 0 10px; color: rgba(148,163,184,0.35); font-size: 12px; margin-right: 10px; }
+.d4 .nav-btn { padding: 5px 12px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.07); background: rgba(255,255,255,0.03); color: rgba(148,163,184,0.35); font-size: 12px; margin-left: 4px; }
+.d4 .body { flex: 1; display: flex; min-height: 0; overflow: hidden; padding: 12px; gap: 12px; }
+.d4 .sidebar { width: 218px; flex-shrink: 0; background: rgba(255,255,255,0.04); backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px); border: 1px solid rgba(255,255,255,0.09); border-radius: 18px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.12); display: flex; flex-direction: column; overflow: hidden; }
+.d4 .sb-head { padding: 14px 14px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); flex-shrink: 0; }
+.d4 .sb-title { color: rgba(245,158,11,0.8); font-size: 9.5px; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; }
+.d4 .sb-count { color: rgba(148,163,184,0.22); font-size: 11px; margin-top: 2px; }
+.d4 .sb-filters { display: flex; gap: 4px; margin-top: 8px; }
+.d4 .sb-filter { padding: 2px 8px; border-radius: 20px; border: 1px solid transparent; background: transparent; color: rgba(148,163,184,0.28); font-size: 10px; cursor: pointer; }
+.d4 .sb-filter.on { background: rgba(245,158,11,0.1); color: rgba(245,158,11,0.8); border-color: rgba(245,158,11,0.24); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
+.d4 .sb-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+.d4 .sb-group { padding: 7px 14px 3px; font-size: 9.5px; color: rgba(148,163,184,0.18); text-transform: uppercase; letter-spacing: 0.12em; }
+.d4 .sb-entry { padding: 7px 8px 7px 14px; display: flex; align-items: center; gap: 8px; cursor: pointer; border-radius: 8px; margin: 1px 6px; transition: background 0.1s; }
+.d4 .sb-entry:hover { background: rgba(255,255,255,0.05); }
+.d4 .sb-entry.active { background: rgba(255,255,255,0.07); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
+.d4 .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.d4 .dot.exec { background: #10b981; box-shadow: 0 0 6px rgba(16,185,129,0.5); }
+.d4 .dot.saved { background: #f59e0b; box-shadow: 0 0 6px rgba(245,158,11,0.5); }
+.d4 .sb-date { font-size: 10.5px; color: rgba(148,163,184,0.22); width: 32px; flex-shrink: 0; }
+.d4 .sb-name { font-size: 12px; color: rgba(148,163,184,0.55); flex: 1; }
+.d4 .sb-diff { font-size: 11px; }
+.d4 .sb-diff.pos { color: rgba(52,211,153,0.75); }
+.d4 .sb-diff.neg { color: rgba(248,113,113,0.75); }
+.d4 .sb-diff.fair { color: rgba(148,163,184,0.18); }
+.d4 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; gap: 12px; overflow: hidden; }
+.d4 .hdr { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; padding-top: 2px; }
+.d4 .hdr-title { font-size: 20px; font-weight: 700; color: #dde8ff; letter-spacing: -0.02em; }
+.d4 .hdr-sub { font-size: 12px; color: rgba(148,163,184,0.3); margin-top: 2px; }
+.d4 .hdr-btns { display: flex; gap: 8px; align-items: center; }
+.d4 .btn-green { padding: 7px 16px; background: rgba(16,185,129,0.13); border: 1px solid rgba(16,185,129,0.32); border-radius: 10px; color: rgba(52,211,153,0.9); font-size: 12.5px; font-weight: 600; box-shadow: inset 0 1px 0 rgba(255,255,255,0.08); }
+.d4 .btn-amber { padding: 7px 14px; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.28); border-radius: 10px; color: rgba(245,158,11,0.88); font-size: 12.5px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.07); }
+.d4 .btn-ghost { padding: 7px 11px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; color: rgba(148,163,184,0.38); font-size: 12px; }
+.d4 .btn-cyan { padding: 7px 11px; background: rgba(6,182,212,0.06); border: 1px solid rgba(6,182,212,0.18); border-radius: 10px; color: rgba(34,211,238,0.55); font-size: 12px; }
+.d4 .metrics { display: flex; gap: 10px; flex-shrink: 0; }
+.d4 .metric { flex: 1; border-radius: 16px; padding: 12px 16px; background: rgba(255,255,255,0.05); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.09); box-shadow: inset 0 1px 0 rgba(255,255,255,0.12); position: relative; overflow: hidden; }
+.d4 .metric.trades::before { content: ''; position: absolute; inset: 0; border-radius: 16px; background: radial-gradient(ellipse at 18% 0%, rgba(99,102,241,0.18) 0%, transparent 55%); }
+.d4 .metric.pnl::before { content: ''; position: absolute; inset: 0; border-radius: 16px; background: radial-gradient(ellipse at 18% 0%, rgba(16,185,129,0.18) 0%, transparent 55%); }
+.d4 .metric.diff::before { content: ''; position: absolute; inset: 0; border-radius: 16px; background: radial-gradient(ellipse at 18% 0%, rgba(245,158,11,0.14) 0%, transparent 55%); }
+.d4 .m-label { font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.15em; color: rgba(148,163,184,0.38); position: relative; }
+.d4 .m-val { font-size: 26px; font-weight: 700; color: #dde8ff; margin-top: 3px; letter-spacing: -0.02em; position: relative; font-variant-numeric: tabular-nums; }
+.d4 .m-val.pos { color: rgba(52,211,153,0.88); }
+.d4 .balance { flex-shrink: 0; }
+.d4 .glass-track { height: 12px; border-radius: 20px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); box-shadow: inset 0 1px 3px rgba(0,0,0,0.3); position: relative; }
+.d4 .track-fill-l { position: absolute; top: 0; left: 0; height: 100%; width: 49.4%; border-radius: 20px 0 0 20px; background: linear-gradient(to right, rgba(16,185,129,0.55), rgba(16,185,129,0.2)); }
+.d4 .track-fill-r { position: absolute; top: 0; right: 0; height: 100%; width: 50.6%; border-radius: 0 20px 20px 0; background: linear-gradient(to left, rgba(239,68,68,0.45), rgba(239,68,68,0.12)); }
+.d4 .glass-thumb { position: absolute; top: 50%; left: 49.4%; transform: translate(-50%, -50%); width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,0.88); backdrop-filter: blur(4px); border: 2px solid rgba(255,255,255,0.6); box-shadow: 0 2px 8px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.8); z-index: 2; }
+.d4 .bal-labels { display: flex; justify-content: space-between; align-items: center; margin-top: 7px; }
+.d4 .bal-left { color: rgba(52,211,153,0.65); font-size: 11px; font-weight: 600; }
+.d4 .bal-right { color: rgba(248,113,113,0.65); font-size: 11px; font-weight: 600; }
+.d4 .bal-verdict { font-size: 12px; color: rgba(148,163,184,0.45); }
+.d4 .bal-verdict strong { color: rgba(148,163,184,0.75); }
+.d4 .panels { flex: 1; display: flex; gap: 12px; min-height: 0; overflow: hidden; }
+.d4 .panel-outer { flex: 1; min-width: 0; background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.09); border-radius: 22px; padding: 5px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.07); }
+.d4 .panel-inner { display: flex; flex-direction: column; overflow: hidden; background: rgba(255,255,255,0.05); border-radius: 18px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.12); height: 100%; }
+.d4 .panel-hdr { padding: 13px 15px 10px; flex-shrink: 0; border-bottom: 1px solid rgba(255,255,255,0.06); display: flex; align-items: center; justify-content: space-between; }
+.d4 .panel-name { font-size: 20px; font-weight: 700; color: #dde8ff; letter-spacing: -0.01em; }
+.d4 .panel-meta { font-size: 11px; color: rgba(148,163,184,0.28); margin-top: 2px; }
+.d4 .panel-total { font-size: 20px; font-weight: 300; color: rgba(200,212,232,0.75); letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.d4 .card-list { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 5px; min-height: 0; }
+.d4 .card-row { display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 8px 10px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); transition: background 0.1s; }
+.d4 .card-row:hover { background: rgba(255,255,255,0.07); }
+.d4 .card-img { width: 44px; height: 61px; border-radius: 6px; object-fit: cover; flex-shrink: 0; background: rgba(255,255,255,0.06); }
+.d4 .card-info { flex: 1; min-width: 0; }
+.d4 .card-name { font-size: 13px; font-weight: 600; color: rgba(200,212,232,0.82); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d4 .card-num { color: rgba(148,163,184,0.28); font-weight: 400; }
+.d4 .cond-pill { display: inline-block; margin-top: 3px; padding: 1px 7px; border-radius: 20px; font-size: 10px; font-weight: 600; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.2); color: rgba(245,158,11,0.78); box-shadow: inset 0 1px 0 rgba(255,255,255,0.07); }
+.d4 .card-set { font-size: 10.5px; color: rgba(148,163,184,0.22); margin-top: 2px; }
+.d4 .card-price { font-size: 15px; font-weight: 700; color: #dde8ff; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.d4 .cash-row { display: flex; align-items: center; gap: 10px; background: rgba(16,185,129,0.07); border: 1px solid rgba(16,185,129,0.15); border-radius: 12px; padding: 9px 11px; }
+.d4 .cash-icon { width: 28px; height: 28px; background: rgba(16,185,129,0.15); border-radius: 50%; display: flex; align-items: center; justify-content: center; color: rgba(52,211,153,0.75); font-size: 13px; font-weight: 700; flex-shrink: 0; }
+.d4 .cash-label { flex: 1; font-size: 13px; color: rgba(148,163,184,0.45); }
+.d4 .cash-amount { font-size: 15px; font-weight: 700; color: rgba(52,211,153,0.88); font-variant-numeric: tabular-nums; }
+.d4 .panel-btns { padding: 9px 8px; border-top: 1px solid rgba(255,255,255,0.05); display: flex; gap: 7px; flex-shrink: 0; }
+.d4 .btn-add-items { flex: 1; padding: 8px; background: rgba(245,158,11,0.07); border: 1px solid rgba(245,158,11,0.17); border-radius: 10px; color: rgba(245,158,11,0.65); font-size: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); }
+.d4 .btn-add-cash { flex: 1; padding: 8px; background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.14); border-radius: 10px; color: rgba(52,211,153,0.65); font-size: 12px; box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); }
+.d4 .vs-col { width: 52px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.d4 .vs-pill { background: rgba(255,255,255,0.07); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border: 1px solid rgba(255,255,255,0.14); border-radius: 30px; padding: 12px 10px; display: flex; flex-direction: column; align-items: center; box-shadow: inset 0 1px 0 rgba(255,255,255,0.15), 0 0 20px rgba(255,255,255,0.04); gap: 5px; }
+.d4 .vs-text { font-size: 12px; font-weight: 800; color: rgba(200,212,232,0.45); letter-spacing: 0.06em; }
+.d4 .vs-dot { width: 4px; height: 4px; background: rgba(255,255,255,0.18); border-radius: 50%; }
+
+/* ─────────────────────────────────────────────────────────────────
+   DESIGN 5 — NEON ARCADE
+───────────────────────────────────────────────────────────────── */
+@keyframes vs-pulse { 0%, 100% { box-shadow: 0 0 8px #00e5ff, 0 0 16px rgba(0,229,255,0.35); border-color: #00e5ff; } 50% { box-shadow: 0 0 18px #00e5ff, 0 0 36px rgba(0,229,255,0.5), 0 0 54px rgba(0,229,255,0.18); border-color: #00e5ff; } }
+@keyframes neon-flicker { 0%, 92%, 100% { opacity: 1; } 93% { opacity: 0.82; } 96% { opacity: 0.9; } }
+.d5 { background: #050505; color: #c8c8c8; display: flex; flex-direction: column; height: 100%; font-family: 'Courier New', 'Lucida Console', monospace; position: relative; }
+.d5::before { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 100; background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.16) 2px, rgba(0,0,0,0.16) 4px); }
+.d5 .nav { height: 50px; background: #030303; border-bottom: 1px solid rgba(0,229,255,0.18); display: flex; align-items: center; padding: 0 20px; gap: 0; flex-shrink: 0; box-shadow: 0 1px 16px rgba(0,229,255,0.06); position: relative; z-index: 1; }
+.d5 .nav-logo { color: #00e5ff; font-weight: 900; font-size: 15px; letter-spacing: 0.1em; margin-right: 28px; text-shadow: 0 0 10px rgba(0,229,255,0.55); animation: neon-flicker 9s infinite; }
+.d5 .nav-tabs { display: flex; gap: 2px; flex: 1; }
+.d5 .nav-tab { padding: 5px 13px; background: transparent; color: #242424; font-size: 12px; border-radius: 3px; font-family: 'Courier New', monospace; border: 1px solid transparent; }
+.d5 .nav-tab.on { background: rgba(0,229,255,0.07); color: #00e5ff; border-color: rgba(0,229,255,0.22); text-shadow: 0 0 8px rgba(0,229,255,0.35); }
+.d5 .nav-tab .badge { color: #1a1a1a; font-size: 10px; margin-left: 3px; }
+.d5 .nav-search { width: 190px; height: 27px; background: rgba(0,229,255,0.03); border: 1px solid rgba(0,229,255,0.1); border-radius: 3px; padding: 0 10px; color: rgba(0,229,255,0.28); font-size: 11px; font-family: 'Courier New', monospace; margin-right: 10px; }
+.d5 .nav-btn { padding: 5px 11px; border-radius: 3px; border: 1px solid #191919; background: transparent; color: #1e1e1e; font-size: 11px; font-family: 'Courier New', monospace; margin-left: 4px; }
+.d5 .body { flex: 1; display: flex; min-height: 0; overflow: hidden; position: relative; z-index: 1; }
+.d5 .sidebar { width: 218px; flex-shrink: 0; background: #030303; border-right: 1px solid rgba(0,229,255,0.14); box-shadow: inset -1px 0 18px rgba(0,229,255,0.025); display: flex; flex-direction: column; overflow: hidden; }
+.d5 .sb-head { padding: 13px 14px 10px; border-bottom: 1px solid rgba(0,229,255,0.1); flex-shrink: 0; }
+.d5 .sb-title { color: #00e5ff; font-size: 9px; font-weight: 700; letter-spacing: 0.28em; text-transform: uppercase; text-shadow: 0 0 10px rgba(0,229,255,0.45); }
+.d5 .sb-count { color: #1a1a1a; font-size: 10px; margin-top: 2px; }
+.d5 .sb-filters { display: flex; gap: 8px; margin-top: 7px; }
+.d5 .sb-filter { padding: 1px 0; background: transparent; border: none; color: #202020; font-size: 10px; font-family: 'Courier New', monospace; cursor: pointer; }
+.d5 .sb-filter.on { color: #00e5ff; text-shadow: 0 0 6px rgba(0,229,255,0.35); }
+.d5 .sb-list { flex: 1; overflow-y: auto; padding: 6px 0; }
+.d5 .sb-group { padding: 6px 14px 3px; font-size: 8.5px; color: #1c1c1c; letter-spacing: 0.2em; text-transform: uppercase; border-bottom: 1px solid rgba(0,229,255,0.04); }
+.d5 .sb-entry { padding: 7px 14px; border-bottom: 1px solid rgba(0,229,255,0.04); display: flex; align-items: center; gap: 7px; cursor: pointer; transition: background 0.1s; }
+.d5 .sb-entry:hover { background: rgba(0,229,255,0.035); }
+.d5 .sb-entry.active { background: rgba(0,229,255,0.055); border-left: 2px solid #00e5ff; padding-left: 12px; }
+.d5 .dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+.d5 .dot.exec { background: #00e5ff; box-shadow: 0 0 5px rgba(0,229,255,0.55); }
+.d5 .dot.saved { background: #ffe600; box-shadow: 0 0 5px rgba(255,230,0,0.45); opacity: 0.7; }
+.d5 .sb-date { font-size: 9.5px; color: #1c1c1c; width: 32px; flex-shrink: 0; }
+.d5 .sb-name { font-size: 11px; color: #333; flex: 1; }
+.d5 .sb-diff { font-size: 10px; font-weight: 700; }
+.d5 .sb-diff.pos { color: #00e5ff; text-shadow: 0 0 4px rgba(0,229,255,0.4); }
+.d5 .sb-diff.neg { color: #ff3366; }
+.d5 .sb-diff.fair { color: #1c1c1c; }
+.d5 .main { flex: 1; display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+.d5 .hdr { padding: 11px 20px 10px; border-bottom: 1px solid rgba(0,229,255,0.1); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+.d5 .hdr-title { font-size: 17px; font-weight: 900; color: #e0e0e0; letter-spacing: 0.08em; text-transform: uppercase; }
+.d5 .hdr-sub { font-size: 9px; color: #252525; margin-top: 2px; letter-spacing: 0.12em; text-transform: uppercase; }
+.d5 .hdr-btns { display: flex; gap: 7px; align-items: center; }
+.d5 .btn-green { padding: 7px 14px; background: transparent; border: 1px solid rgba(0,229,255,0.45); border-radius: 3px; color: #00e5ff; font-size: 11px; font-family: 'Courier New', monospace; font-weight: 700; text-shadow: 0 0 8px rgba(0,229,255,0.35); box-shadow: 0 0 8px rgba(0,229,255,0.08), inset 0 0 8px rgba(0,229,255,0.04); }
+.d5 .btn-amber { padding: 7px 13px; background: rgba(255,230,0,0.06); border: 1px solid rgba(255,230,0,0.28); border-radius: 3px; color: #ffe600; font-size: 11px; font-family: 'Courier New', monospace; }
+.d5 .btn-ghost { padding: 7px 10px; background: transparent; border: 1px solid #191919; border-radius: 3px; color: #242424; font-size: 11px; font-family: 'Courier New', monospace; }
+.d5 .btn-export { padding: 7px 10px; background: transparent; border: 1px solid rgba(0,229,255,0.14); border-radius: 3px; color: rgba(0,229,255,0.28); font-size: 11px; font-family: 'Courier New', monospace; }
+.d5 .metrics { display: flex; border-bottom: 1px solid rgba(0,229,255,0.08); flex-shrink: 0; background: #030303; }
+.d5 .metric { flex: 1; padding: 12px 22px; border-right: 1px solid rgba(0,229,255,0.07); }
+.d5 .metric:last-child { border-right: none; }
+.d5 .m-label { font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.24em; color: rgba(0,229,255,0.28); }
+.d5 .m-val { font-size: 32px; font-weight: 900; color: #00e5ff; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; margin-top: 3px; text-shadow: 0 0 20px rgba(0,229,255,0.38), 0 0 40px rgba(0,229,255,0.14); }
+.d5 .m-val.yellow { color: #ffe600; text-shadow: 0 0 20px rgba(255,230,0,0.38); }
+.d5 .balance { padding: 10px 22px; border-bottom: 1px solid rgba(0,229,255,0.08); display: flex; align-items: center; justify-content: center; gap: 0; flex-shrink: 0; background: #030303; }
+.d5 .bal-score { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 0 20px; }
+.d5 .bal-amount { font-size: 26px; font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; color: #2a2a2a; }
+.d5 .bal-amount.winner { color: #00e5ff; text-shadow: 0 0 16px rgba(0,229,255,0.48); }
+.d5 .bal-who { font-size: 8.5px; color: #1e1e1e; text-transform: uppercase; letter-spacing: 0.2em; margin-top: 1px; }
+.d5 .bal-who.winner { color: rgba(0,229,255,0.45); }
+.d5 .bal-sep { font-size: 28px; font-weight: 100; color: rgba(0,229,255,0.12); padding: 0 8px; line-height: 1; }
+.d5 .bal-info { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 90px; }
+.d5 .bal-diff-amt { font-size: 12px; font-weight: 700; color: rgba(0,229,255,0.45); text-shadow: 0 0 6px rgba(0,229,255,0.28); }
+.d5 .bal-diff-lbl { font-size: 8px; color: #202020; letter-spacing: 0.14em; text-transform: uppercase; text-align: center; }
+.d5 .panels { flex: 1; display: flex; gap: 0; min-height: 0; overflow: hidden; padding: 10px; gap: 0; }
+.d5 .panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; border: 1px solid rgba(0,229,255,0.12); border-radius: 4px; margin-right: 0; background: rgba(0,229,255,0.012); }
+.d5 .panel.them { border-color: rgba(255,51,102,0.14); background: rgba(255,51,102,0.008); }
+.d5 .panel-hdr { padding: 10px 14px; flex-shrink: 0; border-bottom: 1px solid rgba(0,229,255,0.08); display: flex; align-items: center; justify-content: space-between; background: rgba(0,229,255,0.025); }
+.d5 .panel.them .panel-hdr { border-bottom-color: rgba(255,51,102,0.08); background: rgba(255,51,102,0.02); }
+.d5 .panel-label { font-size: 8px; text-transform: uppercase; letter-spacing: 0.28em; color: rgba(0,229,255,0.35); margin-bottom: 1px; }
+.d5 .panel.them .panel-label { color: rgba(255,51,102,0.35); }
+.d5 .panel-name { font-size: 18px; font-weight: 900; color: #00e5ff; text-shadow: 0 0 10px rgba(0,229,255,0.38); letter-spacing: 0.02em; }
+.d5 .panel.them .panel-name { color: #ff3366; text-shadow: 0 0 10px rgba(255,51,102,0.38); }
+.d5 .panel-meta { font-size: 9px; color: #252525; margin-top: 2px; letter-spacing: 0.08em; }
+.d5 .panel-total { font-size: 20px; font-weight: 900; color: #d8d8d8; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.d5 .card-list { flex: 1; overflow-y: auto; min-height: 0; }
+.d5 .card-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid rgba(0,229,255,0.04); transition: background 0.1s; }
+.d5 .panel.them .card-row { border-bottom-color: rgba(255,51,102,0.04); }
+.d5 .card-row:hover { background: rgba(0,229,255,0.04); }
+.d5 .panel.them .card-row:hover { background: rgba(255,51,102,0.03); }
+.d5 .card-img { width: 30px; height: 42px; border-radius: 3px; object-fit: cover; flex-shrink: 0; background: rgba(0,229,255,0.06); opacity: 0.65; }
+.d5 .panel.them .card-img { background: rgba(255,51,102,0.06); }
+.d5 .card-info { flex: 1; min-width: 0; }
+.d5 .card-name { font-size: 11.5px; color: #7a7a7a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.d5 .card-num { color: #2e2e2e; font-weight: 400; }
+.d5 .cond-pill { display: inline-block; margin-top: 2px; padding: 1px 6px; border-radius: 2px; font-size: 9.5px; font-weight: 700; background: rgba(255,230,0,0.07); border: 1px solid rgba(255,230,0,0.2); color: rgba(255,230,0,0.58); }
+.d5 .card-set { font-size: 9.5px; color: #252525; margin-top: 1px; }
+.d5 .card-price { font-size: 14px; font-weight: 700; color: #d8d8d8; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.d5 .cash-row { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid rgba(0,229,255,0.04); background: rgba(0,229,255,0.025); }
+.d5 .cash-label { flex: 1; font-size: 11.5px; color: #252525; }
+.d5 .cash-amount { font-size: 14px; font-weight: 700; color: #00e5ff; font-variant-numeric: tabular-nums; text-shadow: 0 0 6px rgba(0,229,255,0.28); }
+.d5 .panel-btns { padding: 9px 14px; border-top: 1px solid rgba(0,229,255,0.08); display: flex; gap: 6px; flex-shrink: 0; }
+.d5 .panel.them .panel-btns { border-top-color: rgba(255,51,102,0.08); }
+.d5 .btn-add-items { flex: 1; padding: 7px; background: transparent; border: 1px solid rgba(255,230,0,0.18); border-radius: 3px; color: rgba(255,230,0,0.45); font-size: 11px; font-family: 'Courier New', monospace; }
+.d5 .btn-add-cash { flex: 1; padding: 7px; background: transparent; border: 1px solid rgba(0,229,255,0.14); border-radius: 3px; color: rgba(0,229,255,0.32); font-size: 11px; font-family: 'Courier New', monospace; }
+.d5 .vs-col { width: 40px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; }
+.d5 .vs-line { flex: 1; width: 1px; background: linear-gradient(to bottom, transparent, rgba(0,229,255,0.35), transparent); }
+.d5 .vs-badge { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; background: transparent; border: 2px solid #00e5ff; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 900; color: #00e5ff; letter-spacing: 0.04em; animation: vs-pulse 2.2s ease-in-out infinite; }
+</style>
+</head>
+<body>
+
+<!-- ── SELECTOR ──────────────────────────────────────────────────────── -->
+<div id="sel">
+  <span class="lbl">Design Concepts</span>
+  <button class="on" onclick="show(1)">1 — Duel Arena</button>
+  <button onclick="show(2)">2 — Precision Desk</button>
+  <button onclick="show(3)">3 — Trading Floor</button>
+  <button onclick="show(4)">4 — Glass Studio</button>
+  <button onclick="show(5)">5 — Neon Arcade</button>
+  <span class="tip">Click tabs to switch</span>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     DESIGN 1 — DUEL ARENA
+═══════════════════════════════════════════════════════════════════════ -->
+<div class="design on" id="d1">
+<div class="d1">
+
+  <!-- Nav -->
+  <nav class="nav">
+    <span class="nav-logo">POKEPRICE</span>
+    <div class="nav-tabs">
+      <button class="nav-tab">Collection <span class="badge">13</span></button>
+      <button class="nav-tab">Watchlist <span class="badge">5</span></button>
+      <button class="nav-tab on">Trade Analyzer</button>
+      <button class="nav-tab">Card Shows</button>
+      <button class="nav-tab">Pokédex</button>
+      <button class="nav-tab">Advanced Search</button>
+    </div>
+    <input class="nav-search" placeholder="Search items…" readonly>
+    <button class="nav-btn">My Account</button>
+    <button class="nav-btn">Sign Out</button>
+  </nav>
+
+  <!-- Body -->
+  <div class="body">
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sb-head">
+        <div class="sb-title">Battle Record</div>
+        <div class="sb-count">4 trades</div>
+        <div class="sb-filters">
+          <button class="sb-filter on">All 4</button>
+          <button class="sb-filter">Saved 1</button>
+          <button class="sb-filter">Done 3</button>
+        </div>
+      </div>
+      <div class="sb-list">
+        <div class="sb-yr">2026</div>
+        <div class="sb-mo">June</div>
+        <div class="sb-entry active">
+          <span class="dot exec"></span>
+          <span class="sb-name">Marcus</span>
+          <span class="sb-diff fair">—</span>
+        </div>
+        <div class="sb-entry">
+          <span class="dot saved"></span>
+          <span class="sb-name">Ash</span>
+          <span class="sb-diff fair">Draft</span>
+        </div>
+        <div class="sb-mo">May</div>
+        <div class="sb-entry">
+          <span class="dot exec"></span>
+          <span class="sb-name">Gary</span>
+          <span class="sb-diff pos">+$15</span>
+        </div>
+        <div class="sb-mo">April</div>
+        <div class="sb-entry">
+          <span class="dot exec"></span>
+          <span class="sb-name">Alex</span>
+          <span class="sb-diff neg">−$8</span>
+        </div>
+      </div>
+    </div><!-- /sidebar -->
+
+    <!-- Main -->
+    <div class="main">
+
+      <!-- Header -->
+      <div class="hdr">
+        <div>
+          <div class="hdr-title">Trade Analyzer</div>
+          <div class="hdr-sub">Compare card values to see if your trade is fair</div>
+        </div>
+        <div class="hdr-btns">
+          <button class="btn-green">Make Trade</button>
+          <button class="btn-amber">Save Trade</button>
+          <button class="btn-ghost">Reset</button>
+          <button class="btn-cyan">Export</button>
+        </div>
+      </div>
+
+      <!-- Metrics -->
+      <div class="metrics">
+        <div class="metric">
+          <div class="m-label">Total Trades</div>
+          <div class="m-val">12</div>
+        </div>
+        <div class="metric">
+          <div class="m-label">Total P&amp;L</div>
+          <div class="m-val pos">+$87.40</div>
+        </div>
+        <div class="metric">
+          <div class="m-label">Avg Trade Diff</div>
+          <div class="m-val pos">+4.2%</div>
+        </div>
+      </div>
+
+      <!-- HP Bar -->
+      <div class="hpbar">
+        <div class="hpbar-track">
+          <div class="hpbar-thumb"></div>
+        </div>
+        <div class="hpbar-labels">
+          <span class="hpbar-left">← Better Trade for You</span>
+          <span class="hpbar-verdict"><em>Fair Trade</em> — $2.00 in Marcus's favor</span>
+          <span class="hpbar-right">Better Trade for Them →</span>
+        </div>
+      </div>
+
+      <!-- Panels -->
+      <div class="panels">
+
+        <!-- You -->
+        <div class="panel you">
+          <div class="panel-hdr">
+            <div>
+              <div class="panel-name">You</div>
+              <div class="panel-meta">3 cards · $0.00 cash</div>
+            </div>
+            <div class="panel-total">$160.00</div>
+          </div>
+          <div class="card-list">
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/char199/42/58" alt="">
+              <div class="card-info">
+                <div class="card-name">Charizard ex <span class="card-num">#199</span></div>
+                <span class="cond-pill">Raw</span>
+                <div class="card-set">Obsidian Flames</div>
+              </div>
+              <div class="card-price">$89.50</div>
+            </div>
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/pika44/42/58" alt="">
+              <div class="card-info">
+                <div class="card-name">Pikachu VMAX <span class="card-num">#44</span></div>
+                <span class="cond-pill">PSA 9</span>
+                <div class="card-set">Vivid Voltage</div>
+              </div>
+              <div class="card-price">$42.50</div>
+            </div>
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/umbre94/42/58" alt="">
+              <div class="card-info">
+                <div class="card-name">Umbreon V <span class="card-num">#94</span></div>
+                <span class="cond-pill">Raw</span>
+                <div class="card-set">Evolving Skies</div>
+              </div>
+              <div class="card-price">$28.00</div>
+            </div>
+          </div>
+          <div class="panel-btns">
+            <button class="btn-add-items">+ Add Items</button>
+            <button class="btn-add-cash">+ Add Cash</button>
+          </div>
+        </div>
+
+        <!-- VS -->
+        <div class="vs-col">
+          <div class="vs-line"></div>
+          <div class="vs-badge">VS</div>
+          <div class="vs-line"></div>
+        </div>
+
+        <!-- Them -->
+        <div class="panel them">
+          <div class="panel-hdr">
+            <div>
+              <div class="panel-name">Marcus</div>
+              <div class="panel-meta">2 cards · $5.00 cash</div>
+            </div>
+            <div class="panel-total">$162.00</div>
+          </div>
+          <div class="card-list">
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/mew205/42/58" alt="">
+              <div class="card-info">
+                <div class="card-name">Mewtwo ex <span class="card-num">#205</span></div>
+                <span class="cond-pill">Raw</span>
+                <div class="card-set">Paldea Evolved</div>
+              </div>
+              <div class="card-price">$105.00</div>
+            </div>
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/ray217/42/58" alt="">
+              <div class="card-info">
+                <div class="card-name">Rayquaza VMAX <span class="card-num">#217</span></div>
+                <span class="cond-pill">Raw</span>
+                <div class="card-set">Evolving Skies</div>
+              </div>
+              <div class="card-price">$52.00</div>
+            </div>
+            <div class="cash-row">
+              <div class="cash-icon">$</div>
+              <div class="cash-label">Cash</div>
+              <div class="cash-amount">$5.00</div>
+            </div>
+          </div>
+          <div class="panel-btns">
+            <button class="btn-add-items">+ Add Items</button>
+            <button class="btn-add-cash">+ Add Cash</button>
+          </div>
+        </div>
+
+      </div><!-- /panels -->
+    </div><!-- /main -->
+  </div><!-- /body -->
+</div><!-- /d1 inner -->
+</div><!-- /design 1 -->
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     DESIGN 2 — PRECISION DESK
+═══════════════════════════════════════════════════════════════════════ -->
+<div class="design" id="d2">
+<div class="d2">
+
+  <!-- Nav -->
+  <nav class="nav">
+    <span class="nav-logo">POKEPRICE</span>
+    <div class="nav-tabs">
+      <button class="nav-tab">Collection <span class="badge">13</span></button>
+      <button class="nav-tab">Watchlist <span class="badge">5</span></button>
+      <button class="nav-tab on">Trade Analyzer</button>
+      <button class="nav-tab">Card Shows</button>
+      <button class="nav-tab">Pokédex</button>
+      <button class="nav-tab">Advanced Search</button>
+    </div>
+    <input class="nav-search" placeholder="Search items…" readonly>
+    <button class="nav-btn">My Account</button>
+    <button class="nav-btn">Sign Out</button>
+  </nav>
+
+  <!-- Body -->
+  <div class="body">
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+      <div class="sb-head">
+        <div class="sb-title">Trade History</div>
+        <div class="sb-count">4 trades</div>
+        <div class="sb-filters">
+          <button class="sb-filter on">All</button>
+          <button class="sb-filter">Saved</button>
+          <button class="sb-filter">Done</button>
+        </div>
+      </div>
+      <div class="sb-list">
+        <div class="sb-group">June 2026</div>
+        <div class="sb-entry active">
+          <span class="dot exec"></span>
+          <span class="sb-date">Jun 4</span>
+          <span class="sb-name">Marcus</span>
+          <span class="sb-diff fair">—</span>
+        </div>
+        <div class="sb-entry">
+          <span class="dot saved"></span>
+          <span class="sb-date">Jun 1</span>
+          <span class="sb-name">Ash</span>
+          <span class="sb-diff fair">Draft</span>
+        </div>
+        <div class="sb-group">May 2026</div>
+        <div class="sb-entry">
+          <span class="dot exec"></span>
+          <span class="sb-date">May 22</span>
+          <span class="sb-name">Gary</span>
+          <span class="sb-diff pos">+$15.30</span>
+        </div>
+        <div class="sb-group">April 2026</div>
+        <div class="sb-entry">
+          <span class="dot exec"></span>
+          <span class="sb-date">Apr 15</span>
+          <span class="sb-name">Alex</span>
+          <span class="sb-diff neg">−$8.20</span>
+        </div>
+      </div>
+    </div><!-- /sidebar -->
+
+    <!-- Main -->
+    <div class="main">
+
+      <!-- Top strip: header + metrics -->
+      <div class="top-strip">
+        <div class="hdr">
+          <div>
+            <div class="hdr-title">Trade Analyzer</div>
+            <div class="hdr-sub">Compare card values to see if your trade is fair</div>
+          </div>
+          <div class="hdr-btns">
+            <button class="btn-green">Make Trade</button>
+            <button class="btn-amber">Save Trade</button>
+            <button class="btn-ghost">Reset</button>
+            <button class="btn-cyan">Export</button>
+          </div>
+        </div>
+        <div class="metrics">
+          <div class="metric">
+            <div class="m-label">Total Trades</div>
+            <div class="m-val">12</div>
+          </div>
+          <div class="metric">
+            <div class="m-label">Total P&amp;L</div>
+            <div class="m-val pos">+$87.40</div>
+          </div>
+          <div class="metric">
+            <div class="m-label">Avg Trade Diff</div>
+            <div class="m-val pos">+4.2%</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Balance comparison (replaces slider) -->
+      <div class="balance">
+        <div class="bal-side left">
+          <div class="bal-amount">$160.00</div>
+          <div class="bal-who">You</div>
+        </div>
+        <div class="bal-center">
+          <div class="bal-arrows">← →</div>
+          <div class="bal-diff-amt">+$2.00</div>
+          <div class="bal-diff-lbl">Marcus's favor</div>
+        </div>
+        <div class="bal-side right">
+          <div class="bal-amount">$162.00</div>
+          <div class="bal-who">Marcus</div>
+        </div>
+      </div>
+
+      <!-- Panels -->
+      <div class="panels">
+
+        <!-- You -->
+        <div class="panel">
+          <div class="panel-hdr">
+            <div>
+              <div class="panel-name">You</div>
+              <div class="panel-meta">3 cards · $0.00 cash</div>
+            </div>
+            <div class="panel-total">$160.00</div>
+          </div>
+          <div class="card-list">
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/char199/26/36" alt="">
+              <div class="card-info">
+                <div class="card-name">Charizard ex <span class="card-num">#199</span></div>
+                <div class="card-meta">Obsidian Flames · <span class="card-cond">Raw</span></div>
+              </div>
+              <div class="card-price">$89.50</div>
+            </div>
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/pika44/26/36" alt="">
+              <div class="card-info">
+                <div class="card-name">Pikachu VMAX <span class="card-num">#44</span></div>
+                <div class="card-meta">Vivid Voltage · <span class="card-cond">PSA 9</span></div>
+              </div>
+              <div class="card-price">$42.50</div>
+            </div>
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/umbre94/26/36" alt="">
+              <div class="card-info">
+                <div class="card-name">Umbreon V <span class="card-num">#94</span></div>
+                <div class="card-meta">Evolving Skies · <span class="card-cond">Raw</span></div>
+              </div>
+              <div class="card-price">$28.00</div>
+            </div>
+          </div>
+          <div class="panel-btns">
+            <button class="btn-add-items">+ Add Items</button>
+            <button class="btn-add-cash">+ Add Cash</button>
+          </div>
+        </div>
+
+        <!-- VS hairline -->
+        <div class="vs-col">
+          <div class="vs-label">vs</div>
+        </div>
+
+        <!-- Them -->
+        <div class="panel">
+          <div class="panel-hdr">
+            <div>
+              <div class="panel-name">Marcus</div>
+              <div class="panel-meta">2 cards · $5.00 cash</div>
+            </div>
+            <div class="panel-total">$162.00</div>
+          </div>
+          <div class="card-list">
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/mew205/26/36" alt="">
+              <div class="card-info">
+                <div class="card-name">Mewtwo ex <span class="card-num">#205</span></div>
+                <div class="card-meta">Paldea Evolved · <span class="card-cond">Raw</span></div>
+              </div>
+              <div class="card-price">$105.00</div>
+            </div>
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/ray217/26/36" alt="">
+              <div class="card-info">
+                <div class="card-name">Rayquaza VMAX <span class="card-num">#217</span></div>
+                <div class="card-meta">Evolving Skies · <span class="card-cond">Raw</span></div>
+              </div>
+              <div class="card-price">$52.00</div>
+            </div>
+            <div class="cash-row">
+              <div class="cash-lbl">Cash</div>
+              <div class="cash-amt">+$5.00</div>
+            </div>
+          </div>
+          <div class="panel-btns">
+            <button class="btn-add-items">+ Add Items</button>
+            <button class="btn-add-cash">+ Add Cash</button>
+          </div>
+        </div>
+
+      </div><!-- /panels -->
+    </div><!-- /main -->
+  </div><!-- /body -->
+</div><!-- /d2 inner -->
+</div><!-- /design 2 -->
+
+
+<!-- ════════════════════════════════════════════════════════════════════
+     DESIGN 3 — TRADING FLOOR
+═══════════════════════════════════════════════════════════════════════ -->
+<div class="design" id="d3">
+<div class="d3">
+  <nav class="nav">
+    <span class="nav-logo">POKEPRICE</span>
+    <div class="nav-tabs">
+      <button class="nav-tab">Collection <span class="badge">13</span></button>
+      <button class="nav-tab">Watchlist <span class="badge">5</span></button>
+      <button class="nav-tab on">Trade Analyzer</button>
+      <button class="nav-tab">Card Shows</button>
+      <button class="nav-tab">Pokédex</button>
+      <button class="nav-tab">Advanced Search</button>
+    </div>
+    <input class="nav-search" placeholder="Search items…" readonly>
+    <button class="nav-btn">My Account</button>
+    <button class="nav-btn">Sign Out</button>
+  </nav>
+  <div class="body">
+    <div class="sidebar">
+      <div class="sb-head">
+        <div class="sb-title">Trade Log</div>
+        <div class="sb-count">4 records</div>
+        <div class="sb-filters">
+          <button class="sb-filter on">ALL</button>
+          <button class="sb-filter">OPEN</button>
+          <button class="sb-filter">CLOSED</button>
+        </div>
+      </div>
+      <div class="sb-list">
+        <div class="sb-group">June 2026</div>
+        <div class="sb-entry active">
+          <span class="dot exec"></span>
+          <span class="sb-date">Jun 4</span>
+          <span class="sb-name">Marcus</span>
+          <span class="sb-diff fair">—</span>
+        </div>
+        <div class="sb-entry">
+          <span class="dot saved"></span>
+          <span class="sb-date">Jun 1</span>
+          <span class="sb-name">Ash</span>
+          <span class="sb-diff fair">OPEN</span>
+        </div>
+        <div class="sb-group">May 2026</div>
+        <div class="sb-entry">
+          <span class="dot exec"></span>
+          <span class="sb-date">May 22</span>
+          <span class="sb-name">Gary</span>
+          <span class="sb-diff pos">+15.30</span>
+        </div>
+        <div class="sb-group">April 2026</div>
+        <div class="sb-entry">
+          <span class="dot exec"></span>
+          <span class="sb-date">Apr 15</span>
+          <span class="sb-name">Alex</span>
+          <span class="sb-diff neg">-8.20</span>
+        </div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="hdr">
+        <div>
+          <div class="hdr-title">TRADE ANALYZER</div>
+          <div class="hdr-sub">Real-time card value comparison</div>
+        </div>
+        <div class="hdr-btns">
+          <button class="btn-green">EXECUTE</button>
+          <button class="btn-amber">SAVE</button>
+          <button class="btn-ghost">RESET</button>
+          <button class="btn-export">EXPORT</button>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric">
+          <div class="m-label">Total Trades</div>
+          <div class="m-val">12</div>
+        </div>
+        <div class="metric">
+          <div class="m-label">Total P&amp;L</div>
+          <div class="m-val pos">+87.40</div>
+        </div>
+        <div class="metric">
+          <div class="m-label">Avg Diff</div>
+          <div class="m-val pos">+4.2%</div>
+        </div>
+      </div>
+      <div class="balance">
+        <div class="bal-dot"></div>
+        <div class="bal-text"><strong>Fair Trade</strong> — Marcus receives $2.00 more (1.2%). Within acceptable range.</div>
+        <div class="bal-amounts">YOU $160.00 / MARCUS $162.00</div>
+      </div>
+      <div class="panels">
+        <div class="panel you">
+          <div class="panel-hdr">
+            <div>
+              <div class="panel-name">YOU</div>
+              <div class="panel-meta">3 cards / $0.00 cash</div>
+            </div>
+            <div class="panel-total">$160.00</div>
+          </div>
+          <div class="col-headers">
+            <div class="col-h grow">CARD</div>
+            <div class="col-h cond">COND</div>
+            <div class="col-h price">PRICE</div>
+          </div>
+          <div class="card-list">
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/char199/24/33" alt="">
+              <div class="card-info">
+                <div class="card-name">Charizard ex <span class="card-num">#199</span></div>
+                <div class="card-set">Obsidian Flames</div>
+              </div>
+              <div class="card-cond">Raw</div>
+              <div class="card-price">$89.50</div>
+            </div>
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/pika44/24/33" alt="">
+              <div class="card-info">
+                <div class="card-name">Pikachu VMAX <span class="card-num">#44</span></div>
+                <div class="card-set">Vivid Voltage</div>
+              </div>
+              <div class="card-cond">PSA 9</div>
+              <div class="card-price">$42.50</div>
+            </div>
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/umbre94/24/33" alt="">
+              <div class="card-info">
+                <div class="card-name">Umbreon V <span class="card-num">#94</span></div>
+                <div class="card-set">Evolving Skies</div>
+              </div>
+              <div class="card-cond">Raw</div>
+              <div class="card-price">$28.00</div>
+            </div>
+          </div>
+          <div class="panel-btns">
+            <button class="btn-add-items">+ ADD ITEMS</button>
+            <button class="btn-add-cash">+ ADD CASH</button>
+          </div>
+        </div>
+        <div class="vs-col"><div class="vs-text">V&nbsp;&nbsp;S</div></div>
+        <div class="panel them">
+          <div class="panel-hdr">
+            <div>
+              <div class="panel-name">MARCUS</div>
+              <div class="panel-meta">2 cards / $5.00 cash</div>
+            </div>
+            <div class="panel-total">$162.00</div>
+          </div>
+          <div class="col-headers">
+            <div class="col-h grow">CARD</div>
+            <div class="col-h cond">COND</div>
+            <div class="col-h price">PRICE</div>
+          </div>
+          <div class="card-list">
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/mew205/24/33" alt="">
+              <div class="card-info">
+                <div class="card-name">Mewtwo ex <span class="card-num">#205</span></div>
+                <div class="card-set">Paldea Evolved</div>
+              </div>
+              <div class="card-cond">Raw</div>
+              <div class="card-price">$105.00</div>
+            </div>
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/ray217/24/33" alt="">
+              <div class="card-info">
+                <div class="card-name">Rayquaza VMAX <span class="card-num">#217</span></div>
+                <div class="card-set">Evolving Skies</div>
+              </div>
+              <div class="card-cond">Raw</div>
+              <div class="card-price">$52.00</div>
+            </div>
+            <div class="cash-row">
+              <div class="cash-info">Cash</div>
+              <div class="cash-cond">—</div>
+              <div class="cash-amt">$5.00</div>
+            </div>
+          </div>
+          <div class="panel-btns">
+            <button class="btn-add-items">+ ADD ITEMS</button>
+            <button class="btn-add-cash">+ ADD CASH</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     DESIGN 4 — GLASS STUDIO
+═══════════════════════════════════════════════════════════════════════ -->
+<div class="design" id="d4">
+<div class="d4">
+  <nav class="nav">
+    <span class="nav-logo">POKEPRICE</span>
+    <div class="nav-tabs">
+      <button class="nav-tab">Collection <span class="badge">13</span></button>
+      <button class="nav-tab">Watchlist <span class="badge">5</span></button>
+      <button class="nav-tab on">Trade Analyzer</button>
+      <button class="nav-tab">Card Shows</button>
+      <button class="nav-tab">Pokédex</button>
+      <button class="nav-tab">Advanced Search</button>
+    </div>
+    <input class="nav-search" placeholder="Search items…" readonly>
+    <button class="nav-btn">My Account</button>
+    <button class="nav-btn">Sign Out</button>
+  </nav>
+  <div class="body">
+    <div class="sidebar">
+      <div class="sb-head">
+        <div class="sb-title">Trade History</div>
+        <div class="sb-count">4 trades</div>
+        <div class="sb-filters">
+          <button class="sb-filter on">All 4</button>
+          <button class="sb-filter">Saved 1</button>
+          <button class="sb-filter">Done 3</button>
+        </div>
+      </div>
+      <div class="sb-list">
+        <div class="sb-group">June 2026</div>
+        <div class="sb-entry active">
+          <span class="dot exec"></span>
+          <span class="sb-date">Jun 4</span>
+          <span class="sb-name">Marcus</span>
+          <span class="sb-diff fair">—</span>
+        </div>
+        <div class="sb-entry">
+          <span class="dot saved"></span>
+          <span class="sb-date">Jun 1</span>
+          <span class="sb-name">Ash</span>
+          <span class="sb-diff fair">Draft</span>
+        </div>
+        <div class="sb-group">May 2026</div>
+        <div class="sb-entry">
+          <span class="dot exec"></span>
+          <span class="sb-date">May 22</span>
+          <span class="sb-name">Gary</span>
+          <span class="sb-diff pos">+$15.30</span>
+        </div>
+        <div class="sb-group">April 2026</div>
+        <div class="sb-entry">
+          <span class="dot exec"></span>
+          <span class="sb-date">Apr 15</span>
+          <span class="sb-name">Alex</span>
+          <span class="sb-diff neg">−$8.20</span>
+        </div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="hdr">
+        <div>
+          <div class="hdr-title">Trade Analyzer</div>
+          <div class="hdr-sub">Compare card values to see if your trade is fair</div>
+        </div>
+        <div class="hdr-btns">
+          <button class="btn-green">Make Trade</button>
+          <button class="btn-amber">Save Trade</button>
+          <button class="btn-ghost">Reset</button>
+          <button class="btn-cyan">Export</button>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric trades">
+          <div class="m-label">Total Trades</div>
+          <div class="m-val">12</div>
+        </div>
+        <div class="metric pnl">
+          <div class="m-label">Total P&amp;L</div>
+          <div class="m-val pos">+$87.40</div>
+        </div>
+        <div class="metric diff">
+          <div class="m-label">Avg Trade Diff</div>
+          <div class="m-val pos">+4.2%</div>
+        </div>
+      </div>
+      <div class="balance">
+        <div class="glass-track">
+          <div class="track-fill-l"></div>
+          <div class="track-fill-r"></div>
+          <div class="glass-thumb"></div>
+        </div>
+        <div class="bal-labels">
+          <span class="bal-left">← Better Trade for You</span>
+          <span class="bal-verdict"><strong>Fair Trade</strong> — $2.00 in Marcus's favor</span>
+          <span class="bal-right">Better Trade for Them →</span>
+        </div>
+      </div>
+      <div class="panels">
+        <div class="panel-outer">
+          <div class="panel-inner">
+            <div class="panel-hdr">
+              <div>
+                <div class="panel-name">You</div>
+                <div class="panel-meta">3 cards · $0.00 cash</div>
+              </div>
+              <div class="panel-total">$160.00</div>
+            </div>
+            <div class="card-list">
+              <div class="card-row">
+                <img class="card-img" src="https://picsum.photos/seed/char199/44/61" alt="">
+                <div class="card-info">
+                  <div class="card-name">Charizard ex <span class="card-num">#199</span></div>
+                  <span class="cond-pill">Raw</span>
+                  <div class="card-set">Obsidian Flames</div>
+                </div>
+                <div class="card-price">$89.50</div>
+              </div>
+              <div class="card-row">
+                <img class="card-img" src="https://picsum.photos/seed/pika44/44/61" alt="">
+                <div class="card-info">
+                  <div class="card-name">Pikachu VMAX <span class="card-num">#44</span></div>
+                  <span class="cond-pill">PSA 9</span>
+                  <div class="card-set">Vivid Voltage</div>
+                </div>
+                <div class="card-price">$42.50</div>
+              </div>
+              <div class="card-row">
+                <img class="card-img" src="https://picsum.photos/seed/umbre94/44/61" alt="">
+                <div class="card-info">
+                  <div class="card-name">Umbreon V <span class="card-num">#94</span></div>
+                  <span class="cond-pill">Raw</span>
+                  <div class="card-set">Evolving Skies</div>
+                </div>
+                <div class="card-price">$28.00</div>
+              </div>
+            </div>
+            <div class="panel-btns">
+              <button class="btn-add-items">+ Add Items</button>
+              <button class="btn-add-cash">+ Add Cash</button>
+            </div>
+          </div>
+        </div>
+        <div class="vs-col">
+          <div class="vs-pill">
+            <div class="vs-text">VS</div>
+            <div class="vs-dot"></div>
+            <div class="vs-dot"></div>
+          </div>
+        </div>
+        <div class="panel-outer">
+          <div class="panel-inner">
+            <div class="panel-hdr">
+              <div>
+                <div class="panel-name">Marcus</div>
+                <div class="panel-meta">2 cards · $5.00 cash</div>
+              </div>
+              <div class="panel-total">$162.00</div>
+            </div>
+            <div class="card-list">
+              <div class="card-row">
+                <img class="card-img" src="https://picsum.photos/seed/mew205/44/61" alt="">
+                <div class="card-info">
+                  <div class="card-name">Mewtwo ex <span class="card-num">#205</span></div>
+                  <span class="cond-pill">Raw</span>
+                  <div class="card-set">Paldea Evolved</div>
+                </div>
+                <div class="card-price">$105.00</div>
+              </div>
+              <div class="card-row">
+                <img class="card-img" src="https://picsum.photos/seed/ray217/44/61" alt="">
+                <div class="card-info">
+                  <div class="card-name">Rayquaza VMAX <span class="card-num">#217</span></div>
+                  <span class="cond-pill">Raw</span>
+                  <div class="card-set">Evolving Skies</div>
+                </div>
+                <div class="card-price">$52.00</div>
+              </div>
+              <div class="cash-row">
+                <div class="cash-icon">$</div>
+                <div class="cash-label">Cash</div>
+                <div class="cash-amount">$5.00</div>
+              </div>
+            </div>
+            <div class="panel-btns">
+              <button class="btn-add-items">+ Add Items</button>
+              <button class="btn-add-cash">+ Add Cash</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     DESIGN 5 — NEON ARCADE
+═══════════════════════════════════════════════════════════════════════ -->
+<div class="design" id="d5">
+<div class="d5">
+  <nav class="nav">
+    <span class="nav-logo">POKEPRICE</span>
+    <div class="nav-tabs">
+      <button class="nav-tab">Collection <span class="badge">13</span></button>
+      <button class="nav-tab">Watchlist <span class="badge">5</span></button>
+      <button class="nav-tab on">Trade Analyzer</button>
+      <button class="nav-tab">Card Shows</button>
+      <button class="nav-tab">Pokédex</button>
+      <button class="nav-tab">Advanced Search</button>
+    </div>
+    <input class="nav-search" placeholder="Search items…" readonly>
+    <button class="nav-btn">My Account</button>
+    <button class="nav-btn">Sign Out</button>
+  </nav>
+  <div class="body">
+    <div class="sidebar">
+      <div class="sb-head">
+        <div class="sb-title">Match Log</div>
+        <div class="sb-count">4 matches</div>
+        <div class="sb-filters">
+          <button class="sb-filter on">ALL</button>
+          <button class="sb-filter">OPEN</button>
+          <button class="sb-filter">CLOSED</button>
+        </div>
+      </div>
+      <div class="sb-list">
+        <div class="sb-group">June 2026</div>
+        <div class="sb-entry active">
+          <span class="dot exec"></span>
+          <span class="sb-date">Jun 4</span>
+          <span class="sb-name">Marcus</span>
+          <span class="sb-diff fair">—</span>
+        </div>
+        <div class="sb-entry">
+          <span class="dot saved"></span>
+          <span class="sb-date">Jun 1</span>
+          <span class="sb-name">Ash</span>
+          <span class="sb-diff fair">OPEN</span>
+        </div>
+        <div class="sb-group">May 2026</div>
+        <div class="sb-entry">
+          <span class="dot exec"></span>
+          <span class="sb-date">May 22</span>
+          <span class="sb-name">Gary</span>
+          <span class="sb-diff pos">+$15</span>
+        </div>
+        <div class="sb-group">April 2026</div>
+        <div class="sb-entry">
+          <span class="dot exec"></span>
+          <span class="sb-date">Apr 15</span>
+          <span class="sb-name">Alex</span>
+          <span class="sb-diff neg">-$8</span>
+        </div>
+      </div>
+    </div>
+    <div class="main">
+      <div class="hdr">
+        <div>
+          <div class="hdr-title">Trade Analyzer</div>
+          <div class="hdr-sub">Compare card values — determine trade fairness</div>
+        </div>
+        <div class="hdr-btns">
+          <button class="btn-green">EXECUTE TRADE</button>
+          <button class="btn-amber">SAVE</button>
+          <button class="btn-ghost">RESET</button>
+          <button class="btn-export">EXPORT</button>
+        </div>
+      </div>
+      <div class="metrics">
+        <div class="metric">
+          <div class="m-label">Total Trades</div>
+          <div class="m-val">12</div>
+        </div>
+        <div class="metric">
+          <div class="m-label">Total P&amp;L</div>
+          <div class="m-val">+$87.40</div>
+        </div>
+        <div class="metric">
+          <div class="m-label">Avg Trade Diff</div>
+          <div class="m-val yellow">+4.2%</div>
+        </div>
+      </div>
+      <div class="balance">
+        <div class="bal-score">
+          <div class="bal-amount">$160.00</div>
+          <div class="bal-who">YOU</div>
+        </div>
+        <div class="bal-sep">|</div>
+        <div class="bal-info">
+          <div class="bal-diff-amt">+$2.00</div>
+          <div class="bal-diff-lbl">Marcus's favor</div>
+        </div>
+        <div class="bal-sep">|</div>
+        <div class="bal-score">
+          <div class="bal-amount winner">$162.00</div>
+          <div class="bal-who winner">MARCUS</div>
+        </div>
+      </div>
+      <div class="panels">
+        <div class="panel you">
+          <div class="panel-hdr">
+            <div>
+              <div class="panel-label">Player One</div>
+              <div class="panel-name">YOU</div>
+              <div class="panel-meta">3 cards · $0.00 cash</div>
+            </div>
+            <div class="panel-total">$160.00</div>
+          </div>
+          <div class="card-list">
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/char199/30/42" alt="">
+              <div class="card-info">
+                <div class="card-name">Charizard ex <span class="card-num">#199</span></div>
+                <span class="cond-pill">Raw</span>
+                <div class="card-set">Obsidian Flames</div>
+              </div>
+              <div class="card-price">$89.50</div>
+            </div>
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/pika44/30/42" alt="">
+              <div class="card-info">
+                <div class="card-name">Pikachu VMAX <span class="card-num">#44</span></div>
+                <span class="cond-pill">PSA 9</span>
+                <div class="card-set">Vivid Voltage</div>
+              </div>
+              <div class="card-price">$42.50</div>
+            </div>
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/umbre94/30/42" alt="">
+              <div class="card-info">
+                <div class="card-name">Umbreon V <span class="card-num">#94</span></div>
+                <span class="cond-pill">Raw</span>
+                <div class="card-set">Evolving Skies</div>
+              </div>
+              <div class="card-price">$28.00</div>
+            </div>
+          </div>
+          <div class="panel-btns">
+            <button class="btn-add-items">+ ADD ITEMS</button>
+            <button class="btn-add-cash">+ ADD CASH</button>
+          </div>
+        </div>
+        <div class="vs-col">
+          <div class="vs-line"></div>
+          <div class="vs-badge">VS</div>
+          <div class="vs-line"></div>
+        </div>
+        <div class="panel them">
+          <div class="panel-hdr">
+            <div>
+              <div class="panel-label">Player Two</div>
+              <div class="panel-name">MARCUS</div>
+              <div class="panel-meta">2 cards · $5.00 cash</div>
+            </div>
+            <div class="panel-total">$162.00</div>
+          </div>
+          <div class="card-list">
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/mew205/30/42" alt="">
+              <div class="card-info">
+                <div class="card-name">Mewtwo ex <span class="card-num">#205</span></div>
+                <span class="cond-pill">Raw</span>
+                <div class="card-set">Paldea Evolved</div>
+              </div>
+              <div class="card-price">$105.00</div>
+            </div>
+            <div class="card-row">
+              <img class="card-img" src="https://picsum.photos/seed/ray217/30/42" alt="">
+              <div class="card-info">
+                <div class="card-name">Rayquaza VMAX <span class="card-num">#217</span></div>
+                <span class="cond-pill">Raw</span>
+                <div class="card-set">Evolving Skies</div>
+              </div>
+              <div class="card-price">$52.00</div>
+            </div>
+            <div class="cash-row">
+              <div class="cash-label">Cash</div>
+              <div class="cash-amount">$5.00</div>
+            </div>
+          </div>
+          <div class="panel-btns">
+            <button class="btn-add-items">+ ADD ITEMS</button>
+            <button class="btn-add-cash">+ ADD CASH</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<script>
+function show(n) {
+  document.querySelectorAll('.design').forEach(d => d.classList.remove('on'));
+  document.querySelectorAll('#sel button').forEach(b => b.classList.remove('on'));
+  document.getElementById('d' + n).classList.add('on');
+  document.querySelectorAll('#sel button')[n - 1].classList.add('on');
+}
+</script>
+</body>
+</html>

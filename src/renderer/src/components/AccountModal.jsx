@@ -3,14 +3,6 @@ import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '../context/CurrencyContext'
 import { useAuth } from '../context/AuthContext'
 
-const COUNTRIES = [
-  'Australia', 'Austria', 'Belgium', 'Brazil', 'Canada', 'China', 'Czech Republic',
-  'Denmark', 'Finland', 'France', 'Germany', 'Greece', 'Hungary', 'India', 'Ireland',
-  'Italy', 'Japan', 'Luxembourg', 'Mexico', 'Netherlands', 'New Zealand', 'Norway',
-  'Poland', 'Portugal', 'Romania', 'Singapore', 'South Korea', 'Spain', 'Sweden',
-  'Switzerland', 'United Kingdom', 'United States',
-].sort()
-
 const STATE_PROVINCES = {
   'United States': [
     'Alabama','Alaska','Arizona','Arkansas','California','Colorado','Connecticut',
@@ -32,17 +24,6 @@ const STATE_PROVINCES = {
     'South Australia','Tasmania','Victoria','Western Australia',
   ],
   'United Kingdom': ['England','Northern Ireland','Scotland','Wales'],
-}
-
-const COUNTRY_TO_CURRENCY = {
-  'united states': 'USD', 'usa': 'USD',
-  'united kingdom': 'GBP',
-  'canada': 'CAD',
-  'australia': 'AUD',
-  'japan': 'JPY',
-  'germany': 'EUR', 'france': 'EUR', 'spain': 'EUR', 'italy': 'EUR',
-  'netherlands': 'EUR', 'belgium': 'EUR', 'austria': 'EUR', 'portugal': 'EUR',
-  'ireland': 'EUR', 'greece': 'EUR', 'finland': 'EUR', 'luxembourg': 'EUR',
 }
 
 const CLEAR_OPTIONS = [
@@ -226,6 +207,11 @@ export default function AccountModal({ onClose }) {
   }
 
   async function saveProfilePicture(dataUrl) {
+    const MAX_BYTES = 512 * 1024
+    if (dataUrl && dataUrl.length > MAX_BYTES) {
+      alert('Profile picture is too large (max 512 KB). Please choose a smaller image.')
+      return
+    }
     const updated = { ...profile, profilePicture: dataUrl }
     await window.api.setSettings({ profile: updated })
     setProfile(updated)

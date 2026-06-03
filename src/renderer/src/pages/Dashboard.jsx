@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 
-const tcgCache = {} // tcgId → full TCG card object, persists for the session
 import { useLocation, useNavigate } from 'react-router-dom'
 import CardSearch from '../components/CardSearch'
 import CardRow from '../components/CardRow'
@@ -257,7 +256,6 @@ function SoldCardRow({ card, onRemove, onUndo, onEdit }) {
 }
 
 function SoldEditModal({ card, onClose, onSaved }) {
-  const { format } = useCurrency()
   const [salePrice, setSalePrice] = useState(
     card.soldInfo?.salePrice != null ? String(card.soldInfo.salePrice) : ''
   )
@@ -571,6 +569,7 @@ export default function Dashboard() {
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false)
   const [soldCards, setSoldCards] = useState([])
   const [soldCollapsed, setSoldCollapsed] = useState(false)
+  const [sealedCollapsed, setSealedCollapsed] = useState(false)
   const [editingSoldCard, setEditingSoldCard] = useState(null)
   const [listCollapsed, setListCollapsed] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
@@ -652,7 +651,7 @@ export default function Dashboard() {
       if (s.defaultSortBy) setSortBy(s.defaultSortBy)
       if (s.defaultStartTab && !location.state?.tab) setActiveTab(s.defaultStartTab)
     })
-  }, [loadCards])
+  }, [loadCards]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleRemove(id) {
     await window.api.removeCard(id)
@@ -713,48 +712,6 @@ export default function Dashboard() {
     setAvailableBinders(binders)
   }
 
-  async function handleCardRowClick(localCard) {
-    setActiveModalCard(localCard)
-    if (!localCard.tcgId) { setModalTcgData(null); return }
-
-    // Build placeholder from stored fields — shown immediately while fetch runs
-    const localFull = {
-      id: localCard.tcgId,
-      name: localCard.name,
-      number: localCard.number,
-      images: { large: localCard.imageUrlLarge, small: localCard.imageUrl },
-      set: { name: localCard.setName, id: localCard.setId },
-      rarity: localCard.rarity,
-      artist: localCard.artist || null,
-      types: localCard.types?.length ? localCard.types : null,
-      subtypes: localCard.subtypes?.length ? localCard.subtypes : null,
-      tcgplayer: { prices: { normal: { market: localCard.currentPrice } } },
-    }
-    setModalTcgData(localFull)
-
-    // Session cache hit — enrich with current price and return
-    if (tcgCache[localCard.tcgId]) {
-      setModalTcgData({ ...tcgCache[localCard.tcgId], tcgplayer: localFull.tcgplayer })
-      return
-    }
-
-    // Always fetch full card from TCGdex to ensure complete metadata
-    const results = await window.api.searchCardsAdvanced(`id:"${localCard.tcgId}"`).catch(() => [])
-    const fetched = results?.[0] ?? null
-    if (fetched) {
-      const enriched = { ...fetched, tcgplayer: localFull.tcgplayer }
-      tcgCache[localCard.tcgId] = enriched
-      setModalTcgData(enriched)
-      // Persist any metadata that's missing from the stored card record
-      const metaToSave = {}
-      if (fetched.artist && !localCard.artist)                     metaToSave.artist   = fetched.artist
-      if (fetched.types?.length && !localCard.types?.length)       metaToSave.types    = fetched.types
-      if (fetched.subtypes?.length && !localCard.subtypes?.length) metaToSave.subtypes = fetched.subtypes
-      if (fetched.rarity && !localCard.rarity)                     metaToSave.rarity   = fetched.rarity
-      if (Object.keys(metaToSave).length) window.api.updateCard(localCard.id, metaToSave).catch(() => {})
-    }
-  }
-
   async function handleModalRemove(tcgCard, section) {
     const owned = cards.find((c) =>
       c.tcgId === tcgCard.id &&
@@ -813,10 +770,12 @@ export default function Dashboard() {
         c.currentPrice >= c.alertPrice)
     : alertFilter === 'down'
     ? nameFiltered.filter((c) => c.alertPrice != null && c.currentPrice != null &&
-        (c.alertPct != null ? c.alertPct <= 0 : c.alertPrice < c.currentPrice) &&
+        (c.alertPct != null ? c.alertPct < 0 : c.alertPrice < c.currentPrice) &&
         c.currentPrice <= c.alertPrice)
     : nameFiltered
   const sorted = applySort(filteredCards, sortBy, setDateMap)
+  const sortedCards = sorted.filter((c) => c.type !== 'sealed')
+  const sortedSealed = sorted.filter((c) => c.type === 'sealed')
 
   useEffect(() => {
     if (pendingScrollRestoreRef.current == null) return
@@ -1110,7 +1069,6 @@ export default function Dashboard() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 4h18M7 10h10M11 16h2" />
               </svg>
               Filters
-              <span className={`w-1.5 h-1.5 rounded-full bg-slate-300 flex-shrink-0 transition-opacity ${nameSearch || alertFilter || binderFilter || sortBy !== 'addedDate' ? 'opacity-100' : 'opacity-0'}`} />
               <svg className={`w-3 h-3 transition-transform flex-shrink-0 ${showFilters ? 'rotate-180' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <polyline points="6 9 12 15 18 9" />
               </svg>
@@ -1281,7 +1239,7 @@ export default function Dashboard() {
             </ErrorBoundary>
           ) : (
             <>
-              {/* Collapsible section header for collection / watchlist */}
+              {/* ── Cards section ── */}
               <button
                 onClick={() => setListCollapsed((v) => !v)}
                 className="w-full flex items-center gap-3 mb-3"
@@ -1294,15 +1252,15 @@ export default function Dashboard() {
                   >
                     <polyline points="6 9 12 15 18 9" />
                   </svg>
-                  {activeTab === 'collection' ? 'My Collection' : 'My Watchlist'}
-                  <span className="text-xs px-1.5 py-0.5 bg-surface-700 rounded-full text-slate-400">{sorted.length}</span>
+                  Cards
+                  <span className="text-xs px-1.5 py-0.5 bg-surface-700 rounded-full text-slate-400">{sortedCards.length}</span>
                 </span>
                 <div className="flex-1 h-px bg-surface-700" />
               </button>
 
-              {!listCollapsed && (sorted.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-24 text-slate-600">
-                  <p className="text-lg mb-2">No cards in your {activeTabCfg?.label.toLowerCase()} yet</p>
+              {!listCollapsed && (sortedCards.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-slate-600">
+                  <p className="text-base mb-1">No cards yet</p>
                   <p className="text-sm">
                     Click{' '}
                     <span className={activeTab === 'collection' ? 'text-accent' : 'text-sky-400'}>
@@ -1312,7 +1270,7 @@ export default function Dashboard() {
                   </p>
                 </div>
               ) : (
-                sorted.map((card) => (
+                sortedCards.map((card) => (
                   <CardRow
                     key={card.id}
                     card={card}
@@ -1332,6 +1290,52 @@ export default function Dashboard() {
                   />
                 ))
               ))}
+
+              {/* ── Sealed Products section ── */}
+              <div className="mt-6 mb-2">
+                <button
+                  onClick={() => setSealedCollapsed((v) => !v)}
+                  className="w-full flex items-center gap-3 mb-3"
+                >
+                  <div className="flex-1 h-px bg-surface-700" />
+                  <span className="flex items-center gap-2 text-slate-500 hover:text-slate-300 text-sm font-medium transition-colors whitespace-nowrap">
+                    <svg
+                      className={`w-3.5 h-3.5 transition-transform flex-shrink-0 ${sealedCollapsed ? '-rotate-90' : ''}`}
+                      viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                    Sealed Products
+                    <span className="text-xs px-1.5 py-0.5 bg-surface-700 rounded-full text-slate-400">{sortedSealed.length}</span>
+                  </span>
+                  <div className="flex-1 h-px bg-surface-700" />
+                </button>
+                {!sealedCollapsed && (sortedSealed.length === 0 ? (
+                  <p className="text-slate-600 text-sm text-center py-4">No sealed products yet. Add an ETB, booster box, or other sealed product.</p>
+                ) : (
+                  sortedSealed.map((card) => (
+                    <CardRow
+                      key={card.id}
+                      card={card}
+                      onCardClick={handleCardClick}
+                      onRemove={handleRemove}
+                      onRefresh={loadCards}
+                      confirmRemove={confirmRemove}
+                      onBinderFilter={(binder) => setBinderFilter(binder)}
+                      showPlPct={showPlPct}
+                      onTogglePlPct={() => setShowPlPct((v) => !v)}
+                      showDollarChanges={showDollarChanges}
+                      onToggleDollarChanges={() => setShowDollarChanges((v) => !v)}
+                      bulkMode={bulkMode}
+                      isSelected={selectedCards.has(card.id)}
+                      onToggleSelect={handleToggleSelect}
+                      viewMode={watchlistView}
+                    />
+                  ))
+                ))}
+              </div>
+
+              {/* ── Traded / Sold section (collection only) ── */}
               {activeTab === 'collection' && (
                 <div className="mt-6 mb-2">
                   <button
@@ -1449,7 +1453,7 @@ export default function Dashboard() {
         <ShareModal
           cards={sorted}
           section={activeTab}
-          binderFilter={binderFilter}
+          folderFilter={binderFilter}
           sortBy={sortBy}
           onClose={() => setShowShareModal(false)}
         />
@@ -1473,7 +1477,8 @@ export default function Dashboard() {
                 onChange={(e) => setRenameValue(e.target.value)}
                 onKeyDown={async (e) => {
                   const trimmed = renameValue.trim()
-                  if (e.key === 'Enter' && trimmed && trimmed !== binderFilter) {
+                  const isDupe = availableBinders.some(b => b.toLowerCase() === trimmed.toLowerCase() && b !== binderFilter)
+                  if (e.key === 'Enter' && trimmed && trimmed !== binderFilter && !isDupe) {
                     await window.api.renameBinder(activeTab, binderFilter, trimmed)
                     setBinderFilter(trimmed)
                     await reloadBinders()
@@ -1489,13 +1494,14 @@ export default function Dashboard() {
               <button
                 onClick={async () => {
                   const trimmed = renameValue.trim()
-                  if (!trimmed || trimmed === binderFilter) return
+                  const isDupe = availableBinders.some(b => b.toLowerCase() === trimmed.toLowerCase() && b !== binderFilter)
+                  if (!trimmed || trimmed === binderFilter || isDupe) return
                   await window.api.renameBinder(activeTab, binderFilter, trimmed)
                   setBinderFilter(trimmed)
                   await reloadBinders()
                   setRenamingBinder(false)
                 }}
-                disabled={!renameValue.trim() || renameValue.trim() === binderFilter}
+                disabled={!renameValue.trim() || renameValue.trim() === binderFilter || availableBinders.some(b => b.toLowerCase() === renameValue.trim().toLowerCase() && b !== binderFilter)}
                 className="flex-1 bg-accent hover:bg-amber-400 disabled:opacity-40 text-black font-semibold py-2 rounded-lg text-sm transition-colors"
               >
                 Rename

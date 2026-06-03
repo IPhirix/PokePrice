@@ -25,15 +25,6 @@ function extractPokemonName(name) {
     .trim()
 }
 
-function fmtSetDate(releaseDate) {
-  if (!releaseDate) return ''
-  try {
-    const iso = releaseDate.replace(/\//g, '-')
-    const d = new Date(iso + 'T12:00:00')
-    return `${d.toLocaleDateString('en-US', { month: 'short' })} '${String(d.getFullYear()).slice(2)}`
-  } catch { return '' }
-}
-
 function abbrevSeries(series) {
   if (!series) return ''
   const words = series.split(/[\s&\-–]+/).filter(w => w.length > 0 && w !== '&')

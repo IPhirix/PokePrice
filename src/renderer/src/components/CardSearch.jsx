@@ -13,6 +13,8 @@ const CONDITIONS = [
   { value: 'cgc9', label: 'CGC 9' }
 ]
 
+const SEALED_KEYWORDS = ['Elite Trainer Box', 'Booster Box', 'Booster Bundle', 'Booster Pack', 'Collection Box', 'Premium Collection', 'Gift Box', 'Mini Tin', 'Tin', 'Theme Deck', 'Starter Deck', 'Blister', 'Bundle', 'Display Box']
+
 export default function CardSearch({ section, onAdd, onClose }) {
   const navigate = useNavigate()
   const {
@@ -31,9 +33,15 @@ export default function CardSearch({ section, onAdd, onClose }) {
   const [variationStep, setVariationStep] = useState(false)
   const [selectedVariation, setSelectedVariation] = useState(null)
   const [loadingVariations, setLoadingVariations] = useState(false)
+  const [sealedResults, setSealedResults] = useState([])
+  const [sealedSearching, setSealedSearching] = useState(false)
+  const [sealedCommitted, setSealedCommitted] = useState(false)
+  const [selectedSealed, setSelectedSealed] = useState(null)
 
   const inputRef = useRef(null)
   const binderRef = useRef(null)
+
+  const isSealedQuery = SEALED_KEYWORDS.some(k => query.trim().toLowerCase().includes(k.toLowerCase()))
 
   const sectionLabel = section === 'collection' ? 'Collection' : 'Watchlist'
 
@@ -46,8 +54,25 @@ export default function CardSearch({ section, onAdd, onClose }) {
 
   async function doSearch() {
     setSelected(null)
+    setSelectedSealed(null)
     setError(null)
-    await handleSearch()
+    if (isSealedQuery) {
+      setSealedResults([])
+      setSealedCommitted(true)
+      setSealedSearching(true)
+      try {
+        const { products } = await window.api.searchSealed(query.trim())
+        setSealedResults(products || [])
+      } catch {
+        setError('Sealed product search failed.')
+      } finally {
+        setSealedSearching(false)
+      }
+    } else {
+      setSealedResults([])
+      setSealedCommitted(false)
+      await handleSearch()
+    }
   }
 
   function goToAdvancedSearch() {
@@ -71,6 +96,26 @@ export default function CardSearch({ section, onAdd, onClose }) {
       }
     } catch (e) { console.warn('[CardSearch] getCardVariations failed:', e?.message) }
     setLoadingVariations(false)
+  }
+
+  async function handleAddSealed() {
+    if (!selectedSealed) return
+    setAdding(true)
+    try {
+      const effectiveBinder = ((await binderRef.current?.ensureAndGetBinder()) ?? binder) || null
+      const parsedPrice = purchasePrice !== '' ? parseFloat(purchasePrice) : null
+      await window.api.addSealedProduct(
+        selectedSealed,
+        section,
+        parsedPrice && parsedPrice > 0 ? parsedPrice : null,
+        effectiveBinder
+      )
+      onAdd()
+      onClose()
+    } catch {
+      setError('Failed to add sealed product.')
+      setAdding(false)
+    }
   }
 
   async function handleAddCard() {
@@ -165,14 +210,50 @@ export default function CardSearch({ section, onAdd, onClose }) {
             }
           }}
         >
-          {searching && (
+          {/* Sealed product results */}
+          {isSealedQuery && sealedSearching && (
+            <div className="flex items-center justify-center p-10 text-slate-400 text-base">Searching sealed products...</div>
+          )}
+          {isSealedQuery && !sealedSearching && sealedResults.length === 0 && sealedCommitted && (
+            <div className="p-10 text-slate-500 text-base text-center">No sealed products found</div>
+          )}
+          {isSealedQuery && !sealedSearching && sealedResults.map((product) => {
+            const productName = product.name || product['product-name'] || 'Unknown'
+            const category = product.setName || product['console-name'] || 'Sealed Product'
+            const isSelected = selectedSealed?.id === product.id
+            return (
+              <button
+                key={product.id}
+                onClick={() => !adding && setSelectedSealed(isSelected ? null : product)}
+                className={`w-full flex items-center gap-4 px-6 py-4 hover:bg-surface-700 transition-colors text-left ${
+                  isSelected ? 'bg-surface-700 border-l-2 border-accent' : ''
+                }`}
+              >
+                <div className="w-16 h-[88px] flex-shrink-0 bg-surface-700 rounded flex items-center justify-center text-slate-600">
+                  <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-base font-semibold truncate">{productName}</p>
+                  <p className="text-slate-400 text-sm mt-0.5">{category}</p>
+                  {product.prices?.market != null && (
+                    <p className="text-accent text-sm font-bold mt-0.5">${product.prices.market.toFixed(2)}</p>
+                  )}
+                </div>
+              </button>
+            )
+          })}
+
+          {/* Card results — hidden when sealed query */}
+          {!isSealedQuery && searching && (
             <div className="flex items-center justify-center p-10 text-slate-400 text-base">Searching...</div>
           )}
-          {searchError && <div className="p-5 text-red-400 text-base text-center">{searchError}</div>}
-          {!searching && !searchError && results.length === 0 && searchCommitted && (
+          {!isSealedQuery && searchError && <div className="p-5 text-red-400 text-base text-center">{searchError}</div>}
+          {!isSealedQuery && !searching && !searchError && results.length === 0 && searchCommitted && (
             <div className="p-10 text-slate-500 text-base text-center">No cards found</div>
           )}
-          {!searching && !searchError && !searchCommitted && (
+          {!isSealedQuery && !searching && !searchError && !searchCommitted && (
             <div className="flex flex-col items-center justify-center p-12 text-slate-700 gap-2">
               <svg className="w-10 h-10 text-slate-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z" />
@@ -180,7 +261,7 @@ export default function CardSearch({ section, onAdd, onClose }) {
               <p className="text-sm">Search to find a card</p>
             </div>
           )}
-          {searchCommitted && results.slice(0, displayCount).map((card) => {
+          {!isSealedQuery && searchCommitted && results.slice(0, displayCount).map((card) => {
             if (card._divider) {
               return (
                 <div key="__divider__" className="flex items-center gap-3 px-6 py-2 select-none">
@@ -226,10 +307,68 @@ export default function CardSearch({ section, onAdd, onClose }) {
               </button>
             )
           })}
-          {searchCommitted && !searching && results.length > displayCount && (
+          {!isSealedQuery && searchCommitted && !searching && results.length > displayCount && (
             <p className="text-center text-slate-600 text-xs py-3">Showing {displayCount} of {results.length} — scroll for more</p>
           )}
         </div>
+
+        {/* Selected sealed product add form */}
+        {selectedSealed && (
+          <div className="flex-shrink-0 border-t border-surface-600 bg-surface-900/50">
+            {adding ? (
+              <div className="p-8 flex flex-col items-center justify-center gap-4">
+                <div className="relative w-16 h-16">
+                  <div className="absolute inset-0 rounded-full border-4 border-surface-600 border-t-accent animate-spin" />
+                </div>
+                <p className="text-white font-semibold text-base">{selectedSealed.name}</p>
+              </div>
+            ) : (
+            <div className="p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-10 h-10 bg-surface-700 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-white text-base font-semibold">{selectedSealed.name}</p>
+                  <p className="text-slate-400 text-sm">{selectedSealed.setName || 'Sealed Product'}</p>
+                </div>
+              </div>
+              <div className="flex gap-4 mb-4">
+                <div className="flex-1">
+                  <label className="text-slate-400 text-sm mb-1.5 block">Binder (optional)</label>
+                  <BinderSelector ref={binderRef} section={section} value={binder} onChange={setBinder} className="w-full" />
+                </div>
+                {section === 'collection' && (
+                  <div className="w-40">
+                    <label className="text-slate-400 text-sm mb-1.5 block">Price Paid (optional)</label>
+                    <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-base">$</span>
+                      <input
+                        type="number" min="0.01" step="0.01"
+                        value={purchasePrice}
+                        onChange={(e) => setPurchasePrice(e.target.value)}
+                        placeholder="0.00"
+                        className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-7 pr-3 py-2.5 text-base text-white focus:outline-none focus:border-accent"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+              {error && <p className="text-red-400 text-sm mb-3">{error}</p>}
+              <button
+                onClick={handleAddSealed}
+                className={`w-full text-black font-bold py-3 rounded-lg text-base transition-colors ${
+                  section === 'collection' ? 'bg-accent hover:bg-accent-hover' : 'bg-sky-500 hover:bg-sky-400'
+                }`}
+              >
+                Add to {sectionLabel}
+              </button>
+            </div>
+            )}
+          </div>
+        )}
 
         {/* Selected card + variation picker / add form */}
         {(selected || loadingVariations) && (

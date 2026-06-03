@@ -93,26 +93,6 @@ function capitalize(str) {
   return str.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-const STAT_ABBR = {
-  'hp': 'HP', 'attack': 'Atk', 'defense': 'Def',
-  'special-attack': 'SpA', 'special-defense': 'SpD', 'speed': 'Spe',
-}
-
-function statColor(val) {
-  if (val >= 100) return '#34d399'
-  if (val >= 60)  return '#f59e0b'
-  return '#f87171'
-}
-
-const SORT_OPTS = [
-  { value: 'number',     label: 'Number' },
-  { value: 'price_desc', label: 'Price ↓' },
-  { value: 'price_asc',  label: 'Price ↑' },
-  { value: 'rarity',     label: 'Rarity' },
-  { value: 'artist',     label: 'Artist' },
-  { value: 'released',   label: 'Released' },
-]
-
 // ── Donut chart ───────────────────────────────────────────────────────────────
 function DonutChart({ value, total, color, size = 90 }) {
   const pct = total > 0 ? Math.min(value / total, 1) : 0
@@ -123,7 +103,6 @@ function DonutChart({ value, total, color, size = 90 }) {
   const dash = pct * circ
   const offset = circ * 0.25
   const pctFont = size * 0.133
-  const cntFont = size * 0.1
 
   return (
     <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="flex-shrink-0">
@@ -144,31 +123,6 @@ function DonutChart({ value, total, color, size = 90 }) {
   )
 }
 
-// ── Metric card ───────────────────────────────────────────────────────────────
-function MetricCard({ label, value, total, color, subtext }) {
-  const pct = total > 0 ? value / total : 0
-  return (
-    <div className="bg-surface-800 border border-surface-700 rounded-xl px-5 py-4 flex items-center gap-4">
-      <div className="flex-1 min-w-0">
-        <p className="text-slate-500 text-xs uppercase tracking-wider mb-1.5">{label}</p>
-        <p className="text-white font-bold text-2xl leading-none mb-0.5">
-          {value}
-          <span className="text-slate-500 font-normal text-sm ml-1.5">of {total.toLocaleString()}</span>
-        </p>
-        {subtext && <p className="text-slate-600 text-xs mb-2.5">{subtext}</p>}
-        {!subtext && <div className="mb-2.5" />}
-        <div className="h-2 bg-surface-700 rounded-full overflow-hidden">
-          <div
-            className="h-full rounded-full transition-all duration-700"
-            style={{ width: `${pct * 100}%`, backgroundColor: color }}
-          />
-        </div>
-      </div>
-      <DonutChart value={value} total={total} color={color} />
-    </div>
-  )
-}
-
 // ── Pokémon detail view ───────────────────────────────────────────────────────
 const TYPE_HERO_BG = {
   fire: '#7c2d12', water: '#1e3a5f', grass: '#14532d', electric: '#713f12',
@@ -183,8 +137,6 @@ const DETAIL_SORT_OPTS = [
   { value: 'number',   label: 'Number' },
   { value: 'price',    label: 'Price' },
 ]
-
-const BINDER_PER_PAGE = 9
 
 const VARIANT_LABELS = [
   { key: 'normal',       label: 'Normal',    cls: 'bg-slate-600/80 text-slate-100' },
@@ -234,8 +186,6 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
   const [sortDir, setSortDir] = useState('asc')
   const [selectedCard, setSelectedCard] = useState(null)
   const [viewMode, setViewMode] = useState('grid')
-  const [binderFilter, setBinderFilter] = useState('all')
-  const [binderPage, setBinderPage] = useState(0)
   const [filterRarity, setFilterRarity] = useState('')
   const [filterArtist, setFilterArtist] = useState('')
   const [filterSet, setFilterSet] = useState('')
@@ -347,14 +297,6 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
         set: enrichedSeries ? { ...c.set, series: enrichedSeries } : c.set,
       }
     })
-    if (binderFilter !== 'all') {
-      const owned = new Set(
-        ownedCards
-          .filter((oc) => binderFilter === 'collection' ? oc.section === 'collection' : oc.section !== 'collection')
-          .map((oc) => oc.tcgId)
-      )
-      base = base.filter((c) => owned.has(c.id))
-    }
     if (filterRarity) base = base.filter((c) => c.rarity === filterRarity)
     if (filterArtist) base = base.filter((c) => c.artist === filterArtist)
     if (filterSet)    base = base.filter((c) => c.set?.id === filterSet)
@@ -373,7 +315,7 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
       else if (sortBy === 'price') cmp = (rawPrice(a) ?? -Infinity) - (rawPrice(b) ?? -Infinity)
       return sortDir === 'asc' ? cmp : -cmp
     })
-  }, [cards, cardDetails, sortBy, sortDir, binderFilter, filterRarity, filterArtist, filterSet, ownedCards])
+  }, [cards, cardDetails, sortBy, sortDir, filterRarity, filterArtist, filterSet])
 
   function handleSortClick(value) {
     if (sortBy === value) setSortDir((d) => d === 'asc' ? 'desc' : 'asc')
@@ -412,9 +354,6 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
 
   const primaryType = pokemonInfo?.types?.[0] ?? ''
   const heroBg = TYPE_HERO_BG[primaryType] || '#1e293b'
-
-  const binderPageCount = Math.ceil(visibleCards.length / BINDER_PER_PAGE)
-  const binderSlice = visibleCards.slice(binderPage * BINDER_PER_PAGE, (binderPage + 1) * BINDER_PER_PAGE)
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -537,17 +476,8 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
                 <option value="">Illustrator</option>
                 {uniqueArtists.map((a) => <option key={a} value={a}>{a}</option>)}
               </select>
-              <select
-                value={binderFilter}
-                onChange={(e) => { setBinderFilter(e.target.value); setBinderPage(0) }}
-                className="w-28 bg-surface-900 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-red-500/60"
-              >
-                <option value="all">All Binders</option>
-                <option value="collection">Collection</option>
-                <option value="watchlist">Watchlist</option>
-              </select>
               <button
-                onClick={() => { setFilterSet(''); setFilterRarity(''); setFilterArtist(''); setBinderFilter('all'); setBinderPage(0) }}
+                onClick={() => { setFilterSet(''); setFilterRarity(''); setFilterArtist('') }}
                 className="px-2.5 py-1.5 rounded-lg text-xs font-medium border border-white/10 text-slate-400 hover:text-white hover:border-white/20 transition-all"
               >
                 Clear
@@ -574,11 +504,6 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h18M3 6h18M3 14h18M3 18h18" />
                     </svg>
                   )},
-                  { mode: 'binder', label: 'Binder', icon: (
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
-                    </svg>
-                  )},
                 ].map((v) => (
                   <button
                     key={v.mode}
@@ -601,7 +526,7 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
       </div>
 
       {/* ── CARD CONTENT ── */}
-      <div className={`flex-1 min-h-0 ${viewMode === 'binder' ? 'overflow-hidden' : 'overflow-y-auto'}`}>
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {loadingCards ? (
           <div className="flex flex-col items-center justify-center py-24 gap-4">
             <div className="relative w-12 h-12">
@@ -727,66 +652,7 @@ function PokemonDetail({ pokemon, ownedCards, onBack, onRefreshOwned, favorites,
             </table>
           </div>
 
-        ) : (
-
-          /* ── Binder view ── */
-          <div className="flex flex-col h-full items-center justify-center px-6 py-4 gap-3">
-            <div className="flex-1 min-h-0 flex items-center justify-center w-full">
-              {/* Binder page — aspect ratio matches a real 9-pocket binder page (same as a card, ~5:7) */}
-              <div
-                className="bg-surface-900 rounded-xl border border-surface-700 shadow-2xl p-2"
-                style={{ aspectRatio: '5/7', maxHeight: '100%', maxWidth: 'min(100%, 420px)' }}
-              >
-                <div className="grid grid-cols-3 grid-rows-3 gap-1.5 h-full">
-                  {Array.from({ length: BINDER_PER_PAGE }).map((_, i) => {
-                    const card = binderSlice[i]
-                    if (!card) {
-                      return <div key={i} className="rounded border border-dashed border-surface-700 bg-surface-800/40" />
-                    }
-                    const inPortfolio = ownedCards.some((c) => c.tcgId === card.id && c.section === 'collection')
-                    const inWatchlist = ownedCards.some((c) => c.tcgId === card.id && (!c.section || c.section === 'watchlist'))
-                    return (
-                      <button
-                        key={card.id}
-                        onClick={() => handleCardClick(card)}
-                        className="rounded overflow-hidden relative transition-all hover:scale-[1.03] hover:z-10 bg-surface-800 ring-1 ring-surface-600 hover:ring-red-500/60"
-                      >
-                        <CardImage
-                          src={card.images?.small}
-                          alt={card.name}
-                          className="w-full h-full object-cover"
-                        />
-                        {(inPortfolio || inWatchlist) && (
-                          <div className="absolute top-1 right-1 flex flex-col gap-0.5 z-10 pointer-events-none">
-                            {inPortfolio && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-accent text-black leading-none">Coll.</span>}
-                            {inWatchlist && <span className="text-[8px] font-bold px-1.5 py-0.5 rounded bg-sky-500 text-white leading-none">Watch.</span>}
-                          </div>
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            </div>
-
-            {binderPageCount > 1 && (
-              <div className="flex-shrink-0 flex items-center gap-3">
-                <button
-                  onClick={() => setBinderPage((p) => Math.max(0, p - 1))}
-                  disabled={binderPage === 0}
-                  className="px-4 py-2 rounded-lg border border-surface-600 text-slate-400 hover:text-white hover:border-surface-500 disabled:opacity-30 disabled:cursor-not-allowed transition-all text-sm"
-                >← Prev</button>
-                <span className="text-slate-500 text-sm">Page {binderPage + 1} of {binderPageCount}</span>
-                <button
-                  onClick={() => setBinderPage((p) => Math.min(binderPageCount - 1, p + 1))}
-                  disabled={binderPage === binderPageCount - 1}
-                  className="px-4 py-2 rounded-lg border border-surface-600 text-slate-400 hover:text-white hover:border-surface-500 disabled:opacity-30 disabled:cursor-not-allowed transition-all text-sm"
-                >Next →</button>
-              </div>
-            )}
-          </div>
-
-        )}
+        ) : null}
       </div>
 
       {selectedCard && (

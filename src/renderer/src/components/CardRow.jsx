@@ -20,14 +20,6 @@ function seriesFromSetId(id) {
   return ''
 }
 
-function PriceSpinner() {
-  return (
-    <svg className="w-3 h-3 animate-spin text-slate-500" viewBox="0 0 24 24" fill="none">
-      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-    </svg>
-  )
-}
 import PriceChangeIndicator from './PriceChangeIndicator'
 import Sparkline from './Sparkline'
 import { useCurrency } from '../context/CurrencyContext'
@@ -96,55 +88,10 @@ function InlinePurchasePrice({ cardId, current, onSaved }) {
   )
 }
 
-function ManualPriceEntry({ cardId, onSaved }) {
-  const [open, setOpen] = useState(false)
-  const [value, setValue] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  async function save(e) {
-    e.stopPropagation()
-    const p = parseFloat(value)
-    if (isNaN(p) || p <= 0) return
-    setSaving(true)
-    await window.api.setManualPrice(cardId, p)
-    onSaved()
-    setOpen(false)
-    setSaving(false)
-  }
-
-  if (!open) {
-    return (
-      <button
-        onClick={(e) => { e.stopPropagation(); setOpen(true) }}
-        className="text-slate-500 hover:text-accent text-xs underline mt-1 block"
-      >
-        Enter price manually
-      </button>
-    )
-  }
-
-  return (
-    <div className="flex items-center gap-1 mt-1" onClick={(e) => e.stopPropagation()}>
-      <span className="text-slate-400 text-sm">$</span>
-      <input
-        autoFocus type="number" min="0.01" step="0.01" value={value}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') save(e); if (e.key === 'Escape') setOpen(false) }}
-        className="w-24 bg-surface-600 border border-surface-400 rounded px-2 py-0.5 text-sm text-white focus:outline-none focus:border-accent"
-        placeholder="0.00"
-      />
-      <button onClick={save} disabled={saving}
-        className="bg-accent text-black text-xs px-2 py-0.5 rounded disabled:opacity-50">
-        {saving ? '…' : 'Save'}
-      </button>
-      <button onClick={() => setOpen(false)} className="text-slate-500 hover:text-white text-xs">✕</button>
-    </div>
-  )
-}
 
 const PCT_OPTIONS = Array.from({ length: 20 }, (_, i) => (i < 10 ? -(10 - i) * 5 : (i - 9) * 5))
 
-function TargetPriceField({ label, value, pctValue, cardId, fieldName, onSaved, currentPrice }) {
+function TargetPriceField({ label, value, pctValue, cardId, onSaved, currentPrice }) {
   const [input, setInput] = useState(value != null ? String(value) : '')
   const [pct, setPct] = useState(pctValue != null ? String(pctValue) : '')
   const skipResetRef = useRef(false)
@@ -657,8 +604,8 @@ function SellModal({ card, onClose, onSold }) {
   const purchasePrice = card.purchasePrice ?? null
   const salePriceNum = parseFloat(salePrice)
   const previewPL = !isNaN(salePriceNum) && salePrice !== '' && purchasePrice != null
-    ? salePriceNum - purchasePrice : null
-  const canSubmit = !isNaN(salePriceNum) && salePriceNum > 0
+    ? Math.round((salePriceNum - purchasePrice) * 100) / 100 : null
+  const canSubmit = !isNaN(salePriceNum) && salePriceNum > 0 && /^\d{4}-\d{2}-\d{2}$/.test(saleDate)
 
   async function handleSell() {
     if (!canSubmit) return
@@ -973,6 +920,8 @@ function NotesModal({ card, onClose, onSaved }) {
   )
 }
 
+const TDiv = () => <div className="w-px h-5 bg-surface-600 rounded-full flex-shrink-0" />
+
 export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBinderFilter, confirmRemove = true, showPlPct = false, onTogglePlPct, showDollarChanges = false, onToggleDollarChanges, bulkMode = false, isSelected = false, onToggleSelect, viewMode = 'detailed' }) {
   const navigate = useNavigate()
   const { format } = useCurrency()
@@ -1038,7 +987,6 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
 
   // ── Table (compact) view ──────────────────────────────────────────────────
   if (viewMode === 'table') {
-    const TDiv = () => <div className="w-px h-5 bg-surface-600 rounded-full flex-shrink-0" />
     return (
       <div
         onClick={() => onCardClick?.(card)}
@@ -1186,7 +1134,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
             </div>
           )}
           <button
-            onClick={() => setConfirmingRemove(true)}
+            onClick={() => confirmRemove ? setConfirmingRemove(true) : onRemove(card.id)}
             className="text-slate-600 hover:text-red-400 transition-colors text-xl leading-none"
             title="Remove card"
           >
@@ -1416,7 +1364,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
           )}
 
           <button
-            onClick={() => setConfirmingRemove(true)}
+            onClick={() => confirmRemove ? setConfirmingRemove(true) : onRemove(card.id)}
             className="text-slate-600 hover:text-red-400 transition-colors text-xl leading-none"
             title="Remove card"
           >

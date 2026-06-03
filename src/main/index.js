@@ -61,6 +61,7 @@ function getDataDir() {
 }
 
 let _currentUser = null
+let _loginLock = false
 
 function getUserDir() {
   if (!_currentUser) throw new Error('No authenticated user')
@@ -93,35 +94,43 @@ function localDateStr(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const SAFE_NAME_RE = /^[a-z0-9_-]{1,64}$/i
+
 function cardsFile() { return path.join(getUserDir(), 'cards.json') }
-function priceFile(id) { return path.join(getUserDir(), `prices-${id}.json`) }
+function priceFile(id) {
+  if (!UUID_RE.test(id)) throw new Error(`Invalid card ID: ${id}`)
+  return path.join(getUserDir(), `prices-${id}.json`)
+}
 function settingsFile() { return path.join(getUserDir(), 'settings.json') }
-function csvCacheDir() { return path.join(getDataDir(), 'csv-cache') }
 
 function readCards() {
   const f = cardsFile()
   if (!fs.existsSync(f)) return []
-  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return [] }
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch (e) { console.error('[readCards] JSON parse failed:', f, e.message); return [] }
 }
+let _writeCardsQueue = Promise.resolve()
 function writeCards(cards) {
-  const f = cardsFile()
-  const backup = f + '.bak'
-  // Refuse to overwrite existing data with an empty array (guards against stale-read race)
-  if (cards.length === 0) {
-    const existing = readCards()
-    if (existing.length > 0) {
-      console.error('[writeCards] Blocked attempt to overwrite', existing.length, 'cards with empty array')
-      return
+  _writeCardsQueue = _writeCardsQueue.then(() => {
+    const f = cardsFile()
+    const backup = f + '.bak'
+    // Refuse to overwrite existing data with an empty array (guards against stale-read race)
+    if (cards.length === 0) {
+      const existing = readCards()
+      if (existing.length > 0) {
+        console.error('[writeCards] Blocked attempt to overwrite', existing.length, 'cards with empty array')
+        return
+      }
     }
-  }
-  // Keep a rolling backup of the previous write
-  if (fs.existsSync(f)) { try { fs.copyFileSync(f, backup) } catch {} }
-  fs.writeFileSync(f, JSON.stringify(cards, null, 2))
+    // Keep a rolling backup of the previous write
+    if (fs.existsSync(f)) { try { fs.copyFileSync(f, backup) } catch {} }
+    fs.writeFileSync(f, JSON.stringify(cards, null, 2))
+  }).catch((err) => console.error('[writeCards] queue error:', err))
 }
 function readPrices(cardId) {
   const f = priceFile(cardId)
   if (!fs.existsSync(f)) return []
-  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return [] }
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch (e) { console.error('[readPrices] JSON parse failed:', f, e.message); return [] }
 }
 function appendPrice(cardId, entry) {
   const today = localDateStr()
@@ -134,7 +143,8 @@ function appendPrice(cardId, entry) {
 function bulkLoadHistory(cardId, entries) {
   const existing = readPrices(cardId)
   const existingDates = new Set(existing.map((e) => e.date))
-  const fresh = entries.filter((e) => e.price > 0 && !existingDates.has(e.date))
+  const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+  const fresh = entries.filter((e) => e.date && DATE_RE.test(e.date) && typeof e.price === 'number' && e.price > 0 && !existingDates.has(e.date))
   if (!fresh.length) return
   const merged = [...existing, ...fresh].sort((a, b) => a.date.localeCompare(b.date))
   fs.writeFileSync(priceFile(cardId), JSON.stringify(merged, null, 2))
@@ -146,7 +156,7 @@ function deleteCardData(cardId) {
 function readSettings() {
   const f = settingsFile()
   if (!fs.existsSync(f)) return {}
-  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return {} }
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch (e) { console.error('[readSettings] JSON parse failed:', f, e.message); return {} }
 }
 function writeSettings(s) {
   fs.writeFileSync(settingsFile(), JSON.stringify(s, null, 2))
@@ -222,7 +232,7 @@ function tradesFile() { return path.join(getUserDir(), 'trades.json') }
 function readTrades() {
   const f = tradesFile()
   if (!fs.existsSync(f)) return []
-  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return [] }
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch (e) { console.error('[readTrades] JSON parse failed:', f, e.message); return [] }
 }
 function writeTrades(trades) {
   fs.writeFileSync(tradesFile(), JSON.stringify(trades, null, 2))
@@ -232,7 +242,7 @@ function activityFile() { return path.join(getUserDir(), 'activity.json') }
 function readActivity() {
   const f = activityFile()
   if (!fs.existsSync(f)) return []
-  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch { return [] }
+  try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch (e) { console.error('[readActivity] JSON parse failed:', f, e.message); return [] }
 }
 function appendActivity(entry) {
   const log = readActivity()
@@ -547,7 +557,7 @@ async function sendAlertEmails() {
 
     const state = { alert: updatedEmailed[card.id]?.alert ?? null }
 
-    if (emailAlertEnabled && card.alertPrice != null) {
+    if (emailAlertEnabled && card.alertPrice != null && card.alertPrice > 0) {
       const isUpAlert = card.alertPct != null ? card.alertPct > 0 : card.alertPrice > price
       const triggered = isUpAlert ? price >= card.alertPrice : price <= card.alertPrice
       if (triggered) {
@@ -572,11 +582,12 @@ async function sendAlertEmails() {
 
   try {
     const resend = new Resend(resendApiKey)
+    const esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
     const COND_LABEL = { raw: 'Raw', psa10: 'PSA 10', psa9: 'PSA 9', psa8: 'PSA 8', cgc10: 'CGC 10', cgc9: 'CGC 9', sealed: 'Sealed' }
     const rows = newAlerts.map((a) => `
       <tr style="border-bottom:1px solid #2a2d36">
-        <td style="padding:10px 12px;color:#e2e8f0">${a.name}${a.setName ? ` <span style="color:#94a3b8;font-size:12px">(${a.setName})</span>` : ''}</td>
-        <td style="padding:10px 12px;color:#94a3b8;font-size:12px">${COND_LABEL[a.condition] || a.condition}</td>
+        <td style="padding:10px 12px;color:#e2e8f0">${esc(a.name)}${a.setName ? ` <span style="color:#94a3b8;font-size:12px">(${esc(a.setName)})</span>` : ''}</td>
+        <td style="padding:10px 12px;color:#94a3b8;font-size:12px">${esc(COND_LABEL[a.condition] || a.condition)}</td>
         <td style="padding:10px 12px;color:${a.type === 'up' ? '#34d399' : '#f87171'};font-weight:600">${a.type === 'up' ? '↑ PRICE ALERT' : '↓ PRICE ALERT'}</td>
         <td style="padding:10px 12px;color:#e2e8f0">$${a.currentPrice.toFixed(2)}</td>
         <td style="padding:10px 12px;color:#e2e8f0">$${a.alertPrice.toFixed(2)}</td>
@@ -632,7 +643,9 @@ function createWindow() {
     icon: path.join(__dirname, '../../assets/icon.ico'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false
     }
   })
 
@@ -687,8 +700,10 @@ app.whenReady().then(() => {
   createWindow()
 
   cronTask = cron.schedule('0 8 * * *', async () => {
-    await refreshAllPrices((p) => mainWindow?.webContents.send('prices:progress', p))
-    mainWindow?.webContents.send('prices:refreshed')
+    try {
+      await refreshAllPrices((p) => mainWindow?.webContents.send('prices:progress', p))
+      mainWindow?.webContents.send('prices:refreshed')
+    } catch (e) { console.error('[cron] price refresh failed:', e.message) }
   })
 
   app.on('activate', () => {
@@ -731,15 +746,20 @@ ipcMain.handle('profile:pickImage', async () => {
   const mime = ext === 'png' ? 'image/png' : ext === 'gif' ? 'image/gif' : ext === 'webp' ? 'image/webp' : 'image/jpeg'
   return `data:${mime};base64,${buf.toString('base64')}`
 })
-ipcMain.handle('settings:set', (_, s) => {
+ipcMain.handle('settings:set', async (_, s) => {
   writeSettings({ ...readSettings(), ...s })
-  if (s.profile) {
-    const auth = readAuth()
-    if (auth && auth.sessionUsername) {
-      const idx = auth.users.findIndex(u => u.username === auth.sessionUsername)
-      if (idx >= 0) {
-        auth.users[idx].profile = { ...auth.users[idx].profile, ...s.profile }
-        writeAuth(auth)
+  if (s.profile && supabase) {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session) {
+      const p = s.profile
+      const updates = {}
+      if (p.firstName !== undefined) updates.first_name = p.firstName
+      if (p.currency !== undefined) updates.currency = p.currency
+      if (p.state !== undefined) updates.state = p.state
+      if (p.zipCode !== undefined) updates.zip_code = p.zipCode
+      if (p.profilePicture !== undefined) updates.profile_picture = p.profilePicture
+      if (Object.keys(updates).length > 0) {
+        await supabase.from('user_profiles').update(updates).eq('id', session.user.id)
       }
     }
   }
@@ -800,8 +820,14 @@ ipcMain.handle('account:delete', async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (session) {
-        // Delete the user_profiles row (credentials remain in auth.users but are orphaned)
         await supabase.from('user_profiles').delete().eq('id', session.user.id)
+        // auth.users cleanup requires a service-role key (SUPABASE_SERVICE_KEY env var)
+        const serviceKey = process.env.SUPABASE_SERVICE_KEY
+        if (serviceKey && process.env.SUPABASE_URL) {
+          const { createClient: createAdminClient } = require('@supabase/supabase-js')
+          const admin = createAdminClient(process.env.SUPABASE_URL, serviceKey)
+          await admin.auth.admin.deleteUser(session.user.id)
+        }
       }
       await supabase.auth.signOut()
     } catch {}
@@ -864,7 +890,9 @@ ipcMain.handle('cards:export', async (_, { rows, format, section }) => {
   } else {
     function csvCell(val) {
       if (val == null || val === '') return ''
-      const s = String(val)
+      let s = String(val)
+      // Prefix formula characters to prevent CSV injection
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s
       return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
     }
     const csv = rows.map((r) => r.map(csvCell).join(',')).join('\n')
@@ -1013,7 +1041,7 @@ ipcMain.handle('cards:sell', (_, cardId, soldInfo) => {
   cards.push(...newTradeCards)
   writeCards(cards)
 
-  const pl = card.purchasePrice != null ? soldInfo.salePrice - card.purchasePrice : null
+  const pl = card.purchasePrice != null ? Math.round((soldInfo.salePrice - card.purchasePrice) * 100) / 100 : null
   const plStr = pl != null ? ` · P&L: ${pl >= 0 ? '+' : ''}$${pl.toFixed(2)}` : ''
   appendActivity({
     type: soldInfo.isTrade ? 'card_traded' : 'card_sold',
@@ -1070,6 +1098,7 @@ ipcMain.handle('binders:list', (_, section) => {
 })
 
 ipcMain.handle('binders:add', (_, section, name) => {
+  if (!name || /[/\\<>:"|?*\x00-\x1f]/.test(name) || name.includes('..')) return false
   const s = readSettings()
   const key = section === 'collection' ? 'portfolioBinders' : 'watchlistBinders'
   const binders = s[key] || s[section === 'collection' ? 'portfolioFolders' : 'watchlistFolders'] || []
@@ -1099,6 +1128,7 @@ ipcMain.handle('binders:delete', (_, section, name) => {
 })
 
 ipcMain.handle('binders:rename', (_, section, oldName, newName) => {
+  if (!newName || /[/\\<>:"|?*\x00-\x1f]/.test(newName) || newName.includes('..')) return false
   const s = readSettings()
   const key = section === 'collection' ? 'portfolioBinders' : 'watchlistBinders'
   const current = s[key] || s[section === 'collection' ? 'portfolioFolders' : 'watchlistFolders'] || []
@@ -1149,6 +1179,7 @@ ipcMain.handle('trades:update', (_, id, trade) => {
 ipcMain.handle('trades:execute', async (event, payload) => {
   const { youCollectionIds = [], receivedCards = [], tradePayload: tp = {}, existingTradeId = null } = payload || {}
   console.log('[trades:execute] youCollectionIds:', youCollectionIds)
+  const preTradeSnapshot = readCards()
   try {
     // Remove traded-away collection cards
     let cards = readCards()
@@ -1221,7 +1252,8 @@ ipcMain.handle('trades:execute', async (event, payload) => {
 
     return { entry, removed: sent, added: recv }
   } catch (err) {
-    console.error('trades:execute failed:', err)
+    console.error('trades:execute failed — restoring pre-trade snapshot:', err)
+    try { writeCards(preTradeSnapshot) } catch {}
     throw err
   }
 })
@@ -1251,7 +1283,7 @@ ipcMain.handle('trades:undo', async (event, tradeId) => {
     restored = (trade.youCards || [])
       .filter((c) => c.collectionId)
       .map((c) => ({
-        id: randomUUID(),
+        id: c.collectionId,
         tcgId: c.tcgId || null,
         name: c.name,
         setName: c.setName || 'Unknown Set',
@@ -1261,7 +1293,7 @@ ipcMain.handle('trades:undo', async (event, tradeId) => {
         condition: c.condition || 'raw',
         quantity: 1,
         section: 'collection',
-        binder: null,
+        binder: c.binder || null,
         purchasePrice: c.price > 0 ? Math.round(c.price * 100) / 100 : null,
         imageUrl: c.imageUrl || '',
         imageUrlLarge: c.imageUrl || '',
@@ -1293,8 +1325,6 @@ ipcMain.handle('trades:undo', async (event, tradeId) => {
 })
 
 ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, purchasePrice, binder, addedDate) => {
-  const cards = readCards()
-
   // Fetch full TCGdex card to supplement brief search result (adds rarity, artist, types)
   if (tcgCard.id && (!tcgCard.rarity || !tcgCard.artist || !tcgCard.types?.length)) {
     try {
@@ -1363,8 +1393,7 @@ ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, pur
       appendPrice(newCard.id, { price: ownPrice, source: 'supabase' })
       newCard.lastPriceUpdate = localDateStr()
 
-      const allCards = readCards()
-      const isReAdd = allCards.some((c) =>
+      const isReAdd = freshCards.some((c) =>
         c.id !== newCard.id &&
         c.section === 'sold' &&
         (newCard.tcgId && c.tcgId === newCard.tcgId)
@@ -1384,8 +1413,8 @@ ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, pur
           changes.alertPct = -settings.defaultAlertDownPct
         }
       }
-      const idx = allCards.findIndex((c) => c.id === newCard.id)
-      if (idx !== -1) { Object.assign(allCards[idx], changes); writeCards(allCards) }
+      const idx = freshCards.findIndex((c) => c.id === newCard.id)
+      if (idx !== -1) { Object.assign(freshCards[idx], changes); writeCards(freshCards) }
       Object.assign(newCard, changes)
     }
   } catch (err) { console.error('Initial Supabase price fetch failed:', err.message) }
@@ -1398,7 +1427,7 @@ ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, pur
         bulkLoadHistory(newCard.id, history)
         mainWindow?.webContents.send('cards:changed')
       }
-    } catch {}
+    } catch (e) { console.error('[cards:add] bulkLoadHistory failed:', e.message) }
   })()
 
   return newCard
@@ -1451,7 +1480,6 @@ ipcMain.handle('prices:refresh', async (_, cardId, section) => {
   }
 
   const today = localDateStr()
-  let refreshed = 0
   const sealedIdCache = {} // cardId → resolved pricechartingId (written back below)
   for (const card of toRefresh) {
     try {
@@ -1465,7 +1493,6 @@ ipcMain.handle('prices:refresh', async (_, cardId, section) => {
         const pcId = await resolveSupabaseId(card)
         if (pcId) sealedIdCache[card.id] = pcId
       }
-      refreshed++
     } catch (e) { console.warn(`[prices:refresh] Supabase error for ${card.name}:`, e.message) }
   }
   const updated = readCards()
@@ -1716,7 +1743,7 @@ ipcMain.handle('alerts:getTriggered', () => {
   const cards = readCards()
   const alerts = []
   for (const card of cards) {
-    if (!alertEnabled || card.alertPrice == null) continue
+    if (!alertEnabled || card.alertPrice == null || card.alertPrice <= 0) continue
     const history = readPrices(card.id)
     const price = history[history.length - 1]?.price ?? null
     if (price == null) continue
@@ -1851,15 +1878,23 @@ ipcMain.handle('sealed:search', async (_, query) => {
   const q = query.trim()
   const keyword = SEALED_PRODUCT_KEYWORDS.find(k => q.toLowerCase().includes(k.toLowerCase()))
   if (!keyword) return { products: [] }
+  // Extract any series/set name from the query (the part that isn't the product keyword)
+  const seriesPart = q.replace(new RegExp(keyword, 'i'), '').trim()
   try {
+    const params = [`%${keyword}%`]
+    let whereClause = 'WHERE product_name ILIKE $1'
+    if (seriesPart) {
+      params.push(`%${seriesPart}%`)
+      whereClause += ' AND console_name ILIKE $2'
+    }
     const res = await sbPool.query(
       `SELECT DISTINCT ON (pricecharting_id)
          pricecharting_id, console_name, product_name, loose_price
        FROM pokemon_card_prices
-       WHERE product_name ILIKE $1
+       ${whereClause}
        ORDER BY pricecharting_id, snapshot_date DESC
        LIMIT 50`,
-      [`%${keyword}%`]
+      params
     )
     const products = res.rows.map(r => ({
       id: r.pricecharting_id,
@@ -1877,9 +1912,12 @@ ipcMain.handle('sealed:search', async (_, query) => {
 })
 
 ipcMain.handle('sealed:add', async (_, product, section, purchasePrice, binder) => {
+  const productName = (product?.name || product?.['product-name'] || '').trim()
+  if (!productName) return null
   const cards = readCards()
-  const productName = product.name || product['product-name'] || 'Unknown Product'
-  const setName = product.setName || product['console-name'] || 'Sealed Product'
+  const setName = (product.setName || product['console-name'] || 'Sealed Product').trim()
+  const marketPrice = product.prices?.market != null ? Math.round(product.prices.market * 100) / 100 : null
+  const today = localDateStr()
   const newItem = {
     id: randomUUID(),
     tcgId: null,
@@ -1895,13 +1933,19 @@ ipcMain.handle('sealed:add', async (_, product, section, purchasePrice, binder) 
     binder: binder || null,
     pricechartingId: product.pricechartingId || null,
     purchasePrice: purchasePrice != null && purchasePrice > 0 ? Math.round(purchasePrice * 100) / 100 : null,
+    currentPrice: marketPrice,
+    priceSource: marketPrice != null ? 'supabase' : null,
     imageUrl: product.imageUrl || product.image || product.img || product['image-url'] || product.imageSmall || product.thumbnail || '',
     imageUrlLarge: product.imageUrl || product.image || product.img || product['image-url'] || product.imageSmall || product.thumbnail || '',
-    addedDate: localDateStr(),
-    lastPriceUpdate: null,
+    addedDate: today,
+    lastPriceUpdate: marketPrice != null ? today : null,
   }
   cards.push(newItem)
   writeCards(cards)
+
+  if (marketPrice != null) {
+    appendPrice(newItem.id, { price: marketPrice, source: 'supabase' })
+  }
 
   return newItem
 })
@@ -1922,6 +1966,8 @@ ipcMain.handle('prices:clearHistory', () => {
 })
 
 ipcMain.handle('prices:updateEntry', (_, cardId, date, price) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false
+  if (typeof price !== 'number' || !isFinite(price) || price < 0) return false
   const history = readPrices(cardId)
   const rounded = Math.round(price * 100) / 100
   const idx = history.findIndex((p) => p.date === date)
@@ -1936,6 +1982,7 @@ ipcMain.handle('prices:updateEntry', (_, cardId, date, price) => {
 })
 
 ipcMain.handle('prices:deleteEntry', (_, cardId, date) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false
   const history = readPrices(cardId).filter((p) => p.date !== date)
   fs.writeFileSync(priceFile(cardId), JSON.stringify(history, null, 2))
   return true
@@ -1952,6 +1999,7 @@ function calcChange(current, previous) {
 // ── Card Shows scraper ────────────────────────────────────────────────────────
 
 function cardShowsCacheFile(stateCode) {
+  if (!/^[A-Z]{2}$/.test(stateCode)) throw new Error(`Invalid state code: ${stateCode}`)
   return path.join(getDataDir(), `cardshows-${stateCode}.json`)
 }
 
@@ -2220,11 +2268,12 @@ async function _drainNominatimQueue() {
           await new Promise(r => setTimeout(r, (retryAfter + 2) * 1000))
           _nominatimLastCall = Date.now()
         } else {
+          console.warn('[geocode] Nominatim error:', e.message)
           break
         }
       }
     }
-    task.resolve(result)
+    try { task.resolve(result) } catch {}
   }
   _nominatimBusy = false
 }
@@ -2391,7 +2440,7 @@ async function ensureUserProfile(userId) {
     if (lu) secData = { security_question: lu.securityQuestion || '', security_answer_hash: lu.securityAnswerHash || '', security_answer_salt: lu.securityAnswerSalt || '' }
   } catch {}
 
-  await supabase.from('user_profiles').insert({
+  const { error: insertErr } = await supabase.from('user_profiles').insert({
     id: userId,
     username,
     first_name: knownUser.firstName || prof.firstName || '',
@@ -2401,6 +2450,7 @@ async function ensureUserProfile(userId) {
     profile_picture: prof.profilePicture || null,
     ...secData,
   })
+  if (insertErr) console.error('[ensureUserProfile] insert failed:', insertErr.message)
 
   return username
 }
@@ -2414,9 +2464,12 @@ ipcMain.handle('auth:isSetup', () => {
 ipcMain.handle('auth:isSessionValid', async () => {
   if (!supabase) return false
   try {
+    const prefs = readAuthPrefs()
+    // Sync _persistSession before getSession so any token refresh is handled correctly
+    _persistSession = prefs.stayLoggedIn !== false
     const { data: { session } } = await supabase.auth.getSession()
     if (!session) return false
-    if (readAuthPrefs().stayLoggedIn === false) {
+    if (!_persistSession) {
       await supabase.auth.signOut()
       return false
     }
@@ -2435,6 +2488,7 @@ ipcMain.handle('auth:createUser', async (_, { username, password, securityQuesti
   const email = (profile?.email || '').trim().toLowerCase()
   if (!email) return { ok: false, error: 'An email address is required to create an account.' }
   const normalizedUsername = username.trim().toLowerCase()
+  if (!SAFE_NAME_RE.test(normalizedUsername)) return { ok: false, error: 'Username may only contain letters, numbers, hyphens, and underscores (max 64 characters).' }
   const { data: existing } = await supabase.from('user_profiles').select('username').eq('username', normalizedUsername).maybeSingle()
   if (existing) return { ok: false, error: 'That username is already taken.' }
   const { data, error } = await supabase.auth.signUp({ email, password })
@@ -2468,7 +2522,11 @@ ipcMain.handle('auth:createUser', async (_, { username, password, securityQuesti
 
 ipcMain.handle('auth:login', async (_, { username, password, email: providedEmail }) => {
   if (!supabase) return { ok: false, error: 'Cloud auth not configured.' }
+  if (_loginLock) return { ok: false, error: 'A login is already in progress.' }
+  _loginLock = true
+  try {
   const normalizedUsername = username.trim().toLowerCase()
+  if (!SAFE_NAME_RE.test(normalizedUsername)) return { ok: false, error: 'Invalid username or password.' }
 
   // ── Seamless one-time migration: auth.json still exists ──────────────────
   const legacyAuth = readAuth()
@@ -2479,6 +2537,10 @@ ipcMain.handle('auth:login', async (_, { username, password, email: providedEmai
       if (hash !== legacyUser.passwordHash) return { ok: false, error: 'Invalid username or password.' }
       const email = ((legacyUser.profile?.email || providedEmail) || '').trim().toLowerCase()
       if (!email) return { ok: false, needsEmail: true, error: 'Enter your email address to activate your cloud account.' }
+      // Default stayLoggedIn to true for migrating users, sync _persistSession before Supabase calls
+      const migPrefs = readAuthPrefs()
+      if (migPrefs.stayLoggedIn === undefined) writeAuthPrefs({ ...migPrefs, stayLoggedIn: true })
+      _persistSession = readAuthPrefs().stayLoggedIn !== false
       let userId
       const { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({ email, password })
       if (!signInErr && signInData.user) {
@@ -2515,6 +2577,10 @@ ipcMain.handle('auth:login', async (_, { username, password, email: providedEmai
   // ── Normal Supabase login ─────────────────────────────────────────────────
   const knownUser = readKnownUsers().find(u => u.username === normalizedUsername)
   if (!knownUser) return { ok: false, error: 'Invalid username or password.' }
+  // Ensure stayLoggedIn defaults to true on first login, then sync _persistSession
+  const loginPrefs = readAuthPrefs()
+  if (loginPrefs.stayLoggedIn === undefined) writeAuthPrefs({ ...loginPrefs, stayLoggedIn: true })
+  _persistSession = readAuthPrefs().stayLoggedIn !== false
   const { data, error } = await supabase.auth.signInWithPassword({ email: knownUser.email, password })
   if (error) return { ok: false, error: 'Invalid username or password.' }
   _currentUser = normalizedUsername
@@ -2528,6 +2594,7 @@ ipcMain.handle('auth:login', async (_, { username, password, email: providedEmai
     writeSettings({ ...settings, profile: mergedProfile, currency: mergedProfile.currency || settings.currency || 'USD' })
   }
   return { ok: true }
+  } finally { _loginLock = false }
 })
 
 ipcMain.handle('auth:logout', async () => {
@@ -2591,10 +2658,10 @@ ipcMain.handle('auth:sendResetEmail', async (_, { username, email: providedEmail
   if (!supabase) return { ok: false, error: 'Cloud auth not configured.' }
   const knownUser = username ? readKnownUsers().find(u => u.username === username.trim().toLowerCase()) : null
   const email = (knownUser?.email || providedEmail || '').trim().toLowerCase()
-  if (!email) return { ok: false, error: 'No email address on file. Use the security question instead.' }
+  // Return the same generic response whether or not the user exists to prevent enumeration
+  if (!email) return { ok: true }
   _otpResetEmail = { email, username: knownUser?.username || username }
-  const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
-  if (error) return { ok: false, error: 'Failed to send reset code. Check the email address.' }
+  await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
   return { ok: true }
 })
 
@@ -2659,4 +2726,12 @@ ipcMain.handle('auth:getStayLoggedIn', () => {
   return readAuthPrefs().stayLoggedIn !== false
 })
 
-ipcMain.handle('shell:openExternal', (_, url) => shell.openExternal(url))
+ipcMain.handle('shell:openExternal', (_, url) => {
+  try {
+    const parsed = new URL(url)
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return
+  } catch {
+    return
+  }
+  shell.openExternal(url)
+})

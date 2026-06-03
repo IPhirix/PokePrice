@@ -37,7 +37,7 @@ export function CurrencyProvider({ children }) {
           window.api.setSettings({ currency: detected })
         }).catch(() => {})
       }
-    })
+    }).catch(() => {})
     fetch('https://open.er-api.com/v6/latest/USD')
       .then((r) => r.json())
       .then((d) => {

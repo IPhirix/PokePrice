@@ -610,33 +610,6 @@ export default function CardShows() {
   const geocodeCleanupRef = useRef(null)
   const pendingJumpRef = useRef(null)
 
-  useEffect(() => {
-    window.api.getSettings().then(s => {
-      if (s.defaultCardShowState) {
-        setDefaultState(s.defaultCardShowState)
-        loadState(s.defaultCardShowState)
-      }
-    }).catch(() => {})
-    window.api.listUpcomingShows().then(setUpcomingShows).catch(() => {})
-
-    return () => {
-      if (geocodeCleanupRef.current) geocodeCleanupRef.current()
-    }
-  }, [])
-
-  const goBackToStates = useCallback(() => {
-    setSelectedState(null)
-    setShows([])
-  }, [])
-
-  useEffect(() => {
-    if (!selectedState) return
-    window.history.pushState({ pokeprice: 'cardshows-state' }, '')
-    const handlePopState = () => goBackToStates()
-    window.addEventListener('popstate', handlePopState)
-    return () => window.removeEventListener('popstate', handlePopState)
-  }, [selectedState, goBackToStates])
-
   const loadState = useCallback(async (state) => {
     setSelectedState(state)
     setLoading(true)
@@ -685,6 +658,33 @@ export default function CardShows() {
       setLoading(false)
     }
   }, [])
+
+  const goBackToStates = useCallback(() => {
+    setSelectedState(null)
+    setShows([])
+  }, [])
+
+  useEffect(() => {
+    window.api.getSettings().then(s => {
+      if (s.defaultCardShowState) {
+        setDefaultState(s.defaultCardShowState)
+        loadState(s.defaultCardShowState)
+      }
+    }).catch(() => {})
+    window.api.listUpcomingShows().then(setUpcomingShows).catch(() => {})
+
+    return () => {
+      if (geocodeCleanupRef.current) geocodeCleanupRef.current()
+    }
+  }, [loadState])
+
+  useEffect(() => {
+    if (!selectedState) return
+    window.history.pushState({ pokeprice: 'cardshows-state' }, '')
+    const handlePopState = () => goBackToStates()
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [selectedState, goBackToStates])
 
   async function handleSetDefault(state) {
     setDefaultState(state)

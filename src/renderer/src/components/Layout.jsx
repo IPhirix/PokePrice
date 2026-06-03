@@ -1,8 +1,7 @@
-import { Outlet, useNavigate } from 'react-router-dom'
+import { Outlet } from 'react-router-dom'
 import { useEffect, useState } from 'react'
 
 export default function Layout() {
-  const navigate = useNavigate()
   const [refreshStatus, setRefreshStatus] = useState(null)
 
   useEffect(() => {

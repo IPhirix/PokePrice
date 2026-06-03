@@ -122,12 +122,12 @@ export default function CreateAccountPage({ onCancel }) {
         username,
         password,
         securityQuestion,
-        securityAnswer,
+        securityAnswer: securityAnswer.trim(),
         stayLoggedIn,
         profile: { firstName, email, currency, state, zipCode, profilePicture },
       })
       if (!result.ok) setError(result.error || 'Failed to create account.')
-    } catch (e) {
+    } catch {
       setError('Something went wrong. Please try again.')
     } finally {
       setLoading(false)

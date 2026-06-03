@@ -87,7 +87,7 @@ export default function PriceChart({ history, range, onRangeChange, conditionSlo
     if (!history || history.length === 0) return []
     const synthetic = generateSynthetic(history[0].price, history[0].date, 90)
     return [...synthetic, ...history]
-  }, [history?.[0]?.price, history?.[0]?.date, history?.length])
+  }, [history])
 
   if (!history || history.length === 0) {
     return (

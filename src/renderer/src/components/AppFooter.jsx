@@ -158,7 +158,7 @@ function FooterModal({ link, onClose }) {
   )
 }
 
-export default function AppFooter({ refreshKey }) {
+export default function AppFooter() {
   const [version, setVersion] = useState('')
   const [activeModal, setActiveModal] = useState(null)
 
