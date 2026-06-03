@@ -244,7 +244,17 @@ function readActivity() {
   if (!fs.existsSync(f)) return []
   try { return JSON.parse(fs.readFileSync(f, 'utf8')) } catch (e) { console.error('[readActivity] JSON parse failed:', f, e.message); return [] }
 }
+const ACTIVITY_TYPES = new Set([
+  'card_added_collection', 'card_added_watchlist', 'card_added_binder',
+  'card_sold', 'card_traded',
+  'binder_created',
+  'alert_set',
+  'trade_logged', 'trade_executed', 'trade_undone',
+  'pokemon_favorited', 'pokemon_unfavorited',
+])
+
 function appendActivity(entry) {
+  if (entry.type && !ACTIVITY_TYPES.has(entry.type)) return
   const log = readActivity()
   log.unshift({ id: randomUUID(), date: new Date().toISOString(), ...entry })
   fs.writeFileSync(activityFile(), JSON.stringify(log.slice(0, 50), null, 2))
@@ -466,9 +476,12 @@ async function resolveSupabaseId(card) {
   return null
 }
 
+const ALLOWED_PRICE_COLS = new Set(['loose_price', 'manual_only_price', 'graded_price', 'new_price', 'condition_17_price'])
+
 async function fetchSupabaseHistory(card) {
   if (!sbPool) return []
-  const col = SUPABASE_CONDITION_COL[card.condition] || 'loose_price'
+  const col = SUPABASE_CONDITION_COL[card.condition] ?? 'loose_price'
+  if (!ALLOWED_PRICE_COLS.has(col)) return []
   const pcId = await resolveSupabaseId(card)
   if (!pcId) return []
   // Query the condition-specific column (e.g. manual_only_price for PSA 10)
@@ -1347,14 +1360,14 @@ ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, pur
     subtypes: tcgCard.subtypes || [],
     condition,
     quantity: quantity || 1,
-    section: section || 'watchlist',
+    section: ['collection', 'watchlist'].includes(section) ? section : 'watchlist',
     binder: binder || null,
     purchasePrice: purchasePrice != null && purchasePrice > 0 ? Math.round(purchasePrice * 100) / 100 : null,
     imageUrl: tcgCard.images?.small || '',
     imageUrlLarge: tcgCard.images?.large || '',
     pricechartingId: tcgCard.pricechartingId || null,
     pricechartingName: tcgCard.pricechartingName || null,
-    addedDate: addedDate ? new Date(addedDate).toISOString() : new Date().toISOString(),
+    addedDate: addedDate ? (() => { try { return new Date(addedDate).toISOString() } catch { return new Date().toISOString() } })() : new Date().toISOString(),
     lastPriceUpdate: null
   }
   // Re-read before writing to avoid clobbering concurrent additions during the async API calls above
@@ -1439,15 +1452,26 @@ ipcMain.handle('cards:remove', (_, cardId) => {
   return true
 })
 
+const UPDATABLE_CARD_FIELDS = new Set([
+  'condition', 'quantity', 'section', 'binder', 'purchasePrice',
+  'alertPrice', 'alertPct', 'targetBuyPrice', 'targetSellPrice',
+  'pricechartingId', 'pricechartingName', 'addedDate', 'soldInfo',
+  'lastPriceUpdate', 'changeDay', 'changeWeek', 'changeMonth',
+  'currentPrice', 'priceSource', 'recentHistory',
+])
+
 ipcMain.handle('cards:update', (_, cardId, updates) => {
   const cards = readCards()
   const idx = cards.findIndex((c) => c.id === cardId)
   if (idx === -1) return false
-  if (updates.alertPrice === null) updates.alertPct = null
+  const safeUpdates = Object.fromEntries(
+    Object.entries(updates).filter(([k]) => UPDATABLE_CARD_FIELDS.has(k))
+  )
+  if (safeUpdates.alertPrice === null) safeUpdates.alertPct = null
   const prevCard = cards[idx]
-  cards[idx] = { ...prevCard, ...updates }
+  cards[idx] = { ...prevCard, ...safeUpdates }
   writeCards(cards)
-  if (updates.alertPrice != null) appendActivity({ type: 'alert_set', message: `Price alert on ${prevCard.name}`, cardId: prevCard.id, detail: `Target: $${Number(updates.alertPrice).toFixed(2)} · ${prevCard.setName || ''}` })
+  if (safeUpdates.alertPrice != null) appendActivity({ type: 'alert_set', message: `Price alert on ${prevCard.name}`, cardId: prevCard.id, detail: `Target: $${Number(safeUpdates.alertPrice).toFixed(2)} · ${prevCard.setName || ''}` })
   return cards[idx]
 })
 
@@ -1967,6 +1991,8 @@ ipcMain.handle('prices:clearHistory', () => {
 
 ipcMain.handle('prices:updateEntry', (_, cardId, date, price) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false
+  const year = parseInt(date.slice(0, 4), 10)
+  if (year < 1996 || year > new Date().getFullYear() + 1) return false
   if (typeof price !== 'number' || !isFinite(price) || price < 0) return false
   const history = readPrices(cardId)
   const rounded = Math.round(price * 100) / 100
@@ -2417,6 +2443,10 @@ function readAuth() {
 // In-memory state for password reset flows
 let _otpResetEmail = null
 const _resetTokens = new Map()
+// Rate-limit OTP sends: email → timestamp of last send (1 per 60 s)
+const _otpSendCooldown = new Map()
+// Rate-limit OTP verify attempts: email → attempt count (max 10, cleared on success)
+const _otpAttempts = new Map()
 
 // Ensures user_profiles row exists. If missing (e.g. migration interrupted),
 // rebuilds it from known-users.json, settings.json, and auth.json.migrated.
@@ -2660,6 +2690,10 @@ ipcMain.handle('auth:sendResetEmail', async (_, { username, email: providedEmail
   const email = (knownUser?.email || providedEmail || '').trim().toLowerCase()
   // Return the same generic response whether or not the user exists to prevent enumeration
   if (!email) return { ok: true }
+  const lastSent = _otpSendCooldown.get(email) || 0
+  if (Date.now() - lastSent < 60_000) return { ok: false, error: 'Please wait before requesting another code.' }
+  _otpSendCooldown.set(email, Date.now())
+  _otpAttempts.delete(email)
   _otpResetEmail = { email, username: knownUser?.username || username }
   await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: false } })
   return { ok: true }
@@ -2667,11 +2701,15 @@ ipcMain.handle('auth:sendResetEmail', async (_, { username, email: providedEmail
 
 ipcMain.handle('auth:verifyEmailCode', async (_, { code }) => {
   if (!supabase || !_otpResetEmail) return { ok: false, error: 'No reset email on record. Request a new code.' }
+  const attempts = (_otpAttempts.get(_otpResetEmail.email) || 0) + 1
+  if (attempts > 10) return { ok: false, error: 'Too many attempts. Request a new code.' }
+  _otpAttempts.set(_otpResetEmail.email, attempts)
   const { error } = await supabase.auth.verifyOtp({ email: _otpResetEmail.email, token: code.trim(), type: 'email' })
   if (error) return { ok: false, error: 'Incorrect or expired code.' }
   const token = randomBytes(32).toString('hex')
   _resetTokens.set(token, _otpResetEmail.username)
   setTimeout(() => _resetTokens.delete(token), 15 * 60 * 1000)
+  _otpAttempts.delete(_otpResetEmail.email)
   _otpResetEmail = null
   return { ok: true, resetToken: token }
 })

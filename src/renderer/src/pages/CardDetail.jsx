@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 
 const tcgCache = {} // tcgId → full TCG card object, shared across CardDetail instances
+export function clearTcgCache() { Object.keys(tcgCache).forEach((k) => delete tcgCache[k]) }
 
 function seriesFromSetId(id) {
   if (!id) return ''
@@ -276,12 +277,14 @@ export default function CardDetail() {
     setHistoryCondition(found.condition)
     const sibMap = { [found.condition]: found.id }
     const newCache = { [found.condition]: h }
-    await Promise.all(
+    await Promise.allSettled(
       Object.entries(sibMap)
         .filter(([cond]) => cond !== found.condition)
         .map(async ([cond, sibId]) => {
-          const sibH = await window.api.getPriceHistory(sibId)
-          newCache[cond] = sibH
+          try {
+            const sibH = await window.api.getPriceHistory(sibId)
+            newCache[cond] = sibH
+          } catch { /* leave this condition out of cache */ }
         })
     )
     setHistoryCache(newCache)

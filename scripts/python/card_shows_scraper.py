@@ -155,26 +155,28 @@ def main():
 
     conn = psycopg2.connect(DATABASE_URL)
     session = requests.Session()
-
     total_shows = 0
     errors = []
 
-    for state_code, state_name in US_STATES:
-        try:
-            shows = fetch_card_shows(state_code, state_name, session)
-            if shows:
-                upsert_shows(conn, state_code, state_name, shows)
-                total_shows += len(shows)
-                print(f'[{state_code}] {state_name}: {len(shows)} shows')
-            else:
-                print(f'[{state_code}] {state_name}: no shows')
-        except Exception as e:
-            print(f'[{state_code}] {state_name}: ERROR — {e}')
-            errors.append((state_code, state_name, str(e)))
+    try:
+        for state_code, state_name in US_STATES:
+            try:
+                shows = fetch_card_shows(state_code, state_name, session)
+                if shows:
+                    upsert_shows(conn, state_code, state_name, shows)
+                    total_shows += len(shows)
+                    print(f'[{state_code}] {state_name}: {len(shows)} shows')
+                else:
+                    print(f'[{state_code}] {state_name}: no shows')
+            except Exception as e:
+                print(f'[{state_code}] {state_name}: ERROR — {e}')
+                errors.append((state_code, state_name, str(e)))
 
-        time.sleep(1.5)  # be polite to TCDB
+            time.sleep(1.5)  # be polite to TCDB
+    finally:
+        conn.close()
+        session.close()
 
-    conn.close()
     print(f'\nDone. Total shows upserted: {total_shows}')
 
     if errors:

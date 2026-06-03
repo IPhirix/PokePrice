@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react'
+import { clearTcgCache } from '../pages/CardDetail'
 
 const AuthContext = createContext(null)
 
@@ -31,6 +32,7 @@ export function AuthProvider({ children }) {
 
   async function logout() {
     await window.api.auth.logout()
+    clearTcgCache()
     setIsAuthenticated(false)
   }
 

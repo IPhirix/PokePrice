@@ -25,9 +25,11 @@ export function CurrencyProvider({ children }) {
   const [currency, setCurrencyState] = useState('USD')
   const [rates, setRates] = useState(FALLBACK)
 
+  const VALID_CURRENCY_CODES = new Set(CURRENCIES.map((c) => c.code))
+
   useEffect(() => {
     window.api.getSettings().then((s) => {
-      if (s.currency) {
+      if (s.currency && VALID_CURRENCY_CODES.has(s.currency)) {
         setCurrencyState(s.currency)
       } else {
         window.api.getLocale().then((locale) => {
@@ -52,7 +54,7 @@ export function CurrencyProvider({ children }) {
           })
         }
       })
-      .catch(() => {})
+      .catch((e) => { console.warn('[CurrencyContext] Exchange rate fetch failed — using fallback rates:', e.message) })
   }, [])
 
   function setCurrency(c) {

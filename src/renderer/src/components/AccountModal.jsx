@@ -225,11 +225,10 @@ export default function AccountModal({ onClose }) {
     try {
       localStorage.removeItem('pokeprice-favorites')
       if (confirmClearTarget === 'all') {
-        // "Clear Everything" — treat as a full account delete
-        await window.api.deleteAccount()
+        // Redirect to the Danger Zone typed-confirmation flow for account deletion
         setConfirmClearTarget(null)
-        onClose()
-        logout()
+        setShowDelete(true)
+        setBusy(false)
         return
       }
       if (confirmClearTarget !== 'favorites') {

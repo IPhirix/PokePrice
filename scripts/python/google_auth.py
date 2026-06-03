@@ -1,5 +1,7 @@
 from google_auth_oauthlib.flow import InstalledAppFlow
 import json
+import os
+import stat
 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
@@ -21,5 +23,7 @@ token_info = {
 
 with open("token.json", "w") as f:
     json.dump(token_info, f, indent=2)
+
+os.chmod("token.json", stat.S_IRUSR | stat.S_IWUSR)  # 0o600 — owner read/write only
 
 print("token.json created successfully!")

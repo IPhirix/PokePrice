@@ -632,12 +632,12 @@ export default function Dashboard() {
   const setDateMap = useMemo(() => new Map(allSets.map((s) => [s.id, s.releaseDate || ''])), [allSets])
 
   const loadCards = useCallback(async () => {
-    const [list, sold] = await Promise.all([
+    const [listResult, soldResult] = await Promise.allSettled([
       window.api.listCards(),
       window.api.listSoldCards(),
     ])
-    setCards(list)
-    setSoldCards(sold)
+    if (listResult.status === 'fulfilled') setCards(listResult.value)
+    if (soldResult.status === 'fulfilled') setSoldCards(soldResult.value)
     setRefreshKey((k) => k + 1)
   }, [])
 
@@ -688,9 +688,15 @@ export default function Dashboard() {
   }
 
   async function handleBulkMoveToBinder(binderName) {
+    const failed = []
     for (const id of selectedCards) {
-      await window.api.updateCard(id, { binder: binderName || null })
+      try {
+        await window.api.updateCard(id, { binder: binderName || null })
+      } catch {
+        failed.push(id)
+      }
     }
+    if (failed.length) console.error(`[bulkMoveToBinder] ${failed.length} card(s) failed to update`)
     setShowBulkBinderPicker(false)
     setSelectedCards(new Set())
     setBulkMode(false)

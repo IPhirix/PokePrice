@@ -5,8 +5,19 @@ import { CardDetailModal } from './SearchPage'
 
 // ── Favorites (localStorage) ─────────────────────────────────────────────────
 const FAV_KEY = 'pokeprice-favorites'
-function getFavs() { try { return JSON.parse(localStorage.getItem(FAV_KEY) || '{}') } catch { return {} } }
-function saveFavStorage(f) { localStorage.setItem(FAV_KEY, JSON.stringify(f)); window.dispatchEvent(new Event('pokeprice-favs')) }
+const FAV_VERSION = 1
+function getFavs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(FAV_KEY) || '{}')
+    if (raw.__v !== FAV_VERSION) return {}
+    const { __v: _, ...favs } = raw
+    return favs
+  } catch { return {} }
+}
+function saveFavStorage(f) {
+  localStorage.setItem(FAV_KEY, JSON.stringify({ __v: FAV_VERSION, ...f }))
+  window.dispatchEvent(new Event('pokeprice-favs'))
+}
 function useFavorites() {
   const [favs, setFavsState] = useState(getFavs)
   useEffect(() => {

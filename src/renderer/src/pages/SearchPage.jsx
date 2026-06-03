@@ -77,8 +77,19 @@ function cardPrice(card) {
 }
 
 const FAV_KEY = 'pokeprice-favorites'
-function getFavs() { try { return JSON.parse(localStorage.getItem(FAV_KEY) || '{}') } catch { return {} } }
-function saveFavs(f) { localStorage.setItem(FAV_KEY, JSON.stringify(f)); window.dispatchEvent(new Event('pokeprice-favs')) }
+const FAV_VERSION = 1
+function getFavs() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(FAV_KEY) || '{}')
+    if (raw.__v !== FAV_VERSION) return {}
+    const { __v: _, ...favs } = raw
+    return favs
+  } catch { return {} }
+}
+function saveFavs(f) {
+  localStorage.setItem(FAV_KEY, JSON.stringify({ __v: FAV_VERSION, ...f }))
+  window.dispatchEvent(new Event('pokeprice-favs'))
+}
 
 export function CardDetailModal({ card, ownedCards, onAdd, onRemove, onClose, onFilterByArtist }) {
   const { format } = useCurrency()

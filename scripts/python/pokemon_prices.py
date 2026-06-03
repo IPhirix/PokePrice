@@ -203,7 +203,7 @@ if not skip_database_import:
 
             return float(value)
 
-        except:
+        except (ValueError, TypeError):
             return None
 
 
@@ -221,7 +221,7 @@ if not skip_database_import:
         try:
             return int(value)
 
-        except:
+        except (ValueError, TypeError):
             return None
 
     records = []
@@ -554,6 +554,7 @@ except Exception as e:
         "Google Drive upload failed"
     )
     print(e)
+    raise SystemExit(1)
 
 # -------------------------
 # CLEANUP
