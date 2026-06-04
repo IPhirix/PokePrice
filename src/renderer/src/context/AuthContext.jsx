@@ -8,6 +8,7 @@ export function AuthProvider({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
 
   useEffect(() => {
+    if (!window.api) { setIsSetup('no-api'); return }
     async function check() {
       const setup = await window.api.auth.isSetup()
       if (!setup) { setIsSetup(false); return }

@@ -509,13 +509,14 @@ async function fetchSupabaseAllConditions(card) {
   const pcId = await resolveSupabaseId(card)
   if (!pcId) return {}
   const res = await sbPool.query(
-    `SELECT loose_price, manual_only_price, graded_price, new_price, condition_17_price FROM pokemon_card_prices WHERE pricecharting_id = $1 ORDER BY snapshot_date DESC LIMIT 1`,
+    `SELECT snapshot_date::date::text AS date, loose_price, manual_only_price, graded_price, new_price, condition_17_price FROM pokemon_card_prices WHERE pricecharting_id = $1 ORDER BY snapshot_date DESC LIMIT 1`,
     [pcId]
   )
   const row = res.rows[0]
   if (!row) return {}
   const p = v => (v != null ? parseFloat(v) : null)
   return {
+    _snapshotDate: row.date,
     'Ungraded': p(row.loose_price),
     'PSA 10':   p(row.manual_only_price),
     'PSA 9':    p(row.graded_price),
@@ -1576,8 +1577,9 @@ ipcMain.handle('prices:allConditions', async (_, cardId) => {
     const ownPrice = gradeLabel ? result[gradeLabel] : null
     if (ownPrice != null) {
       const today = localDateStr()
+      const snapshotIsToday = result._snapshotDate === today
       const existing = readPrices(cardId)
-      if (!existing.some(e => e.date === today)) {
+      if (snapshotIsToday && !existing.some(e => e.date === today)) {
         appendPrice(cardId, { price: ownPrice, source: 'supabase' })
         const all = readCards(); const idx = all.findIndex(c => c.id === cardId)
         if (idx !== -1) { all[idx].lastPriceUpdate = today; writeCards(all) }
