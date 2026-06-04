@@ -91,9 +91,17 @@ function InlinePurchasePrice({ cardId, current, onSaved }) {
 
 const PCT_OPTIONS = Array.from({ length: 20 }, (_, i) => (i < 10 ? -(10 - i) * 5 : (i - 9) * 5))
 
+function fmtCommas(raw) {
+  if (raw === '' || raw == null) return ''
+  const num = parseFloat(String(raw).replace(/,/g, ''))
+  if (isNaN(num)) return String(raw)
+  return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
 function TargetPriceField({ label, value, pctValue, cardId, onSaved, currentPrice }) {
   const [input, setInput] = useState(value != null ? String(value) : '')
   const [pct, setPct] = useState(pctValue != null ? String(pctValue) : '')
+  const [focused, setFocused] = useState(false)
   const skipResetRef = useRef(false)
 
   useEffect(() => {
@@ -104,6 +112,8 @@ function TargetPriceField({ label, value, pctValue, cardId, onSaved, currentPric
     setInput(value != null ? String(value) : '')
     setPct(pctValue != null ? String(pctValue) : '')
   }, [value, pctValue])
+
+  const displayValue = focused ? input : fmtCommas(input)
 
   async function save() {
     const parsed = parseFloat(input)
@@ -142,54 +152,40 @@ function TargetPriceField({ label, value, pctValue, cardId, onSaved, currentPric
 
   return (
     <div>
-      <p className="text-xs font-medium mb-1.5 text-accent text-center flex items-center justify-center gap-1">
-        {pct !== '' && (
-          <span className={parseFloat(pct) >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-            {parseFloat(pct) >= 0 ? '↑' : '↓'}
-          </span>
-        )}
-        {label}
-      </p>
-      <div className="flex flex-col gap-1.5">
-        <select
-          value={pct}
-          onChange={handlePctChange}
-          className="w-full text-xs bg-surface-600 border border-surface-500 rounded px-1 py-1.5 text-slate-400 focus:outline-none focus:border-accent"
-        >
-          <option value="">% change</option>
-          {pct !== '' && !PCT_OPTIONS.includes(parseFloat(pct)) && (
-            <option key="dynamic" value={pct}>
-              {parseFloat(pct) > 0 ? `+${parseFloat(pct)}%` : `${parseFloat(pct)}%`}
-            </option>
+      {label && (
+        <p className="text-xs font-medium mb-1.5 text-accent text-center flex items-center justify-center gap-1">
+          {pct !== '' && (
+            <span className={parseFloat(pct) >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+              {parseFloat(pct) >= 0 ? '↑' : '↓'}
+            </span>
           )}
-          {PCT_OPTIONS.map((p) => (
-            <option key={p} value={p}>{p > 0 ? `+${p}%` : `${p}%`}</option>
-          ))}
-        </select>
-        <div className="relative">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
-          <input
-            type="number" min="0.01" step="0.01"
-            value={input}
-            onChange={(e) => {
-              const val = e.target.value
-              setInput(val)
-              const parsed = parseFloat(val)
-              if (!isNaN(parsed) && parsed > 0 && currentPrice != null) {
-                setPct(String(Math.round((parsed - currentPrice) / currentPrice * 1000) / 10))
-              } else {
-                setPct('')
-              }
-            }}
-            onBlur={save}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') e.target.blur()
-              if (e.key === 'Escape') setInput(value != null ? String(value) : '')
-            }}
-            placeholder="—"
-            className="w-full bg-surface-700 border border-surface-500 rounded pl-6 pr-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent"
-          />
-        </div>
+          {label}
+        </p>
+      )}
+      <div className="relative">
+        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-400 text-sm pointer-events-none">$</span>
+        <input
+          type="text"
+          value={displayValue}
+          onFocus={() => setFocused(true)}
+          onChange={(e) => {
+            const val = e.target.value.replace(/,/g, '')
+            setInput(val)
+            const parsed = parseFloat(val)
+            if (!isNaN(parsed) && parsed > 0 && currentPrice != null) {
+              setPct(String(Math.round((parsed - currentPrice) / currentPrice * 1000) / 10))
+            } else {
+              setPct('')
+            }
+          }}
+          onBlur={() => { setFocused(false); save() }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') e.target.blur()
+            if (e.key === 'Escape') { setInput(value != null ? String(value) : ''); setFocused(false) }
+          }}
+          placeholder="—"
+          className="w-full bg-surface-700 border border-surface-500 rounded pl-6 pr-2 py-1.5 text-sm text-white focus:outline-none focus:border-accent"
+        />
       </div>
     </div>
   )
@@ -425,12 +421,18 @@ function FitText({ text, className, minSize = 11, maxSize = 18 }) {
   return <span ref={ref} className={className}>{text}</span>
 }
 
+function readFavNames() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('pokeprice-favorites') || '{}')
+    const { __v: _, ...favs } = raw
+    return Object.values(favs)
+  } catch { return [] }
+}
+
 function useFavNames() {
-  const [favNames, setFavNames] = useState(() => {
-    try { return Object.values(JSON.parse(localStorage.getItem('pokeprice-favorites') || '{}')) } catch { return [] }
-  })
+  const [favNames, setFavNames] = useState(readFavNames)
   useEffect(() => {
-    const update = () => { try { setFavNames(Object.values(JSON.parse(localStorage.getItem('pokeprice-favorites') || '{}'))) } catch {} }
+    const update = () => setFavNames(readFavNames())
     window.addEventListener('pokeprice-favs', update)
     return () => window.removeEventListener('pokeprice-favs', update)
   }, [])
@@ -922,6 +924,134 @@ function NotesModal({ card, onClose, onSaved }) {
 
 const TDiv = () => <div className="w-px h-5 bg-surface-600 rounded-full flex-shrink-0" />
 
+function PriceAlertModal({ card, onClose, onSaved }) {
+  const { format } = useCurrency()
+  const currentPrice = card.currentPrice ?? null
+  const [pct, setPct] = useState(card.alertPct != null ? card.alertPct : 10)
+  const [emailEnabled, setEmailEnabled] = useState(card.alertEmailEnabled ?? true)
+  const [saving, setSaving] = useState(false)
+
+  const targetPrice = currentPrice != null
+    ? Math.round(currentPrice * (1 + pct / 100) * 100) / 100
+    : null
+
+  async function handleSave() {
+    setSaving(true)
+    await window.api.updateCard(card.id, {
+      alertPrice: targetPrice,
+      alertPct: pct,
+      alertEmailEnabled: emailEnabled,
+    })
+    onSaved()
+    setSaving(false)
+    onClose()
+  }
+
+  async function handleClear() {
+    setSaving(true)
+    await window.api.updateCard(card.id, { alertPrice: null, alertPct: null, alertEmailEnabled: false })
+    onSaved()
+    setSaving(false)
+    onClose()
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="bg-surface-800 border border-surface-600 rounded-2xl w-full max-w-sm mx-4 overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-surface-600 flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-white truncate pr-4">{card.name}</h2>
+            <p className="text-slate-500 text-xs mt-0.5">Price Alert</p>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white text-xl w-8 h-8 flex items-center justify-center flex-shrink-0">✕</button>
+        </div>
+
+        <div className="p-5 space-y-5">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <label className="text-slate-300 text-sm font-medium">Price Change Threshold</label>
+              <span className={`text-sm font-bold tabular-nums ${pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {pct >= 0 ? '+' : ''}{pct}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min="-50"
+              max="50"
+              step="1"
+              value={pct}
+              onChange={(e) => setPct(Number(e.target.value))}
+              className="w-full h-1.5 rounded-full appearance-none bg-surface-600 accent-amber-400 cursor-pointer"
+            />
+            <div className="flex justify-between text-[10px] text-slate-600 mt-1.5">
+              <span>−50%</span>
+              <span className="text-slate-700">0</span>
+              <span>+50%</span>
+            </div>
+          </div>
+
+          {currentPrice != null && (
+            <div className="bg-surface-700/60 rounded-xl px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-500">Current price</span>
+                <span className="text-white font-medium">{format(currentPrice)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-slate-500">Alert triggers at</span>
+                <span className={`font-bold ${pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {targetPrice != null ? format(targetPrice) : '—'}
+                  <span className="text-xs font-normal text-slate-500 ml-1">({pct >= 0 ? '+' : ''}{pct}%)</span>
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-slate-300 text-sm font-medium">Notify via email</p>
+              <p className="text-slate-600 text-xs mt-0.5">Send email when alert triggers</p>
+            </div>
+            <button
+              onClick={() => setEmailEnabled((v) => !v)}
+              className={`relative inline-flex w-11 h-6 rounded-full transition-colors flex-shrink-0 ${emailEnabled ? 'bg-accent' : 'bg-surface-600'}`}
+            >
+              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full shadow transition-transform ${emailEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-surface-600 flex gap-2">
+          <button
+            onClick={handleSave}
+            disabled={saving || targetPrice == null}
+            className="flex-1 bg-accent hover:bg-amber-400 disabled:opacity-50 text-black font-bold py-2.5 rounded-lg text-sm transition-colors"
+          >
+            {saving ? 'Saving…' : 'Save Alert'}
+          </button>
+          {card.alertPrice != null && (
+            <button
+              onClick={handleClear}
+              disabled={saving}
+              className="px-4 py-2.5 bg-red-900/30 hover:bg-red-900/50 border border-red-700/50 text-red-400 hover:text-red-300 rounded-lg text-sm transition-colors"
+            >
+              Clear
+            </button>
+          )}
+          <button
+            onClick={onClose}
+            className="px-4 py-2.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 rounded-lg text-sm transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBinderFilter, confirmRemove = true, showPlPct = false, onTogglePlPct, showDollarChanges = false, onToggleDollarChanges, bulkMode = false, isSelected = false, onToggleSelect, viewMode = 'detailed' }) {
   const navigate = useNavigate()
   const { format } = useCurrency()
@@ -973,6 +1103,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
 
   const [editingTableAlert, setEditingTableAlert] = useState(false)
   const [tableAlertInput, setTableAlertInput] = useState('')
+  const [alertModalOpen, setAlertModalOpen] = useState(false)
 
   async function saveTableAlertPrice() {
     const parsed = parseFloat(tableAlertInput)
@@ -990,12 +1121,12 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
     return (
       <div
         onClick={() => onCardClick?.(card)}
-        className={`flex items-center gap-2.5 bg-surface-800 border rounded-xl px-4 mb-2 h-[76px] transition-all cursor-pointer ${
+        className={`flex items-center gap-2.5 bg-surface-800 border rounded-xl px-4 py-2 mb-2 transition-all cursor-pointer ${
           confirmingRemove ? 'border-red-500/40' : 'border-surface-600 hover:border-surface-500 hover:bg-surface-700/50'
         }`}
       >
         {/* Thumbnail */}
-        <div className={`flex-shrink-0 rounded overflow-hidden bg-surface-900 ${card.type === 'sealed' ? 'w-12 h-12' : 'w-8 h-12'}`}>
+        <div className={`flex-shrink-0 rounded overflow-hidden ${card.type === 'sealed' ? 'w-12 h-12' : 'w-8 h-12'}`}>
           {card.imageUrl && (
             <img src={card.imageUrl} alt={card.name} className="w-full h-full object-contain" />
           )}
@@ -1014,8 +1145,22 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
         <TDiv />
 
         {/* Grade — own column so all rows align */}
-        <div className="w-14 flex-shrink-0 flex items-center justify-center">
+        <div className="w-14 flex-shrink-0 flex flex-col items-center gap-1 justify-center">
           <span className={`text-[10px] px-1.5 py-px rounded-full font-semibold whitespace-nowrap ${condColor}`}>{condLabel}</span>
+          {card.forTrade && (
+            <span
+              className="inline-flex items-center gap-[3px] text-[8px] font-bold uppercase tracking-[0.06em] px-1 py-[1px] rounded-full select-none"
+              style={{
+                background: 'rgba(255,45,91,0.11)',
+                border: '1px solid rgba(255,45,91,0.42)',
+                color: '#ff6b8a',
+                boxShadow: '0 0 6px rgba(255,45,91,0.14)',
+              }}
+            >
+              <span style={{ width: 4, height: 4, borderRadius: '50%', flexShrink: 0, background: '#ff2d5b', boxShadow: '0 0 4px #ff2d5b', display: 'inline-block' }} />
+              Trade
+            </span>
+          )}
         </div>
 
         <TDiv />
@@ -1041,7 +1186,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
         <TDiv />
 
         {/* Sparkline */}
-        <div className="flex-1 self-stretch py-2 min-w-[80px]">
+        <div className="flex-1 h-12 min-w-[80px]">
           <Sparkline history={card.recentHistory || []} cardId={card.id} height="100%" />
         </div>
 
@@ -1104,6 +1249,19 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
           </p>
         </div>
 
+        {/* Bell — Price Alert */}
+        <div className="flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => setAlertModalOpen(true)}
+            title={card.alertPrice != null ? `Alert set: ${format(card.alertPrice)}` : 'Set price alert'}
+            className="w-8 h-8 flex items-center justify-center rounded-lg text-accent hover:bg-accent/10 transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill={card.alertPrice != null ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+          </button>
+        </div>
+
         {/* Remove */}
         <div className="flex-shrink-0 relative ml-1" onClick={(e) => e.stopPropagation()}>
           {confirmingRemove && (
@@ -1131,6 +1289,10 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
             ×
           </button>
         </div>
+
+        {alertModalOpen && (
+          <PriceAlertModal card={card} onClose={() => setAlertModalOpen(false)} onSaved={onRefresh} />
+        )}
       </div>
     )
   }
@@ -1138,7 +1300,7 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
 
   return (
     <div
-      className={`flex items-center gap-5 bg-surface-800 border rounded-xl px-5 py-[10px] mb-3 transition-all group cursor-pointer ${
+      className={`flex items-center gap-5 bg-surface-800 border rounded-xl px-5 py-2 mb-3 transition-all group cursor-pointer ${
         bulkMode && isSelected
           ? 'border-red-500 bg-red-900/10'
           : 'border-surface-600 hover:border-surface-500 hover:bg-surface-700/50'
@@ -1156,9 +1318,9 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
         </div>
       )}
       {/* Card image */}
-      <div className={`flex-shrink-0 flex items-center justify-center bg-surface-900 rounded-xl overflow-hidden border-2 ${
+      <div className={`flex-shrink-0 self-stretch flex items-center justify-center rounded-xl overflow-hidden border-2 ${
         isDownAlert ? 'border-red-400' : isUpAlert ? 'border-emerald-400' : 'border-transparent'
-      } ${card.type === 'sealed' ? 'w-24 h-24' : 'w-24 h-36'}`}>
+      } ${card.type === 'sealed' ? 'w-20' : 'w-16'}`}>
         {card.imageUrl ? (
           <img src={card.imageUrl} alt={card.name}
             className="h-full w-full object-contain group-hover:scale-105 transition-transform duration-200" />
@@ -1170,13 +1332,28 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
       <Divider />
 
       {/* Card identity */}
-      <div className="w-64 flex-shrink-0 min-w-0 flex flex-col gap-1.5">
+      <div className="w-64 flex-shrink-0 min-w-0 flex flex-col justify-between self-stretch py-0.5">
         <div className="flex items-center gap-1.5 min-w-0">
           <FitText text={card.name} className="text-white font-bold leading-tight min-w-0 overflow-hidden whitespace-nowrap" maxSize={18} minSize={11} />
           {card.number && <span className="text-slate-500 text-xs flex-shrink-0">#{card.number}</span>}
           <span className={`text-xs px-2 py-0.5 rounded-full font-semibold flex-shrink-0 ${condColor}`}>
             {condLabel}
           </span>
+          {card.forTrade && (
+            <span
+              className="inline-flex items-center gap-[3px] text-[9px] font-bold uppercase tracking-[0.06em] px-1.5 py-[2px] rounded-full flex-shrink-0 select-none"
+              style={{
+                background: 'rgba(255,45,91,0.11)',
+                border: '1px solid rgba(255,45,91,0.42)',
+                color: '#ff6b8a',
+                textShadow: '0 0 8px rgba(255,45,91,0.55)',
+                boxShadow: '0 0 8px rgba(255,45,91,0.16), inset 0 0 4px rgba(255,45,91,0.05)',
+              }}
+            >
+              <span style={{ width: 5, height: 5, borderRadius: '50%', flexShrink: 0, background: '#ff2d5b', boxShadow: '0 0 5px #ff2d5b', display: 'inline-block' }} />
+              For Trade
+            </span>
+          )}
           {isFavCard && <span className="text-yellow-400 text-sm leading-none flex-shrink-0">★</span>}
         </div>
         {(() => {
@@ -1230,8 +1407,22 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
 
         <Divider />
 
-        <div className="w-36 flex-shrink-0 space-y-2" onClick={(e) => e.stopPropagation()}>
-          <TargetPriceField label="Price Alert" value={card.alertPrice} pctValue={card.alertPct} cardId={card.id} onSaved={onRefresh} currentPrice={marketPrice} />
+        <div className="w-24 flex-shrink-0 space-y-2" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => setAlertModalOpen(true)}
+            title={card.alertPrice != null ? 'Edit price alert' : 'Set price alert'}
+            className={`w-full flex items-center justify-center gap-1.5 py-1 rounded-lg text-xs font-medium text-white transition-colors ${
+              card.alertPrice != null
+                ? 'bg-accent/10 hover:bg-accent/20 border border-accent/30'
+                : 'bg-surface-700 hover:bg-surface-600 border border-surface-600'
+            }`}
+          >
+            <svg className="w-3.5 h-3.5 flex-shrink-0" viewBox="0 0 24 24" fill={card.alertPrice != null ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            {card.alertPrice != null ? 'Edit $ Alert' : 'Set $ Alert'}
+          </button>
+          <TargetPriceField value={card.alertPrice} pctValue={card.alertPct} cardId={card.id} onSaved={onRefresh} currentPrice={marketPrice} />
         </div>
 
         <Divider />
@@ -1370,6 +1561,9 @@ export default function CardRow({ card, onRemove, onRefresh, onCardClick, onBind
       )}
       {notesOpen && (
         <NotesModal card={card} onClose={() => setNotesOpen(false)} onSaved={onRefresh} />
+      )}
+      {alertModalOpen && (
+        <PriceAlertModal card={card} onClose={() => setAlertModalOpen(false)} onSaved={onRefresh} />
       )}
     </div>
   )

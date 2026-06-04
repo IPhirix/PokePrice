@@ -684,11 +684,9 @@ function SealedAddModal({ product, section, onAdd, onClose }) {
 }
 
 function useFavNames() {
-  const [favNames, setFavNames] = useState(() => {
-    try { return Object.values(JSON.parse(localStorage.getItem('pokeprice-favorites') || '{}')) } catch { return [] }
-  })
+  const [favNames, setFavNames] = useState(() => Object.values(getFavs()))
   useEffect(() => {
-    const update = () => { try { setFavNames(Object.values(JSON.parse(localStorage.getItem('pokeprice-favorites') || '{}'))) } catch {} }
+    const update = () => setFavNames(Object.values(getFavs()))
     window.addEventListener('pokeprice-favs', update)
     return () => window.removeEventListener('pokeprice-favs', update)
   }, [])

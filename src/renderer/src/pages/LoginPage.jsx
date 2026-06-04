@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Eye, EyeOff } from '../components/icons'
 import { useAuth } from '../context/AuthContext'
 import ResetPasswordModal from '../components/ResetPasswordModal'
@@ -11,12 +11,18 @@ export default function LoginPage({ onCreateAccount }) {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [showReset, setShowReset] = useState(false)
+  const [stayLoggedIn, setStayLoggedIn] = useState(true)
+
+  useEffect(() => {
+    window.api.auth.getStayLoggedIn().then(val => setStayLoggedIn(val))
+  }, [])
 
   async function handleLogin() {
     if (!username.trim() || !password) return setError('Please enter your username and password.')
     setError('')
     setLoading(true)
     try {
+      await window.api.auth.setStayLoggedIn(stayLoggedIn)
       const result = await login(username.trim(), password)
       if (!result.ok) setError(result.error || 'Login failed.')
     } catch {
@@ -112,12 +118,24 @@ export default function LoginPage({ onCreateAccount }) {
             {loading ? 'Signing in…' : 'Sign In'}
           </button>
 
-          <div className="text-center">
+          <div className="flex items-center justify-between">
             <button
               onClick={() => setShowReset(true)}
               className="text-slate-400 hover:text-slate-200 text-sm transition-colors"
             >
               Forgot password?
+            </button>
+            <button
+              type="button"
+              onClick={() => setStayLoggedIn(v => !v)}
+              className="flex items-center gap-2 group"
+            >
+              <span className="text-sm text-slate-400 group-hover:text-slate-200 transition-colors select-none">
+                Stay logged in
+              </span>
+              <div className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${stayLoggedIn ? 'bg-accent' : 'bg-surface-500'}`}>
+                <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${stayLoggedIn ? 'translate-x-4' : 'translate-x-0'}`} />
+              </div>
             </button>
           </div>
         </div>

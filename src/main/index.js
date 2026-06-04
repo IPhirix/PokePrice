@@ -570,7 +570,8 @@ async function sendAlertEmails() {
 
     const state = { alert: updatedEmailed[card.id]?.alert ?? null }
 
-    if (emailAlertEnabled && card.alertPrice != null && card.alertPrice > 0) {
+    const cardEmailEnabled = card.alertEmailEnabled != null ? card.alertEmailEnabled : emailAlertEnabled
+    if (cardEmailEnabled && card.alertPrice != null && card.alertPrice > 0) {
       const isUpAlert = card.alertPct != null ? card.alertPct > 0 : card.alertPrice > price
       const triggered = isUpAlert ? price >= card.alertPrice : price <= card.alertPrice
       if (triggered) {
@@ -2844,4 +2845,222 @@ ipcMain.handle('shell:openExternal', (_, url) => {
     return
   }
   shell.openExternal(url)
+})
+
+// ── Trade Market ───────────────────────────────────────────────────────────────
+// Tables are created on first use. All operations require sbPool (DATABASE_URL).
+
+let _tradeTablesReady = false
+
+async function ensureTradeMarketTables() {
+  if (_tradeTablesReady || !sbPool) return
+  await sbPool.query(`
+    CREATE TABLE IF NOT EXISTS trade_market_listings (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id TEXT NOT NULL,
+      username_display TEXT,
+      card_id TEXT,
+      card_name TEXT NOT NULL,
+      card_set TEXT,
+      card_number TEXT,
+      card_condition TEXT NOT NULL DEFAULT 'raw',
+      card_type TEXT DEFAULT 'card',
+      card_image_url TEXT,
+      market_price NUMERIC DEFAULT 0,
+      require_price_match BOOLEAN DEFAULT FALSE,
+      price_tolerance NUMERIC DEFAULT 0,
+      accept_any BOOLEAN DEFAULT TRUE,
+      description TEXT,
+      city TEXT,
+      state_code TEXT,
+      lat NUMERIC,
+      lng NUMERIC,
+      status TEXT DEFAULT 'active',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS trade_market_offers (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      listing_id UUID NOT NULL,
+      offerer_user_id TEXT NOT NULL,
+      offerer_username_display TEXT,
+      offerer_city TEXT,
+      offered_cards JSONB NOT NULL DEFAULT '[]',
+      total_offered_value NUMERIC DEFAULT 0,
+      note TEXT,
+      status TEXT DEFAULT 'pending',
+      counter_cards JSONB,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS trade_market_messages (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      offer_id UUID NOT NULL,
+      sender_user_id TEXT NOT NULL,
+      body TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `)
+  _tradeTablesReady = true
+}
+
+ipcMain.handle('trade-market:get-listings', async () => {
+  if (!sbPool) return null
+  try {
+    await ensureTradeMarketTables()
+    const res = await sbPool.query(
+      `SELECT * FROM trade_market_listings WHERE status = 'active' ORDER BY created_at DESC`
+    )
+    return res.rows
+  } catch (err) {
+    console.error('[trade-market:get-listings]', err.message)
+    return null
+  }
+})
+
+ipcMain.handle('trade-market:get-my-listings', async () => {
+  if (!sbPool) return []
+  try {
+    await ensureTradeMarketTables()
+    const username = _currentUser
+    if (!username) return []
+    const res = await sbPool.query(
+      `SELECT * FROM trade_market_listings WHERE user_id = $1 AND status = 'active' ORDER BY created_at DESC`,
+      [username]
+    )
+    return res.rows
+  } catch (err) {
+    console.error('[trade-market:get-my-listings]', err.message)
+    return []
+  }
+})
+
+ipcMain.handle('trade-market:create-listing', async (_, listing) => {
+  if (!sbPool) throw new Error('No database connection')
+  await ensureTradeMarketTables()
+  const username = _currentUser
+  if (!username) throw new Error('Not logged in')
+  const settings = readSettings()
+  const displayName = settings?.profile?.displayName || username
+  const res = await sbPool.query(
+    `INSERT INTO trade_market_listings
+      (user_id, username_display, card_id, card_name, card_set, card_number, card_condition, card_type,
+       card_image_url, market_price, require_price_match, price_tolerance, accept_any, description,
+       city, state_code, lat, lng)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+     RETURNING *`,
+    [
+      username, displayName,
+      listing.card_id, listing.card_name, listing.card_set, listing.card_number,
+      listing.card_condition, listing.card_type || 'card',
+      listing.card_image_url, listing.market_price || 0,
+      listing.require_price_match || false, listing.price_tolerance || 0,
+      listing.accept_any !== false,
+      listing.description || null,
+      listing.city || null, listing.state_code || null,
+      listing.lat || null, listing.lng || null,
+    ]
+  )
+  return res.rows[0]
+})
+
+ipcMain.handle('trade-market:delete-listing', async (_, listingId) => {
+  if (!sbPool) throw new Error('No database connection')
+  await ensureTradeMarketTables()
+  const username = _currentUser
+  if (!username) throw new Error('Not logged in')
+  await sbPool.query(
+    `UPDATE trade_market_listings SET status = 'cancelled', updated_at = NOW()
+     WHERE id = $1 AND user_id = $2`,
+    [listingId, username]
+  )
+  return true
+})
+
+ipcMain.handle('trade-market:submit-offer', async (_, offer) => {
+  if (!sbPool) throw new Error('No database connection')
+  await ensureTradeMarketTables()
+  const username = _currentUser
+  if (!username) throw new Error('Not logged in')
+  const settings = readSettings()
+  const displayName = settings?.profile?.displayName || username
+  const prof = settings?.profile || {}
+  const res = await sbPool.query(
+    `INSERT INTO trade_market_offers
+      (listing_id, offerer_user_id, offerer_username_display, offerer_city, offered_cards, total_offered_value, note)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     RETURNING *`,
+    [
+      offer.listing_id, username, displayName,
+      prof.city || null,
+      JSON.stringify(offer.offered_cards || []),
+      offer.total_offered_value || 0,
+      offer.note || null,
+    ]
+  )
+  return res.rows[0]
+})
+
+ipcMain.handle('trade-market:get-inbox', async () => {
+  if (!sbPool) return []
+  try {
+    await ensureTradeMarketTables()
+    const username = _currentUser
+    if (!username) return []
+    // Get offers on listings owned by this user, joined with listing info
+    const res = await sbPool.query(
+      `SELECT o.*, row_to_json(l) AS _listing
+       FROM trade_market_offers o
+       JOIN trade_market_listings l ON l.id = o.listing_id
+       WHERE l.user_id = $1
+       ORDER BY o.created_at DESC`,
+      [username]
+    )
+    return res.rows.map(r => ({
+      ...r,
+      _listing: typeof r._listing === 'string' ? JSON.parse(r._listing) : r._listing,
+    }))
+  } catch (err) {
+    console.error('[trade-market:get-inbox]', err.message)
+    return []
+  }
+})
+
+ipcMain.handle('trade-market:respond-to-offer', async (_, offerId, action) => {
+  if (!sbPool) throw new Error('No database connection')
+  await ensureTradeMarketTables()
+  const validActions = ['accepted', 'declined', 'countered']
+  if (!validActions.includes(action)) throw new Error('Invalid action')
+  const res = await sbPool.query(
+    `UPDATE trade_market_offers SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+    [action, offerId]
+  )
+  return res.rows[0]
+})
+
+ipcMain.handle('trade-market:get-messages', async (_, offerId) => {
+  if (!sbPool) return []
+  try {
+    await ensureTradeMarketTables()
+    const res = await sbPool.query(
+      `SELECT * FROM trade_market_messages WHERE offer_id = $1 ORDER BY created_at ASC`,
+      [offerId]
+    )
+    return res.rows
+  } catch (err) {
+    console.error('[trade-market:get-messages]', err.message)
+    return []
+  }
+})
+
+ipcMain.handle('trade-market:send-message', async (_, offerId, body) => {
+  if (!sbPool) throw new Error('No database connection')
+  await ensureTradeMarketTables()
+  const username = _currentUser
+  if (!username) throw new Error('Not logged in')
+  const res = await sbPool.query(
+    `INSERT INTO trade_market_messages (offer_id, sender_user_id, body) VALUES ($1,$2,$3) RETURNING *`,
+    [offerId, username, body]
+  )
+  return res.rows[0]
 })

@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PokePrice — Trade Market Design Concepts</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --s900: #0f1117; --s800: #161b27; --s700: #1e2535;
+      --s600: #252d3d; --s500: #2e3850; --accent: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    body { background: #05070d; color: white; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; margin: 0; }
+
+    /* FOR TRADE pill — the hero element */
+    .for-trade {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: rgba(255,45,91,0.11); border: 1px solid rgba(255,45,91,0.42);
+      color: #ff6b8a; text-shadow: 0 0 8px rgba(255,45,91,0.55);
+      box-shadow: 0 0 10px rgba(255,45,91,0.18), inset 0 0 5px rgba(255,45,91,0.06);
+      font-size: 9px; font-weight: 700; letter-spacing: 0.07em;
+      padding: 2px 7px; border-radius: 9999px; text-transform: uppercase; white-space: nowrap;
+    }
+    .for-trade::before {
+      content: ''; width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0;
+      background: #ff2d5b; box-shadow: 0 0 5px #ff2d5b, 0 0 10px rgba(255,45,91,0.55);
+    }
+    @keyframes neon-pulse {
+      0%,100% { box-shadow: 0 0 10px rgba(255,45,91,0.18), inset 0 0 5px rgba(255,45,91,0.06); }
+      50%      { box-shadow: 0 0 16px rgba(255,45,91,0.32), inset 0 0 8px rgba(255,45,91,0.12); }
+    }
+    .for-trade-live { animation: neon-pulse 2.4s ease-in-out infinite; }
+
+    /* Condition pills */
+    .cp { font-size: 9px; font-weight: 600; padding: 1px 7px; border-radius: 9999px; }
+    .cp-raw  { background: rgba(100,116,139,.22); color:#94a3b8; border:1px solid rgba(100,116,139,.18); }
+    .cp-psa10{ background: rgba(234,179,8,.18);   color:#fde047; border:1px solid rgba(234,179,8,.28); box-shadow:0 0 0 1px rgba(234,179,8,.12); }
+    .cp-psa9 { background: rgba(161,161,170,.15); color:#d4d4d8; border:1px solid rgba(161,161,170,.18); }
+    .cp-cgc10{ background: rgba(234,179,8,.18);   color:#fde047; border:1px solid rgba(234,179,8,.28); box-shadow:0 0 0 1px rgba(234,179,8,.12); }
+
+    /* App tab bar */
+    .app-tab { padding:5px 12px; border-radius:8px; font-size:12px; font-weight:500; white-space:nowrap; color:#475569; cursor:pointer; border:1px solid transparent; }
+    .tab-rose    { background:rgba(244,63,94,.13);  border-color:rgba(244,63,94,.38);  color:#fb7185; }
+    .tab-emerald { background:rgba(16,185,129,.12); border-color:rgba(16,185,129,.3);  color:#34d399; }
+    .tab-sky     { background:rgba(14,165,233,.12); border-color:rgba(14,165,233,.3);  color:#38bdf8; }
+    .tab-violet  { background:rgba(139,92,246,.12); border-color:rgba(139,92,246,.3);  color:#a78bfa; }
+    .tab-amber   { background:rgba(245,158,11,.12); border-color:rgba(245,158,11,.3);  color:#f59e0b; }
+    .tab-red     { background:rgba(239,68,68,.12);  border-color:rgba(239,68,68,.3);   color:#f87171; }
+
+    /* Requirement badges */
+    .req-equal { background:rgba(34,197,94,.1);  border:1px solid rgba(34,197,94,.25);  color:#4ade80; font-size:9px; font-weight:600; padding:2px 7px; border-radius:9999px; }
+    .req-flex  { background:rgba(251,191,36,.1); border:1px solid rgba(251,191,36,.25); color:#fbbf24; font-size:9px; font-weight:600; padding:2px 7px; border-radius:9999px; }
+    .req-any   { background:rgba(100,116,139,.1);border:1px solid rgba(100,116,139,.22);color:#94a3b8; font-size:9px; font-weight:600; padding:2px 7px; border-radius:9999px; }
+
+    /* Buttons */
+    .btn-trade { background:rgba(245,158,11,.12); border:1px solid rgba(245,158,11,.3); color:#f59e0b; font-size:11px; font-weight:600; padding:5px 12px; border-radius:8px; cursor:pointer; white-space:nowrap; transition:background .15s; }
+    .btn-trade:hover { background:rgba(245,158,11,.22); }
+    .btn-primary { background:#f59e0b; color:black; font-size:12px; font-weight:700; padding:8px 20px; border-radius:8px; cursor:pointer; border:none; transition:background .15s; }
+    .btn-primary:hover { background:#fbbf24; }
+    .btn-ghost { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); color:#94a3b8; font-size:12px; font-weight:500; padding:8px 16px; border-radius:8px; cursor:pointer; }
+
+    /* Cards */
+    .trade-card { background:var(--s800); border:1px solid var(--s600); border-radius:12px; overflow:hidden; transition:border-color .2s, box-shadow .2s; }
+    .trade-card:hover { border-color:rgba(255,45,91,.28); box-shadow:0 0 22px rgba(255,45,91,.07); }
+    .portfolio-card { background:var(--s800); border:1px solid var(--s600); border-radius:10px; overflow:hidden; }
+
+    /* Card art gradients */
+    .art-1 { background:linear-gradient(135deg,#7c3aed 0%,#3b1070 50%,#150830 100%); }
+    .art-2 { background:linear-gradient(135deg,#1d4ed8 0%,#0f2060 50%,#050e2a 100%); }
+    .art-3 { background:linear-gradient(135deg,#059669 0%,#0a3020 50%,#040f0a 100%); }
+    .art-4 { background:linear-gradient(135deg,#dc2626 0%,#5a0a0a 50%,#1c0303 100%); }
+    .art-5 { background:linear-gradient(135deg,#d97706 0%,#5c2e00 50%,#1a0d00 100%); }
+    .art-6 { background:linear-gradient(135deg,#0891b2 0%,#053040 50%,#010f18 100%); }
+    .art-7 { background:linear-gradient(135deg,#9333ea 0%,#4a1070 50%,#160525 100%); }
+    .art-8 { background:linear-gradient(135deg,#16a34a 0%,#0a3a1a 50%,#03100a 100%); }
+
+    /* App chrome */
+    .app-frame { background:var(--s900); border:1px solid rgba(255,255,255,.07); border-radius:12px; overflow:hidden; }
+    .app-titlebar { background:var(--s800); border-bottom:1px solid var(--s600); padding:8px 14px; display:flex; align-items:center; gap:8px; }
+    .traffic-light { width:10px; height:10px; border-radius:50%; }
+    .app-tabs-bar { background:var(--s800); border-bottom:1px solid var(--s600); padding:6px 12px; display:flex; gap:4px; overflow-x:auto; }
+
+    /* Sub-tabs */
+    .subtab-bar { background:var(--s900); border-bottom:1px solid var(--s600); padding:8px 16px; display:flex; gap:2px; }
+    .subtab { padding:4px 14px; border-radius:6px; font-size:12px; font-weight:500; color:#475569; cursor:pointer; border:1px solid transparent; }
+    .subtab-active { background:rgba(244,63,94,.12); border-color:rgba(244,63,94,.35); color:#fb7185; }
+
+    /* Filter bar */
+    .filter-bar { background:var(--s900); border-bottom:1px solid var(--s600); padding:8px 16px; display:flex; align-items:center; gap:8px; }
+    .filter-chip { background:var(--s700); border:1px solid var(--s500); color:#94a3b8; font-size:11px; font-weight:500; padding:4px 10px; border-radius:6px; cursor:pointer; display:flex; align-items:center; gap:4px; white-space:nowrap; }
+
+    /* Sidebar */
+    .sidebar { background:var(--s800); border-right:1px solid var(--s600); width:230px; flex-shrink:0; }
+
+    /* List row */
+    .list-row { border-bottom:1px solid var(--s600); padding:12px 16px; display:flex; align-items:center; gap:12px; transition:background .15s; cursor:pointer; }
+    .list-row:hover { background:rgba(255,255,255,.02); }
+    .list-row.selected { background:rgba(255,45,91,.04); border-left:2px solid rgba(255,45,91,.4); }
+
+    /* Right panel */
+    .offer-panel { background:var(--s800); border-left:1px solid var(--s600); width:280px; flex-shrink:0; }
+
+    /* Avatar */
+    .avatar { border-radius:50%; background:linear-gradient(135deg,#374151,#1f2937); display:flex; align-items:center; justify-content:center; font-weight:700; color:white; flex-shrink:0; }
+
+    /* Status */
+    .vmatch-ok   { color:#34d399; }
+    .vmatch-warn { color:#fbbf24; }
+    .vmatch-no   { color:#f87171; }
+
+    /* Divider */
+    .hr { border:none; border-top:1px solid rgba(255,255,255,.06); }
+
+    /* Input */
+    .app-input { background:rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1); border-radius:6px; color:white; font-size:12px; padding:6px 10px; width:100%; outline:none; }
+    input[type=range] { -webkit-appearance:none; height:3px; background:rgba(255,255,255,.12); border-radius:2px; cursor:pointer; width:100%; }
+    input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width:14px; height:14px; border-radius:50%; background:#f59e0b; cursor:pointer; }
+
+    /* Custom check */
+    .check-box { width:15px; height:15px; border-radius:4px; flex-shrink:0; border:1px solid rgba(255,255,255,.2); background:rgba(255,255,255,.04); display:flex; align-items:center; justify-content:center; font-size:9px; color:#f59e0b; font-weight:700; }
+    .check-box.on { background:rgba(245,158,11,.18); border-color:rgba(245,158,11,.45); }
+    .radio-btn { width:14px; height:14px; border-radius:50%; flex-shrink:0; border:1px solid rgba(255,255,255,.22); background:rgba(255,255,255,.04); display:flex; align-items:center; justify-content:center; }
+    .radio-btn.on { border-color:#f59e0b; background:rgba(245,158,11,.15); }
+    .radio-btn.on::after { content:''; width:6px; height:6px; border-radius:50%; background:#f59e0b; }
+
+    /* Section design label */
+    .design-banner { background:var(--s800); border:1px solid var(--s600); border-radius:12px; padding:20px 24px; margin-bottom:16px; }
+
+    ::-webkit-scrollbar { width:4px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+    ::-webkit-scrollbar-thumb { background:rgba(255,255,255,.1); border-radius:2px; }
+
+    /* Toggle switch */
+    .toggle { width:32px; height:18px; border-radius:9px; background:rgba(34,197,94,.7); display:flex; align-items:center; padding:2px; cursor:pointer; }
+    .toggle-knob { width:14px; height:14px; border-radius:50%; background:white; margin-left:auto; }
+    .toggle.off { background:rgba(255,255,255,.15); }
+    .toggle.off .toggle-knob { margin-left:0; }
+
+    /* Inbox row */
+    .inbox-row { border:1px solid var(--s600); border-radius:10px; background:var(--s800); margin-bottom:8px; overflow:hidden; }
+    .inbox-row.new-offer { border-color:rgba(255,45,91,.25); box-shadow:0 0 14px rgba(255,45,91,.05); }
+
+    /* Price meter */
+    .price-meter { height:4px; border-radius:2px; background:rgba(255,255,255,.1); overflow:hidden; }
+    .price-fill-ok   { height:100%; background:linear-gradient(90deg,#34d399,#10b981); border-radius:2px; }
+    .price-fill-warn { height:100%; background:linear-gradient(90deg,#fbbf24,#f59e0b); border-radius:2px; }
+    .price-fill-bad  { height:100%; background:linear-gradient(90deg,#f87171,#ef4444); border-radius:2px; }
+
+    /* NEW badge */
+    .new-badge { background:rgba(255,45,91,.15); border:1px solid rgba(255,45,91,.3); color:#fb7185; font-size:8px; font-weight:800; padding:1px 6px; border-radius:9999px; letter-spacing:.06em; text-transform:uppercase; }
+  </style>
+</head>
+<body>
+
+<!-- ===================== TOP NAV ===================== -->
+<nav style="position:sticky;top:0;z-index:100;background:rgba(5,7,13,.96);backdrop-filter:blur(14px);border-bottom:1px solid rgba(255,255,255,.05)" class="px-6 py-3 flex items-center gap-4">
+  <div class="flex items-center gap-2 mr-4">
+    <div style="width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#f59e0b,#d97706)" class="flex items-center justify-center">
+      <span style="font-size:10px">⚡</span>
+    </div>
+    <span class="font-bold text-white text-sm">PokePrice</span>
+    <span style="color:rgba(255,255,255,.25)" class="text-xs">/ Trade Market Designs</span>
+  </div>
+  <div class="ml-auto flex items-center gap-2">
+    <a href="#d1" style="background:rgba(244,63,94,.12);border:1px solid rgba(244,63,94,.3);color:#fb7185" class="text-xs font-semibold px-3 py-1.5 rounded-full no-underline">1 — Market Grid</a>
+    <a href="#d2" style="background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);color:#a78bfa" class="text-xs font-semibold px-3 py-1.5 rounded-full no-underline">2 — Split Panel</a>
+    <a href="#d3" style="background:rgba(14,165,233,.12);border:1px solid rgba(14,165,233,.3);color:#38bdf8" class="text-xs font-semibold px-3 py-1.5 rounded-full no-underline">3 — Card Context</a>
+  </div>
+</nav>
+
+<!-- ===================== DESIGN 1: Neon Market Grid ===================== -->
+<section id="d1" class="px-8 py-10">
+  <div class="design-banner">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <span style="background:rgba(244,63,94,.12);border:1px solid rgba(244,63,94,.3);color:#fb7185" class="text-xs font-bold px-3 py-1 rounded-full">Design 1 / 3</span>
+          <h2 class="text-white font-bold text-lg m-0">Neon Market Grid</h2>
+        </div>
+        <p class="text-slate-400 text-sm m-0">Card-grid marketplace nested inside a new "Trade" tab. Familiar e-commerce feel. Listings show distance, price requirements, and seller. Portfolio cards show the neon red FOR TRADE pill overlay.</p>
+      </div>
+      <div class="flex items-center gap-2 ml-6 flex-shrink-0">
+        <span class="for-trade for-trade-live">For Trade</span>
+        <span class="text-slate-500 text-xs">← new pill</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- App frame -->
+  <div class="app-frame" style="max-width:1100px;margin:0 auto">
+    <!-- Title bar -->
+    <div class="app-titlebar">
+      <div class="traffic-light" style="background:#ff5f57"></div>
+      <div class="traffic-light" style="background:#ffbd2e"></div>
+      <div class="traffic-light" style="background:#28c840"></div>
+      <span class="text-slate-500 text-xs ml-3">PokePrice</span>
+    </div>
+
+    <!-- Main tabs -->
+    <div class="app-tabs-bar">
+      <div class="app-tab">Collection</div>
+      <div class="app-tab">Watchlist</div>
+      <div class="app-tab tab-rose">Trade</div>
+      <div class="app-tab">Card Shows</div>
+      <div class="app-tab tab-red">Pokédex</div>
+      <div class="app-tab">Search</div>
+    </div>
+
+    <!-- Trade sub-tabs -->
+    <div class="subtab-bar">
+      <div class="subtab subtab-active">Market</div>
+      <div class="subtab">Trade Analyzer</div>
+      <div class="ml-auto flex items-center gap-2">
+        <span class="text-slate-600 text-xs">My listings:</span>
+        <span style="background:rgba(255,45,91,.12);border:1px solid rgba(255,45,91,.3);color:#fb7185" class="text-xs font-bold px-2 py-0.5 rounded-full">3 active</span>
+      </div>
+    </div>
+
+    <!-- Filter bar -->
+    <div class="filter-bar flex-wrap gap-2">
+      <div class="filter-chip">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+        Chicago, IL
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      <div class="filter-chip">
+        Within 15 mi
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      <div class="filter-chip">
+        Condition: All
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      <div class="filter-chip">
+        Price: Any
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      <div class="filter-chip" style="color:#f59e0b;border-color:rgba(245,158,11,.3)">
+        + 2 more
+      </div>
+      <span class="ml-auto text-slate-500 text-xs">24 listings near you</span>
+    </div>
+
+    <!-- Card grid -->
+    <div style="background:var(--s900);padding:16px">
+      <div class="grid grid-cols-3 gap-3">
+
+        <!-- Card 1: Charizard VMAX PSA10 -->
+        <div class="trade-card">
+          <div style="position:relative">
+            <div class="art-1" style="height:90px;display:flex;align-items:center;justify-content:center;font-size:32px">🔥</div>
+            <div style="position:absolute;top:8px;right:8px">
+              <span class="for-trade for-trade-live">For Trade</span>
+            </div>
+            <div style="position:absolute;bottom:6px;left:8px">
+              <span class="cp cp-psa10">PSA 10</span>
+            </div>
+          </div>
+          <div style="padding:10px 12px">
+            <div class="text-white font-semibold text-sm leading-tight">Charizard VMAX</div>
+            <div class="text-slate-500 text-xs mt-0.5">Crown Zenith</div>
+            <div class="flex items-center justify-between mt-2">
+              <span style="color:#f59e0b;font-weight:700;font-size:15px">$280</span>
+              <span class="req-equal">Equal match</span>
+            </div>
+            <hr class="hr my-2" />
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="avatar" style="width:20px;height:20px;font-size:8px">TR</div>
+                <div>
+                  <div class="text-slate-300 text-xs font-medium">TrainerRed</div>
+                  <div class="text-slate-600 text-xs">Chicago · 0.8 mi</div>
+                </div>
+              </div>
+            </div>
+            <button class="btn-trade w-full mt-2 text-center" style="text-align:center">Submit Trade</button>
+          </div>
+        </div>
+
+        <!-- Card 2: Umbreon VMAX Alt Art Raw -->
+        <div class="trade-card">
+          <div style="position:relative">
+            <div class="art-2" style="height:90px;display:flex;align-items:center;justify-content:center;font-size:32px">🌙</div>
+            <div style="position:absolute;top:8px;right:8px">
+              <span class="for-trade">For Trade</span>
+            </div>
+            <div style="position:absolute;bottom:6px;left:8px">
+              <span class="cp cp-raw">Raw</span>
+            </div>
+          </div>
+          <div style="padding:10px 12px">
+            <div class="text-white font-semibold text-sm leading-tight">Umbreon VMAX Alt Art</div>
+            <div class="text-slate-500 text-xs mt-0.5">Evolving Skies</div>
+            <div class="flex items-center justify-between mt-2">
+              <span style="color:#f59e0b;font-weight:700;font-size:15px">$195</span>
+              <span class="req-flex">±15% ok</span>
+            </div>
+            <hr class="hr my-2" />
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="avatar" style="width:20px;height:20px;font-size:8px">MK</div>
+                <div>
+                  <div class="text-slate-300 text-xs font-medium">MoonKeeper</div>
+                  <div class="text-slate-600 text-xs">Milwaukee · 12.4 mi</div>
+                </div>
+              </div>
+            </div>
+            <button class="btn-trade w-full mt-2" style="text-align:center">Submit Trade</button>
+          </div>
+        </div>
+
+        <!-- Card 3: Rayquaza VMAX Alt Art PSA9 -->
+        <div class="trade-card">
+          <div style="position:relative">
+            <div class="art-3" style="height:90px;display:flex;align-items:center;justify-content:center;font-size:32px">🐉</div>
+            <div style="position:absolute;top:8px;right:8px">
+              <span class="for-trade">For Trade</span>
+            </div>
+            <div style="position:absolute;bottom:6px;left:8px">
+              <span class="cp cp-psa9">PSA 9</span>
+            </div>
+          </div>
+          <div style="padding:10px 12px">
+            <div class="text-white font-semibold text-sm leading-tight">Rayquaza VMAX Alt Art</div>
+            <div class="text-slate-500 text-xs mt-0.5">Evolving Skies</div>
+            <div class="flex items-center justify-between mt-2">
+              <span style="color:#f59e0b;font-weight:700;font-size:15px">$310</span>
+              <span class="req-equal">Equal match</span>
+            </div>
+            <hr class="hr my-2" />
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="avatar" style="width:20px;height:20px;font-size:8px">GG</div>
+                <div>
+                  <div class="text-slate-300 text-xs font-medium">GrassGrown</div>
+                  <div class="text-slate-600 text-xs">Indianapolis · 22 mi</div>
+                </div>
+              </div>
+            </div>
+            <button class="btn-trade w-full mt-2" style="text-align:center">Submit Trade</button>
+          </div>
+        </div>
+
+        <!-- Card 4: Lugia V Alt Art PSA10 -->
+        <div class="trade-card">
+          <div style="position:relative">
+            <div class="art-6" style="height:90px;display:flex;align-items:center;justify-content:center;font-size:32px">🌊</div>
+            <div style="position:absolute;top:8px;right:8px">
+              <span class="for-trade">For Trade</span>
+            </div>
+            <div style="position:absolute;bottom:6px;left:8px">
+              <span class="cp cp-psa10">PSA 10</span>
+            </div>
+          </div>
+          <div style="padding:10px 12px">
+            <div class="text-white font-semibold text-sm leading-tight">Lugia V Alt Art</div>
+            <div class="text-slate-500 text-xs mt-0.5">Silver Tempest</div>
+            <div class="flex items-center justify-between mt-2">
+              <span style="color:#f59e0b;font-weight:700;font-size:15px">$520</span>
+              <span class="req-equal">Equal match</span>
+            </div>
+            <hr class="hr my-2" />
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="avatar" style="width:20px;height:20px;font-size:8px">PK</div>
+                <div>
+                  <div class="text-slate-300 text-xs font-medium">PokeKing88</div>
+                  <div class="text-slate-600 text-xs">Chicago · 3.7 mi</div>
+                </div>
+              </div>
+            </div>
+            <button class="btn-trade w-full mt-2" style="text-align:center">Submit Trade</button>
+          </div>
+        </div>
+
+        <!-- Card 5: Mew VMAX Raw -->
+        <div class="trade-card">
+          <div style="position:relative">
+            <div class="art-7" style="height:90px;display:flex;align-items:center;justify-content:center;font-size:32px">✨</div>
+            <div style="position:absolute;top:8px;right:8px">
+              <span class="for-trade">For Trade</span>
+            </div>
+            <div style="position:absolute;bottom:6px;left:8px">
+              <span class="cp cp-raw">Raw</span>
+            </div>
+          </div>
+          <div style="padding:10px 12px">
+            <div class="text-white font-semibold text-sm leading-tight">Mew VMAX</div>
+            <div class="text-slate-500 text-xs mt-0.5">Fusion Strike</div>
+            <div class="flex items-center justify-between mt-2">
+              <span style="color:#f59e0b;font-weight:700;font-size:15px">$89</span>
+              <span class="req-flex">±20% ok</span>
+            </div>
+            <hr class="hr my-2" />
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="avatar" style="width:20px;height:20px;font-size:8px">SB</div>
+                <div>
+                  <div class="text-slate-300 text-xs font-medium">StarBurst</div>
+                  <div class="text-slate-600 text-xs">Detroit · 38 mi</div>
+                </div>
+              </div>
+            </div>
+            <button class="btn-trade w-full mt-2" style="text-align:center">Submit Trade</button>
+          </div>
+        </div>
+
+        <!-- Card 6: Gengar VMAX Raw -->
+        <div class="trade-card">
+          <div style="position:relative">
+            <div class="art-4" style="height:90px;display:flex;align-items:center;justify-content:center;font-size:32px">👻</div>
+            <div style="position:absolute;top:8px;right:8px">
+              <span class="for-trade">For Trade</span>
+            </div>
+            <div style="position:absolute;bottom:6px;left:8px">
+              <span class="cp cp-raw">Raw</span>
+            </div>
+          </div>
+          <div style="padding:10px 12px">
+            <div class="text-white font-semibold text-sm leading-tight">Gengar VMAX</div>
+            <div class="text-slate-500 text-xs mt-0.5">Fusion Strike</div>
+            <div class="flex items-center justify-between mt-2">
+              <span style="color:#f59e0b;font-weight:700;font-size:15px">$55</span>
+              <span class="req-any">Any offer</span>
+            </div>
+            <hr class="hr my-2" />
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-2">
+                <div class="avatar" style="width:20px;height:20px;font-size:8px">NX</div>
+                <div>
+                  <div class="text-slate-300 text-xs font-medium">NightFox</div>
+                  <div class="text-slate-600 text-xs">St. Louis · 45 mi</div>
+                </div>
+              </div>
+            </div>
+            <button class="btn-trade w-full mt-2" style="text-align:center">Submit Trade</button>
+          </div>
+        </div>
+
+      </div><!-- /grid -->
+    </div><!-- /content -->
+  </div><!-- /app-frame -->
+
+  <!-- Portfolio strip showing FOR TRADE pill on existing cards -->
+  <div style="max-width:1100px;margin:24px auto 0">
+    <div class="design-banner" style="padding:16px 20px">
+      <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">How it looks in Your Portfolio — cards marked for trade</div>
+      <div class="grid grid-cols-3 gap-3">
+
+        <!-- Portfolio card with FOR TRADE pill -->
+        <div class="portfolio-card" style="display:flex;align-items:center;gap:10px;padding:10px 12px">
+          <div class="art-1" style="width:38px;height:52px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px">🔥</div>
+          <div style="flex:1;min-width:0">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-white font-semibold text-xs truncate">Charizard VMAX</span>
+              <span class="for-trade for-trade-live" style="flex-shrink:0">For Trade</span>
+            </div>
+            <div class="text-slate-500 text-xs">Crown Zenith</div>
+            <div class="flex items-center gap-2 mt-1">
+              <span class="cp cp-psa10">PSA 10</span>
+              <span style="color:#f59e0b;font-size:11px;font-weight:700">$280</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Portfolio card with FOR TRADE pill -->
+        <div class="portfolio-card" style="display:flex;align-items:center;gap:10px;padding:10px 12px">
+          <div class="art-5" style="width:38px;height:52px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px">⚡</div>
+          <div style="flex:1;min-width:0">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-white font-semibold text-xs truncate">Pikachu VMAX</span>
+              <span class="for-trade" style="flex-shrink:0">For Trade</span>
+            </div>
+            <div class="text-slate-500 text-xs">Crown Zenith</div>
+            <div class="flex items-center gap-2 mt-1">
+              <span class="cp cp-raw">Raw</span>
+              <span style="color:#f59e0b;font-size:11px;font-weight:700">$45</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Portfolio card WITHOUT pill (not listed) -->
+        <div class="portfolio-card" style="display:flex;align-items:center;gap:10px;padding:10px 12px;opacity:0.6">
+          <div class="art-3" style="width:38px;height:52px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px">🌿</div>
+          <div style="flex:1;min-width:0">
+            <div class="flex items-center gap-2 mb-1">
+              <span class="text-white font-semibold text-xs truncate">Leafeon VMAX Alt Art</span>
+            </div>
+            <div class="text-slate-500 text-xs">Evolving Skies</div>
+            <div class="flex items-center gap-2 mt-1">
+              <span class="cp cp-raw">Raw</span>
+              <span style="color:#f59e0b;font-size:11px;font-weight:700">$140</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <p class="text-slate-600 text-xs mt-3 m-0">Cards without the pill are not listed. Right-click or use card menu to toggle "List for Trade".</p>
+    </div>
+  </div>
+</section>
+
+
+<!-- ===================== DESIGN 2: Split Panel ===================== -->
+<section id="d2" class="px-8 py-10" style="border-top:1px solid rgba(255,255,255,.04)">
+  <div class="design-banner">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <span style="background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);color:#a78bfa" class="text-xs font-bold px-3 py-1 rounded-full">Design 2 / 3</span>
+          <h2 class="text-white font-bold text-lg m-0">Trade Hub Split Panel</h2>
+        </div>
+        <p class="text-slate-400 text-sm m-0">Power-user layout. Left sidebar for filters and your listings. Center feed shows all nearby trades. Right panel slides open to compose your offer — pick cards, see price match status in real time.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-frame" style="max-width:1100px;margin:0 auto">
+    <!-- Title bar -->
+    <div class="app-titlebar">
+      <div class="traffic-light" style="background:#ff5f57"></div>
+      <div class="traffic-light" style="background:#ffbd2e"></div>
+      <div class="traffic-light" style="background:#28c840"></div>
+      <span class="text-slate-500 text-xs ml-3">PokePrice</span>
+    </div>
+
+    <!-- Main tabs -->
+    <div class="app-tabs-bar">
+      <div class="app-tab">Collection</div>
+      <div class="app-tab">Watchlist</div>
+      <div class="app-tab tab-rose">Trade</div>
+      <div class="app-tab">Card Shows</div>
+      <div class="app-tab tab-red">Pokédex</div>
+    </div>
+
+    <!-- Split body -->
+    <div style="display:flex;height:560px;overflow:hidden">
+
+      <!-- Left sidebar -->
+      <div class="sidebar overflow-y-auto" style="padding:14px 0">
+        <!-- My listings -->
+        <div style="padding:0 14px;margin-bottom:12px">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-slate-400 text-xs font-semibold uppercase tracking-wider">My Listings</span>
+            <span style="background:rgba(255,45,91,.12);border:1px solid rgba(255,45,91,.28);color:#fb7185" class="text-xs font-bold px-1.5 py-0.5 rounded-full">3</span>
+          </div>
+          <!-- Mini listing rows -->
+          <div style="background:var(--s700);border:1px solid var(--s500);border-radius:8px;overflow:hidden">
+            <div style="padding:8px 10px;border-bottom:1px solid var(--s600);display:flex;align-items:center;gap:8px">
+              <div class="art-1" style="width:26px;height:36px;border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px">🔥</div>
+              <div style="flex:1;min-width:0">
+                <div class="text-white text-xs font-medium truncate">Charizard VMAX</div>
+                <div style="color:#f59e0b;font-size:10px;font-weight:700">$280</div>
+              </div>
+              <span class="for-trade" style="font-size:8px;padding:1px 5px">Live</span>
+            </div>
+            <div style="padding:8px 10px;border-bottom:1px solid var(--s600);display:flex;align-items:center;gap:8px">
+              <div class="art-5" style="width:26px;height:36px;border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px">⚡</div>
+              <div style="flex:1;min-width:0">
+                <div class="text-white text-xs font-medium truncate">Pikachu VMAX</div>
+                <div style="color:#f59e0b;font-size:10px;font-weight:700">$45</div>
+              </div>
+              <span class="for-trade" style="font-size:8px;padding:1px 5px">Live</span>
+            </div>
+            <div style="padding:8px 10px;display:flex;align-items:center;gap:8px">
+              <div class="art-2" style="width:26px;height:36px;border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:12px">🌙</div>
+              <div style="flex:1;min-width:0">
+                <div class="text-white text-xs font-medium truncate">Glaceon VMAX AA</div>
+                <div style="color:#f59e0b;font-size:10px;font-weight:700">$165</div>
+              </div>
+              <span class="for-trade" style="font-size:8px;padding:1px 5px">Live</span>
+            </div>
+          </div>
+          <button style="width:100%;margin-top:6px;background:rgba(255,45,91,.08);border:1px solid rgba(255,45,91,.2);color:#fb7185;font-size:11px;font-weight:600;padding:5px;border-radius:6px;cursor:pointer">+ List a Card</button>
+        </div>
+
+        <hr class="hr" style="margin:0 14px 12px" />
+
+        <!-- Filters -->
+        <div style="padding:0 14px">
+          <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-3">Filter Market</div>
+
+          <div class="text-slate-500 text-xs mb-1">Location</div>
+          <div style="display:flex;align-items:center;gap:6px;background:var(--s700);border:1px solid var(--s500);border-radius:6px;padding:5px 8px;margin-bottom:10px">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+            <span class="text-slate-300 text-xs">Chicago, IL</span>
+          </div>
+
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-slate-500 text-xs">Distance</span>
+            <span style="color:#f59e0b;font-size:10px;font-weight:700">15 mi</span>
+          </div>
+          <input type="range" min="5" max="100" value="15" style="margin-bottom:10px" />
+
+          <div class="text-slate-500 text-xs mb-2">Condition</div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">
+            <div style="background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);color:white;font-size:10px;font-weight:600;padding:3px 8px;border-radius:9999px">All</div>
+            <div class="text-slate-500" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);font-size:10px;font-weight:500;padding:3px 8px;border-radius:9999px">Raw</div>
+            <div class="text-slate-500" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);font-size:10px;font-weight:500;padding:3px 8px;border-radius:9999px">PSA 10</div>
+            <div class="text-slate-500" style="background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);font-size:10px;font-weight:500;padding:3px 8px;border-radius:9999px">PSA 9</div>
+          </div>
+
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-slate-500 text-xs">Min price</span>
+          </div>
+          <input type="range" min="0" max="500" value="0" style="margin-bottom:6px" />
+          <div class="flex items-center justify-between mb-10">
+            <span class="text-slate-600 text-xs">$0</span>
+            <span class="text-slate-600 text-xs">$500+</span>
+          </div>
+
+          <div class="text-slate-500 text-xs mb-2">Trade Requirements</div>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+              <div class="radio-btn on"></div>
+              <span class="text-slate-300 text-xs">Any</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+              <div class="radio-btn"></div>
+              <span class="text-slate-400 text-xs">Equal match only</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+              <div class="radio-btn"></div>
+              <span class="text-slate-400 text-xs">Flexible (±%)</span>
+            </label>
+          </div>
+        </div>
+      </div><!-- /sidebar -->
+
+      <!-- Center feed -->
+      <div style="flex:1;overflow-y:auto;background:var(--s900)">
+        <!-- Sub-tab bar inside center -->
+        <div style="background:var(--s800);border-bottom:1px solid var(--s600);padding:0 16px;display:flex;align-items:center;gap:1px;position:sticky;top:0;z-index:10">
+          <div style="padding:10px 14px;font-size:12px;font-weight:600;color:#fb7185;border-bottom:2px solid #fb7185">Market</div>
+          <div style="padding:10px 14px;font-size:12px;font-weight:500;color:#475569;cursor:pointer;display:flex;align-items:center;gap:5px">
+            Inbox
+            <span style="background:rgba(255,45,91,.15);border:1px solid rgba(255,45,91,.3);color:#fb7185;font-size:9px;font-weight:800;padding:1px 5px;border-radius:9999px">2</span>
+          </div>
+          <div style="padding:10px 14px;font-size:12px;font-weight:500;color:#475569;cursor:pointer">My Listings</div>
+          <div style="padding:10px 14px;font-size:12px;font-weight:500;color:#475569;cursor:pointer">Trade Analyzer</div>
+          <div class="ml-auto flex items-center gap-2 py-2">
+            <span class="text-slate-600 text-xs">24 near you</span>
+          </div>
+        </div>
+
+        <!-- List rows -->
+        <!-- Row 1: selected/active -->
+        <div class="list-row selected" style="border-left:2px solid rgba(255,45,91,.4)">
+          <div class="art-2" style="width:36px;height:50px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">🌙</div>
+          <div style="flex:1;min-width:0">
+            <div class="flex items-center gap-2">
+              <span class="text-white font-semibold text-sm">Umbreon VMAX Alt Art</span>
+              <span class="cp cp-raw">Raw</span>
+            </div>
+            <div class="text-slate-500 text-xs mt-0.5">Evolving Skies</div>
+            <div class="flex items-center gap-3 mt-1.5">
+              <span style="color:#f59e0b;font-weight:700;font-size:13px">$195</span>
+              <span class="req-flex">±15% accepted</span>
+              <span class="text-slate-600 text-xs">MoonKeeper · Milwaukee · 12.4 mi</span>
+            </div>
+          </div>
+          <button class="btn-trade" style="background:rgba(255,45,91,.15);border-color:rgba(255,45,91,.4);color:#fb7185">View Offer</button>
+        </div>
+
+        <div class="list-row">
+          <div class="art-1" style="width:36px;height:50px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">🔥</div>
+          <div style="flex:1;min-width:0">
+            <div class="flex items-center gap-2">
+              <span class="text-white font-semibold text-sm">Charizard VMAX</span>
+              <span class="cp cp-psa10">PSA 10</span>
+            </div>
+            <div class="text-slate-500 text-xs mt-0.5">Crown Zenith</div>
+            <div class="flex items-center gap-3 mt-1.5">
+              <span style="color:#f59e0b;font-weight:700;font-size:13px">$280</span>
+              <span class="req-equal">Equal match</span>
+              <span class="text-slate-600 text-xs">TrainerRed · Chicago · 0.8 mi</span>
+            </div>
+          </div>
+          <button class="btn-trade">Submit Trade</button>
+        </div>
+
+        <div class="list-row">
+          <div class="art-3" style="width:36px;height:50px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">🐉</div>
+          <div style="flex:1;min-width:0">
+            <div class="flex items-center gap-2">
+              <span class="text-white font-semibold text-sm">Rayquaza VMAX Alt Art</span>
+              <span class="cp cp-psa9">PSA 9</span>
+            </div>
+            <div class="text-slate-500 text-xs mt-0.5">Evolving Skies</div>
+            <div class="flex items-center gap-3 mt-1.5">
+              <span style="color:#f59e0b;font-weight:700;font-size:13px">$310</span>
+              <span class="req-equal">Equal match</span>
+              <span class="text-slate-600 text-xs">GrassGrown · Indianapolis · 22 mi</span>
+            </div>
+          </div>
+          <button class="btn-trade">Submit Trade</button>
+        </div>
+
+        <div class="list-row">
+          <div class="art-7" style="width:36px;height:50px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">✨</div>
+          <div style="flex:1;min-width:0">
+            <div class="flex items-center gap-2">
+              <span class="text-white font-semibold text-sm">Mew VMAX</span>
+              <span class="cp cp-raw">Raw</span>
+            </div>
+            <div class="text-slate-500 text-xs mt-0.5">Fusion Strike</div>
+            <div class="flex items-center gap-3 mt-1.5">
+              <span style="color:#f59e0b;font-weight:700;font-size:13px">$89</span>
+              <span class="req-flex">±20% ok</span>
+              <span class="text-slate-600 text-xs">StarBurst · Detroit · 38 mi</span>
+            </div>
+          </div>
+          <button class="btn-trade">Submit Trade</button>
+        </div>
+
+        <div class="list-row">
+          <div class="art-6" style="width:36px;height:50px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">🌊</div>
+          <div style="flex:1;min-width:0">
+            <div class="flex items-center gap-2">
+              <span class="text-white font-semibold text-sm">Lugia V Alt Art</span>
+              <span class="cp cp-psa10">PSA 10</span>
+            </div>
+            <div class="text-slate-500 text-xs mt-0.5">Silver Tempest</div>
+            <div class="flex items-center gap-3 mt-1.5">
+              <span style="color:#f59e0b;font-weight:700;font-size:13px">$520</span>
+              <span class="req-equal">Equal match</span>
+              <span class="text-slate-600 text-xs">PokeKing88 · Chicago · 3.7 mi</span>
+            </div>
+          </div>
+          <button class="btn-trade">Submit Trade</button>
+        </div>
+
+        <div class="list-row">
+          <div class="art-4" style="width:36px;height:50px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">👻</div>
+          <div style="flex:1;min-width:0">
+            <div class="flex items-center gap-2">
+              <span class="text-white font-semibold text-sm">Gengar VMAX</span>
+              <span class="cp cp-raw">Raw</span>
+            </div>
+            <div class="text-slate-500 text-xs mt-0.5">Fusion Strike</div>
+            <div class="flex items-center gap-3 mt-1.5">
+              <span style="color:#f59e0b;font-weight:700;font-size:13px">$55</span>
+              <span class="req-any">Any offer</span>
+              <span class="text-slate-600 text-xs">NightFox · St. Louis · 45 mi</span>
+            </div>
+          </div>
+          <button class="btn-trade">Submit Trade</button>
+        </div>
+
+      </div><!-- /center feed -->
+
+      <!-- Right offer panel -->
+      <div class="offer-panel overflow-y-auto">
+        <div style="background:var(--s800);border-bottom:1px solid var(--s600);padding:12px 16px">
+          <div class="text-white font-bold text-sm">Your Trade Offer</div>
+          <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+            <span class="text-slate-500 text-xs">For:</span>
+            <span class="text-slate-300 text-xs font-medium">Umbreon VMAX Alt Art</span>
+            <span style="color:#f59e0b;font-size:11px;font-weight:700">$195</span>
+          </div>
+          <div class="flex items-center gap-1 mt-1">
+            <span class="req-flex">±15% allowed</span>
+            <span class="text-slate-600 text-xs">by MoonKeeper</span>
+          </div>
+        </div>
+
+        <!-- Card selection -->
+        <div style="padding:12px 14px">
+          <div class="text-slate-400 text-xs font-semibold uppercase tracking-wider mb-2">Select from your portfolio</div>
+
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <!-- Checkable card rows -->
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:8px;cursor:pointer">
+              <div class="check-box on">✓</div>
+              <div class="art-1" style="width:26px;height:36px;border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px">🔥</div>
+              <div style="flex:1;min-width:0">
+                <div class="text-white text-xs font-medium truncate">Charizard VMAX</div>
+                <div class="flex items-center gap-1 mt-0.5">
+                  <span class="cp cp-psa10" style="font-size:8px;padding:1px 5px">PSA 10</span>
+                </div>
+              </div>
+              <span style="color:#f59e0b;font-size:11px;font-weight:700">$280</span>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px;cursor:pointer">
+              <div class="check-box"></div>
+              <div class="art-5" style="width:26px;height:36px;border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px">⚡</div>
+              <div style="flex:1;min-width:0">
+                <div class="text-slate-300 text-xs font-medium truncate">Pikachu VMAX</div>
+                <div class="flex items-center gap-1 mt-0.5">
+                  <span class="cp cp-raw" style="font-size:8px;padding:1px 5px">Raw</span>
+                </div>
+              </div>
+              <span style="color:#f59e0b;font-size:11px;font-weight:700">$45</span>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px;cursor:pointer">
+              <div class="check-box"></div>
+              <div class="art-2" style="width:26px;height:36px;border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px">🌙</div>
+              <div style="flex:1;min-width:0">
+                <div class="text-slate-300 text-xs font-medium truncate">Glaceon VMAX AA</div>
+                <div class="flex items-center gap-1 mt-0.5">
+                  <span class="cp cp-raw" style="font-size:8px;padding:1px 5px">Raw</span>
+                </div>
+              </div>
+              <span style="color:#f59e0b;font-size:11px;font-weight:700">$165</span>
+            </div>
+
+            <div style="display:flex;align-items:center;gap:8px;padding:7px 8px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);border-radius:8px;cursor:pointer">
+              <div class="check-box"></div>
+              <div class="art-7" style="width:26px;height:36px;border-radius:3px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px">✨</div>
+              <div style="flex:1;min-width:0">
+                <div class="text-slate-300 text-xs font-medium truncate">Mew VMAX</div>
+                <div class="flex items-center gap-1 mt-0.5">
+                  <span class="cp cp-raw" style="font-size:8px;padding:1px 5px">Raw</span>
+                </div>
+              </div>
+              <span style="color:#f59e0b;font-size:11px;font-weight:700">$89</span>
+            </div>
+          </div>
+
+          <!-- Value match status -->
+          <div style="margin-top:12px;background:var(--s700);border:1px solid var(--s500);border-radius:8px;padding:10px 12px">
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-slate-400 text-xs">Your offer</span>
+              <span style="color:#f59e0b;font-weight:700;font-size:13px">$280</span>
+            </div>
+            <div class="flex items-center justify-between mb-2">
+              <span class="text-slate-400 text-xs">They want</span>
+              <span class="text-slate-300 text-xs font-medium">$195 (±15%)</span>
+            </div>
+            <div class="price-meter mb-1.5">
+              <div class="price-fill-ok" style="width:100%"></div>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              <span class="vmatch-ok text-xs">Over by $85 — offer accepted by ±15% rule</span>
+            </div>
+          </div>
+
+          <hr class="hr my-3" />
+
+          <!-- Note -->
+          <div class="text-slate-500 text-xs mb-1">Add a note (optional)</div>
+          <textarea class="app-input" rows="2" placeholder="Open to PSA graded alternatives..." style="resize:none"></textarea>
+
+          <div class="flex gap-2 mt-3">
+            <button class="btn-ghost" style="flex:1;text-align:center">Cancel</button>
+            <button class="btn-primary" style="flex:2;text-align:center">Submit Trade</button>
+          </div>
+        </div>
+      </div><!-- /offer panel -->
+
+    </div><!-- /split body -->
+  </div><!-- /app-frame -->
+</section>
+
+
+<!-- ===================== DESIGN 3: Card Context ===================== -->
+<section id="d3" class="px-8 py-10" style="border-top:1px solid rgba(255,255,255,.04)">
+  <div class="design-banner">
+    <div class="flex items-start justify-between">
+      <div>
+        <div class="flex items-center gap-3 mb-2">
+          <span style="background:rgba(14,165,233,.12);border:1px solid rgba(14,165,233,.3);color:#38bdf8" class="text-xs font-bold px-3 py-1 rounded-full">Design 3 / 3</span>
+          <h2 class="text-white font-bold text-lg m-0">Integrated Card Context</h2>
+        </div>
+        <p class="text-slate-400 text-sm m-0">Card-first approach. Enable trading on individual cards from the detail view. Trade settings live next to price settings. Inbox-style feed for incoming offers. Minimal new surface area.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="app-frame" style="max-width:1100px;margin:0 auto">
+    <!-- Title bar -->
+    <div class="app-titlebar">
+      <div class="traffic-light" style="background:#ff5f57"></div>
+      <div class="traffic-light" style="background:#ffbd2e"></div>
+      <div class="traffic-light" style="background:#28c840"></div>
+      <span class="text-slate-500 text-xs ml-3">PokePrice</span>
+    </div>
+    <!-- Main tabs -->
+    <div class="app-tabs-bar">
+      <div class="app-tab tab-emerald">Collection</div>
+      <div class="app-tab">Watchlist</div>
+      <div class="app-tab">Trade</div>
+      <div class="app-tab">Card Shows</div>
+      <div class="app-tab tab-red">Pokédex</div>
+    </div>
+
+    <div style="display:flex;height:560px;overflow:hidden">
+
+      <!-- Main portfolio view -->
+      <div style="flex:1;overflow-y:auto;background:var(--s900);padding:16px">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-white font-bold text-sm">My Collection</span>
+          <span class="text-slate-500 text-xs">47 cards · 3 listed for trade</span>
+        </div>
+
+        <!-- Portfolio list (cards with and without FOR TRADE pill) -->
+        <div style="display:flex;flex-direction:column;gap:2px">
+
+          <!-- Card with trade pill + selected (detail panel shows) -->
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.1);border-radius:10px;cursor:pointer">
+            <div class="art-1" style="width:36px;height:50px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">🔥</div>
+            <div style="flex:1;min-width:0">
+              <div class="flex items-center gap-2 mb-0.5">
+                <span class="text-white font-semibold text-sm">Charizard VMAX</span>
+                <span class="for-trade for-trade-live">For Trade</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-slate-500 text-xs">Crown Zenith</span>
+                <span class="cp cp-psa10">PSA 10</span>
+              </div>
+            </div>
+            <div class="text-right">
+              <div style="color:#f59e0b;font-weight:700;font-size:14px">$280</div>
+              <div class="text-slate-600 text-xs">+2.1%</div>
+            </div>
+          </div>
+
+          <!-- Card with trade pill -->
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--s800);border:1px solid var(--s600);border-radius:10px;cursor:pointer">
+            <div class="art-5" style="width:36px;height:50px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">⚡</div>
+            <div style="flex:1;min-width:0">
+              <div class="flex items-center gap-2 mb-0.5">
+                <span class="text-white font-semibold text-sm">Pikachu VMAX</span>
+                <span class="for-trade">For Trade</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-slate-500 text-xs">Crown Zenith</span>
+                <span class="cp cp-raw">Raw</span>
+              </div>
+            </div>
+            <div class="text-right">
+              <div style="color:#f59e0b;font-weight:700;font-size:14px">$45</div>
+              <div class="text-slate-600 text-xs">-0.4%</div>
+            </div>
+          </div>
+
+          <!-- Normal cards (no pill) -->
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--s800);border:1px solid var(--s600);border-radius:10px;cursor:pointer">
+            <div class="art-3" style="width:36px;height:50px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">🌿</div>
+            <div style="flex:1;min-width:0">
+              <div class="flex items-center gap-2 mb-0.5">
+                <span class="text-white font-semibold text-sm">Leafeon VMAX Alt Art</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-slate-500 text-xs">Evolving Skies</span>
+                <span class="cp cp-raw">Raw</span>
+              </div>
+            </div>
+            <div class="text-right">
+              <div style="color:#f59e0b;font-weight:700;font-size:14px">$140</div>
+              <div class="text-slate-600 text-xs">+0.8%</div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--s800);border:1px solid var(--s600);border-radius:10px;cursor:pointer">
+            <div class="art-7" style="width:36px;height:50px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">✨</div>
+            <div style="flex:1;min-width:0">
+              <div class="flex items-center gap-2 mb-0.5">
+                <span class="text-white font-semibold text-sm">Mew VMAX</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-slate-500 text-xs">Fusion Strike</span>
+                <span class="cp cp-raw">Raw</span>
+              </div>
+            </div>
+            <div class="text-right">
+              <div style="color:#f59e0b;font-weight:700;font-size:14px">$89</div>
+              <div class="text-slate-600 text-xs">+5.2%</div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--s800);border:1px solid var(--s600);border-radius:10px;cursor:pointer">
+            <div class="art-2" style="width:36px;height:50px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">🌙</div>
+            <div style="flex:1;min-width:0">
+              <div class="flex items-center gap-2 mb-0.5">
+                <span class="text-white font-semibold text-sm">Umbreon V Alt Art</span>
+                <span class="for-trade">For Trade</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-slate-500 text-xs">Evolving Skies</span>
+                <span class="cp cp-psa9">PSA 9</span>
+              </div>
+            </div>
+            <div class="text-right">
+              <div style="color:#f59e0b;font-weight:700;font-size:14px">$195</div>
+              <div class="text-slate-600 text-xs">+1.3%</div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--s800);border:1px solid var(--s600);border-radius:10px;cursor:pointer">
+            <div class="art-6" style="width:36px;height:50px;border-radius:5px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:16px">🌊</div>
+            <div style="flex:1;min-width:0">
+              <div class="flex items-center gap-2 mb-0.5">
+                <span class="text-white font-semibold text-sm">Kyogre V Alt Art</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-slate-500 text-xs">Silver Tempest</span>
+                <span class="cp cp-raw">Raw</span>
+              </div>
+            </div>
+            <div class="text-right">
+              <div style="color:#f59e0b;font-weight:700;font-size:14px">$72</div>
+              <div class="text-slate-600 text-xs">-1.1%</div>
+            </div>
+          </div>
+        </div>
+      </div><!-- /portfolio -->
+
+      <!-- Right: Card detail + List for Trade panel + Inbox -->
+      <div style="width:340px;flex-shrink:0;background:var(--s800);border-left:1px solid var(--s600);overflow-y:auto">
+
+        <!-- Card detail header -->
+        <div style="padding:14px 16px;border-bottom:1px solid var(--s600)">
+          <div class="flex items-start gap-10">
+            <div class="art-1" style="width:52px;height:72px;border-radius:7px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:24px">🔥</div>
+            <div style="flex:1">
+              <div class="flex items-center gap-2 mb-1">
+                <span class="text-white font-bold text-sm">Charizard VMAX</span>
+              </div>
+              <div class="text-slate-500 text-xs mb-2">Crown Zenith · #79</div>
+              <div class="flex items-center gap-2">
+                <span class="cp cp-psa10">PSA 10</span>
+                <span style="color:#f59e0b;font-weight:700;font-size:15px">$280</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- List for Trade section -->
+        <div style="padding:14px 16px;border-bottom:1px solid var(--s600)">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-white font-semibold text-sm">List for Trade</span>
+            <div class="toggle" style="cursor:pointer">
+              <div class="toggle-knob"></div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <div>
+              <div class="text-slate-400 text-xs mb-1">Your location</div>
+              <div style="display:flex;align-items:center;gap:6px;background:var(--s700);border:1px solid var(--s500);border-radius:6px;padding:6px 10px">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/><circle cx="12" cy="9" r="2.5"/></svg>
+                <span class="text-slate-300 text-xs">Chicago, IL</span>
+                <span class="ml-auto" style="color:#f59e0b;font-size:10px;cursor:pointer">Edit</span>
+              </div>
+            </div>
+
+            <div>
+              <div class="text-slate-400 text-xs mb-2">Price requirements for incoming offers</div>
+              <div style="display:flex;flex-direction:column;gap:5px">
+                <label style="display:flex;align-items:center;gap:7px;padding:7px 8px;background:var(--s700);border:1px solid var(--s500);border-radius:6px;cursor:pointer">
+                  <div class="radio-btn"></div>
+                  <div>
+                    <div class="text-slate-300 text-xs font-medium">Accept any offer</div>
+                    <div class="text-slate-600 text-xs">Receive all trade notifications</div>
+                  </div>
+                </label>
+                <label style="display:flex;align-items:center;gap:7px;padding:7px 8px;background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2);border-radius:6px;cursor:pointer">
+                  <div class="radio-btn on"></div>
+                  <div>
+                    <div class="text-slate-300 text-xs font-medium">Allow variance</div>
+                    <div class="text-slate-600 text-xs">Cards offered must be within ±%</div>
+                  </div>
+                </label>
+                <!-- Variance input -->
+                <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:rgba(245,158,11,.04);border:1px solid rgba(245,158,11,.12);border-radius:6px;margin-top:-2px">
+                  <span class="text-slate-500 text-xs">Variance:</span>
+                  <span style="background:var(--s700);border:1px solid var(--s500);border-radius:5px;padding:2px 8px;color:#f59e0b;font-size:12px;font-weight:700">±15%</span>
+                  <input type="range" min="0" max="50" value="15" style="flex:1;height:2px" />
+                </div>
+                <label style="display:flex;align-items:center;gap:7px;padding:7px 8px;background:var(--s700);border:1px solid var(--s500);border-radius:6px;cursor:pointer">
+                  <div class="radio-btn"></div>
+                  <div>
+                    <div class="text-slate-300 text-xs font-medium">Equal market value</div>
+                    <div class="text-slate-600 text-xs">Offered cards must match $280 exactly</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <button class="btn-primary" style="text-align:center;font-size:11px;padding:7px">Save Trade Settings</button>
+          </div>
+        </div>
+
+        <!-- Incoming trade requests -->
+        <div style="padding:14px 16px">
+          <div class="flex items-center justify-between mb-3">
+            <span class="text-white font-semibold text-sm">Trade Requests</span>
+            <span style="background:rgba(255,45,91,.12);border:1px solid rgba(255,45,91,.28);color:#fb7185" class="text-xs font-bold px-2 py-0.5 rounded-full">2 new</span>
+          </div>
+
+          <!-- Offer 1: good match -->
+          <div class="inbox-row new-offer">
+            <div style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.04)">
+              <div class="flex items-center gap-2">
+                <div class="avatar" style="width:22px;height:22px;font-size:9px">GG</div>
+                <span class="text-slate-300 text-xs font-semibold">GrassGrown</span>
+                <span class="new-badge">new</span>
+                <span class="text-slate-600 text-xs ml-auto">8 min ago</span>
+              </div>
+              <div class="text-slate-500 text-xs mt-1.5">Offering for your Charizard VMAX PSA 10</div>
+            </div>
+            <div style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.04)">
+              <div class="flex items-center gap-6">
+                <div style="display:flex;align-items:center;gap:6px">
+                  <div class="art-3" style="width:22px;height:30px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px">🐉</div>
+                  <div>
+                    <div class="text-slate-300 text-xs">Rayquaza VMAX AA</div>
+                    <div class="flex items-center gap-1 mt-0.5">
+                      <span class="cp cp-psa9" style="font-size:8px;padding:0.5px 4px">PSA 9</span>
+                      <span style="color:#f59e0b;font-size:10px;font-weight:700">$310</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div class="price-meter mt-2 mb-1.5">
+                <div class="price-fill-ok" style="width:100%"></div>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                <span class="vmatch-ok" style="font-size:10px">$310 offered / $280 req. · Over by $30 (within ±15%)</span>
+              </div>
+            </div>
+            <div style="padding:8px 12px;display:flex;gap:6px">
+              <button style="flex:1;text-align:center;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);color:#4ade80;font-size:11px;font-weight:600;padding:5px;border-radius:6px;cursor:pointer">Accept</button>
+              <button style="flex:1;text-align:center;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);color:#fbbf24;font-size:11px;font-weight:600;padding:5px;border-radius:6px;cursor:pointer">Counter</button>
+              <button style="flex:1;text-align:center;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#f87171;font-size:11px;font-weight:600;padding:5px;border-radius:6px;cursor:pointer">Decline</button>
+            </div>
+          </div>
+
+          <!-- Offer 2: bad match -->
+          <div class="inbox-row new-offer" style="margin-top:6px">
+            <div style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.04)">
+              <div class="flex items-center gap-2">
+                <div class="avatar" style="width:22px;height:22px;font-size:9px">TB</div>
+                <span class="text-slate-300 text-xs font-semibold">TrainerBlue</span>
+                <span class="new-badge">new</span>
+                <span class="text-slate-600 text-xs ml-auto">25 min ago</span>
+              </div>
+              <div class="text-slate-500 text-xs mt-1.5">Offering for your Charizard VMAX PSA 10</div>
+            </div>
+            <div style="padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.04)">
+              <div style="display:flex;gap:6px">
+                <div style="display:flex;align-items:center;gap:5px">
+                  <div class="art-5" style="width:22px;height:30px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px">⚡</div>
+                  <div>
+                    <div class="text-slate-400 text-xs">Pikachu VMAX</div>
+                    <span style="color:#f59e0b;font-size:10px;font-weight:700">$45</span>
+                  </div>
+                </div>
+                <span class="text-slate-600 text-xs self-center">+</span>
+                <div style="display:flex;align-items:center;gap:5px">
+                  <div class="art-7" style="width:22px;height:30px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px">✨</div>
+                  <div>
+                    <div class="text-slate-400 text-xs">Mew VMAX</div>
+                    <span style="color:#f59e0b;font-size:10px;font-weight:700">$89</span>
+                  </div>
+                </div>
+              </div>
+              <div class="price-meter mt-2 mb-1.5">
+                <div class="price-fill-bad" style="width:48%"></div>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                <span class="vmatch-no" style="font-size:10px">$134 offered / $280 req. · 52% under (outside ±15%)</span>
+              </div>
+            </div>
+            <div style="padding:8px 12px;display:flex;gap:6px">
+              <button style="flex:1;text-align:center;background:rgba(34,197,94,.1);border:1px solid rgba(34,197,94,.25);color:#4ade80;font-size:11px;font-weight:600;padding:5px;border-radius:6px;cursor:pointer">Accept</button>
+              <button style="flex:1;text-align:center;background:rgba(245,158,11,.1);border:1px solid rgba(245,158,11,.25);color:#fbbf24;font-size:11px;font-weight:600;padding:5px;border-radius:6px;cursor:pointer">Counter</button>
+              <button style="flex:1;text-align:center;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#f87171;font-size:11px;font-weight:600;padding:5px;border-radius:6px;cursor:pointer">Decline</button>
+            </div>
+          </div>
+
+        </div><!-- /inbox -->
+      </div><!-- /right panel -->
+
+    </div><!-- /body -->
+  </div><!-- /app-frame -->
+
+</section>
+
+<!-- Footer spacer -->
+<div style="height:60px"></div>
+
+</body>
+</html>

@@ -12,6 +12,7 @@ import Settings from './Settings'
 import ErrorBoundary from '../components/ErrorBoundary'
 import AccountModal from '../components/AccountModal'
 import TradeAnalyzer from './TradeAnalyzer'
+import TradeMarket from './TradeMarket'
 import Pokedex from './Pokedex'
 import CardShows from './CardShows'
 import NotificationPanel from '../components/NotificationPanel'
@@ -23,7 +24,7 @@ import { useAuth } from '../context/AuthContext'
 const TABS = [
   { id: 'collection', label: 'Collection',         color: 'text-emerald-400',  activeBg: 'bg-emerald-900/30 border-emerald-500' },
   { id: 'watchlist', label: 'Watchlist',         color: 'text-sky-400',      activeBg: 'bg-sky-900/30 border-sky-500' },
-  { id: 'trade',     label: 'Trade Analyzer',    color: 'text-yellow-300',   activeBg: 'bg-yellow-900/20 border-yellow-400' },
+  { id: 'trade',     label: 'Trade',             color: 'text-rose-400',     activeBg: 'bg-rose-900/20 border-rose-500' },
   { id: 'cardshows', label: 'Card Shows',        color: 'text-violet-400',   activeBg: 'bg-violet-900/30 border-violet-500' },
   { id: 'pokedex',   label: 'Pokédex',           color: 'text-red-400',      activeBg: 'bg-red-900/20 border-red-500' },
   { id: 'search',    label: 'Advanced Search',   color: 'text-accent',       activeBg: 'bg-amber-900/20 border-accent' },
@@ -530,6 +531,8 @@ export default function Dashboard() {
 
   const [cards, setCards] = useState([])
   const [activeTab, setActiveTab] = useState(location.state?.tab || 'collection')
+  const [tradeView, setTradeView] = useState('market') // 'market' | 'analyzer'
+  const [tradeSearch, setTradeSearch] = useState('')
   const [showSearch, setShowSearch] = useState(null) // null | 'portfolio' | 'watchlist'
   const [refreshKey, setRefreshKey] = useState(0)
   const [pokedexResetKey, setPokedexResetKey] = useState(0)
@@ -1209,10 +1212,70 @@ export default function Dashboard() {
         <div className="flex-shrink-0 border-b border-surface-700 mx-6" />
       )}
 
-      {/* Trade Analyzer — own layout */}
+      {/* Trade — unified nav bar + Market or Analyzer content */}
       {activeTab === 'trade' && !showSettings && (
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <TradeAnalyzer />
+        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+
+          {/* Top nav bar — matches Advanced Search style */}
+          <div className="flex-shrink-0 bg-surface-800 border-b border-surface-700 px-4 py-3 flex items-center gap-3">
+            {/* Mode toggle */}
+            <div className="flex gap-0.5 bg-surface-900 border border-surface-600 rounded-lg p-1 flex-shrink-0">
+              <button
+                onClick={() => setTradeView('market')}
+                className={`px-5 py-2 rounded text-sm font-semibold transition-colors ${
+                  tradeView === 'market' ? 'bg-accent text-black' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Marketplace
+              </button>
+              <button
+                onClick={() => { setTradeView('analyzer'); setTradeSearch('') }}
+                className={`px-5 py-2 rounded text-sm font-semibold transition-colors ${
+                  tradeView === 'analyzer' ? 'bg-accent text-black' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Trade Analyzer
+              </button>
+            </div>
+
+            {/* Search bar — only visible in Marketplace mode */}
+            {tradeView === 'market' && (
+              <div className="flex-1 relative max-w-md">
+                <svg
+                  className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none"
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.8"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <path strokeLinecap="round" d="M21 21l-4.35-4.35" />
+                </svg>
+                <input
+                  value={tradeSearch}
+                  onChange={(e) => setTradeSearch(e.target.value)}
+                  placeholder="Search listings by card name, set, or seller…"
+                  className="w-full bg-surface-700 border border-surface-500 rounded-lg pl-9 pr-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-accent transition-colors"
+                />
+                {tradeSearch && (
+                  <button
+                    onClick={() => setTradeSearch('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Content */}
+          {tradeView === 'market' ? (
+            <TradeMarket searchQuery={tradeSearch} />
+          ) : (
+            <div className="flex-1 min-h-0 overflow-hidden">
+              <TradeAnalyzer />
+            </div>
+          )}
         </div>
       )}
 

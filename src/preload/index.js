@@ -73,6 +73,18 @@ contextBridge.exposeInMainWorld('api', {
   addUpcomingShow: (show) => ipcRenderer.invoke('upcoming:add', show),
   removeUpcomingShow: (showId) => ipcRenderer.invoke('upcoming:remove', showId),
 
+  tradeMarket: {
+    getListings:      ()               => ipcRenderer.invoke('trade-market:get-listings'),
+    getMyListings:    ()               => ipcRenderer.invoke('trade-market:get-my-listings'),
+    createListing:    (listing)        => ipcRenderer.invoke('trade-market:create-listing', listing),
+    deleteListing:    (id)             => ipcRenderer.invoke('trade-market:delete-listing', id),
+    submitOffer:      (offer)          => ipcRenderer.invoke('trade-market:submit-offer', offer),
+    getInbox:         ()               => ipcRenderer.invoke('trade-market:get-inbox'),
+    respondToOffer:   (id, action)     => ipcRenderer.invoke('trade-market:respond-to-offer', id, action),
+    getMessages:      (offerId)        => ipcRenderer.invoke('trade-market:get-messages', offerId),
+    sendMessage:      (offerId, body)  => ipcRenderer.invoke('trade-market:send-message', offerId, body),
+  },
+
   openExternal: (url) => ipcRenderer.invoke('shell:openExternal', url),
 
   windowMinimize: () => ipcRenderer.send('window:minimize'),

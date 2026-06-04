@@ -240,9 +240,11 @@ function ExpandedModal({ tile, onClose }) {
 function Widget({ label, chart, gradId, color, chartType = 'area', dataKey = 'value', formatter, zeroLine = false, onExpand, addedDates = null, children }) {
   return (
     <div className={`relative bg-surface-800 border border-surface-600 rounded-xl p-2 flex gap-3 overflow-hidden ${onExpand ? 'cursor-pointer hover:border-surface-500 transition-colors' : ''}`} onClick={onExpand}>
-      <div className="w-32 flex-shrink-0 flex flex-col justify-center overflow-hidden">
-        <p className="text-slate-500 text-xs mb-1 uppercase tracking-wider font-medium truncate">{label}</p>
-        {children}
+      <div className="w-32 flex-shrink-0 flex flex-col justify-start overflow-hidden pl-3">
+        <p className="text-slate-500 text-xs mb-1 uppercase tracking-wider font-medium leading-tight">{label}</p>
+        <div className="flex-1 flex flex-col justify-center items-start">
+          {children}
+        </div>
       </div>
       <div className="flex-1 min-h-0 opacity-80">
         <WidgetSparkline data={chart} dataKey={dataKey} color={color} gradId={gradId} type={chartType} formatter={formatter} zeroLine={zeroLine} addedDates={addedDates} />
@@ -316,8 +318,10 @@ export default function PortfolioSummary({ refreshKey, binderFilter, hideValues,
             addedDates: collectionAddedDates,
           })}
         >
-          <p className="text-2xl font-bold text-white">{fmt(data.totalValue)}</p>
-          <p className="text-slate-600 text-xs mt-0.5">{data.cardsWithPrice} card{data.cardsWithPrice !== 1 ? 's' : ''} with data</p>
+          <div className="inline-flex flex-col items-center">
+            <p className="text-2xl font-bold text-white">{fmt(data.totalValue)}</p>
+            <p className="text-slate-400 text-xs mt-0.5">{data.cardsWithPrice} card{data.cardsWithPrice !== 1 ? 's' : ''} with data</p>
+          </div>
         </Widget>
 
         {/* Today's Change */}
@@ -332,15 +336,18 @@ export default function PortfolioSummary({ refreshKey, binderFilter, hideValues,
             subtitle: 'vs yesterday', valueColor: dayColor, formatter: fmtChange, zeroLine: true,
           }) : null}
         >
-          <p className={`text-2xl font-bold ${dayColor}`}>
-            {dayArrow}{dayArrow ? ' ' : ''}{fmt(data.totalDayChange)}
-          </p>
-          <p className="text-slate-600 text-xs mt-0.5">vs yesterday</p>
+          <div className="inline-flex flex-col items-center">
+            <p className={`text-2xl font-bold ${dayColor}`}>
+              {dayArrow}{dayArrow ? ' ' : ''}{fmt(data.totalDayChange)}
+            </p>
+            <p className="text-slate-400 text-xs mt-0.5">vs yesterday</p>
+          </div>
         </Widget>
 
         {/* Cards Tracked */}
-        <div className="relative bg-surface-800 border border-surface-600 rounded-xl p-2 overflow-hidden flex flex-col justify-center">
-          <p className="text-slate-500 text-xs mb-2.5 uppercase tracking-wider font-medium">Cards Tracked</p>
+        <div className="relative bg-surface-800 border border-surface-600 rounded-xl p-2 pl-5 overflow-hidden flex flex-col justify-start">
+          <p className="text-slate-500 text-xs mb-1 uppercase tracking-wider font-medium">Cards Tracked</p>
+          <div className="flex-1 flex flex-col justify-center">
           <div className="flex items-center gap-0">
             <div className="flex-1 flex flex-col items-center">
               <p className="text-2xl font-bold text-white leading-tight">{data.portfolioCount}</p>
@@ -369,6 +376,7 @@ export default function PortfolioSummary({ refreshKey, binderFilter, hideValues,
               <p className="text-slate-500 text-xs mt-0.5 text-center">↓ Alerts</p>
             </button>
           </div>
+          </div>
         </div>
 
         {/* Total Invested */}
@@ -384,10 +392,12 @@ export default function PortfolioSummary({ refreshKey, binderFilter, hideValues,
             addedDates: investedAddedDates,
           }) : null}
         >
-          <p className="text-2xl font-bold text-white">
-            {hideValues ? '——' : data.totalInvested != null ? format(data.totalInvested) : '—'}
-          </p>
-          <p className="text-slate-600 text-xs mt-0.5">{data.cardsWithCost} of {data.portfolioCount} card{data.portfolioCount !== 1 ? 's' : ''}</p>
+          <div className="inline-flex flex-col items-center">
+            <p className="text-2xl font-bold text-white">
+              {hideValues ? '——' : data.totalInvested != null ? format(data.totalInvested) : '—'}
+            </p>
+            <p className="text-slate-400 text-xs mt-0.5">{data.cardsWithCost} of {data.portfolioCount} card{data.portfolioCount !== 1 ? 's' : ''}</p>
+          </div>
         </Widget>
 
         {/* Total P&L */}
@@ -401,10 +411,12 @@ export default function PortfolioSummary({ refreshKey, binderFilter, hideValues,
             valueColor: profitColor, formatter: fmtChange, zeroLine: true,
           }) : null}
         >
-          <p className={`text-2xl font-bold ${profitColor}`}>
-            {combinedPnL != null ? (combinedPnL >= 0 ? '+' : '−') : ''}{fmt(combinedPnL != null ? Math.abs(combinedPnL) : null)}
-          </p>
-          <p className="text-slate-600 text-xs mt-0.5">{hasRealized ? 'unrealized + realized' : 'vs cost basis'}</p>
+          <div className="inline-flex flex-col items-center">
+            <p className={`text-2xl font-bold ${profitColor}`}>
+              {combinedPnL != null ? (combinedPnL >= 0 ? '+' : '−') : ''}{fmt(combinedPnL != null ? Math.abs(combinedPnL) : null)}
+            </p>
+            <p className="text-slate-400 text-xs mt-0.5">{hasRealized ? 'unrealized + realized' : 'vs cost basis'}</p>
+          </div>
         </Widget>
 
         {/* Return ROI */}
@@ -417,10 +429,12 @@ export default function PortfolioSummary({ refreshKey, binderFilter, hideValues,
             subtitle: 'total return', valueColor: roiColor, formatter: fmtPct, zeroLine: true,
           }) : null}
         >
-          <p className={`text-2xl font-bold ${roiColor}`}>
-            {hideValues ? '——' : data.totalROI != null ? (data.totalROI >= 0 ? '+' : '') + data.totalROI.toFixed(1) + '%' : '—'}
-          </p>
-          <p className="text-slate-600 text-xs mt-0.5">total return</p>
+          <div className="inline-flex flex-col items-center">
+            <p className={`text-2xl font-bold ${roiColor}`}>
+              {hideValues ? '——' : data.totalROI != null ? (data.totalROI >= 0 ? '+' : '') + data.totalROI.toFixed(1) + '%' : '—'}
+            </p>
+            <p className="text-slate-400 text-xs mt-0.5">total return</p>
+          </div>
         </Widget>
 
       </div>
