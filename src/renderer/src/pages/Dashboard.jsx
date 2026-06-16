@@ -546,6 +546,7 @@ export default function Dashboard() {
   const [showExportModal, setShowExportModal] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showAccount, setShowAccount] = useState(false)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [showPlPct, setShowPlPct] = useState(false)
   const [showDollarChanges, setShowDollarChanges] = useState(false)
   const [watchlistView, setWatchlistView] = useState(
@@ -655,6 +656,12 @@ export default function Dashboard() {
       if (s.defaultStartTab && !location.state?.tab) setActiveTab(s.defaultStartTab)
     })
   }, [loadCards]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function handleRefreshAllPrices() {
+    setIsRefreshing(true)
+    await window.api.refreshPrices()
+    setIsRefreshing(false)
+  }
 
   async function handleRemove(id) {
     await window.api.removeCard(id)
@@ -872,6 +879,21 @@ export default function Dashboard() {
               )}
             </button>
           )}
+
+          {/* Refresh Prices */}
+          <button
+            onClick={handleRefreshAllPrices}
+            disabled={isRefreshing}
+            className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 bg-surface-700 hover:bg-surface-600 border border-surface-500 text-slate-300 hover:text-white text-sm font-medium rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Refresh all prices"
+          >
+            <svg className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round">
+              <path d="M23 4v6h-6" />
+              <path d="M1 20v-6h6" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
+            {isRefreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
 
           {/* My Account */}
           <button

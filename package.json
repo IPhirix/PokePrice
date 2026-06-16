@@ -8,7 +8,8 @@
     "dev": "concurrently -k -n VITE,ELECTRON -c cyan,yellow \"vite\" \"wait-on http://localhost:5173 && node scripts/start-electron.js\"",
     "dev:web": "vite",
     "build": "vite build",
-    "build:win": "npm run build && electron-builder --win --publish never"
+    "build:win": "npm run build && electron-builder --win --publish never",
+    "ship": "powershell -ExecutionPolicy Bypass -File scripts/build-and-run.ps1"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
@@ -49,7 +50,7 @@
       "src/preload/**/*",
       "assets/**/*"
     ],
-    "extraResources": [],
+    "extraResources": [".env"],
     "win": {
       "icon": "assets/icon.ico",
       "executableName": "PokePrice",

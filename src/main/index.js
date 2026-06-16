@@ -13,7 +13,10 @@ const { Resend } = require('resend')
 const { Pool } = require('pg')
 const { createClient } = require('@supabase/supabase-js')
 const ws = require('ws')
-require('dotenv').config({ override: true })
+require('dotenv').config({
+  path: app.isPackaged ? path.join(process.resourcesPath, '.env') : path.join(__dirname, '../../.env'),
+  override: true
+})
 
 const sbPool = process.env.DATABASE_URL
   ? new Pool({ connectionString: process.env.DATABASE_URL, max: 2 })
