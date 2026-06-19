@@ -242,6 +242,10 @@ if not skip_database_import:
 
         genre = clean_text(row.get("genre"))
 
+        console_name = clean_text(
+            row.get("console-name")
+        )
+
         allowed_genres = {
             "Pokemon Card",
             "Pokemon Cards",
@@ -249,6 +253,19 @@ if not skip_database_import:
         }
 
         if genre not in allowed_genres:
+            skipped_rows += 1
+            continue
+
+        excluded_console_names = (
+            "Japanese",
+            "Korean",
+            "Chinese"
+        )
+
+        if any(
+            x in console_name
+            for x in excluded_console_names
+        ):
             skipped_rows += 1
             continue
 
@@ -279,17 +296,13 @@ if not skip_database_import:
                         row.get("tcg-id")
                     ),
 
-                    clean_text(
-                        row.get("console-name")
-                    ),
+                    console_name,
 
                     clean_text(
                         row.get("product-name")
                     ),
 
-                    clean_text(
-                        row.get("genre")
-                    ),
+                    genre,
 
                     (
                         row.get("release-date")
