@@ -263,18 +263,6 @@ if not skip_database_import:
                 ),
 
                 clean_text(
-                    row.get("upc")
-                ),
-
-                clean_text(
-                    row.get("asin")
-                ),
-
-                clean_text(
-                    row.get("epid")
-                ),
-
-                clean_text(
                     row.get(
                         "console-name"
                     )
@@ -310,12 +298,6 @@ if not skip_database_import:
 
                 clean_price(
                     row.get(
-                        "cib-price"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
                         "new-price"
                     )
                 ),
@@ -328,85 +310,7 @@ if not skip_database_import:
 
                 clean_price(
                     row.get(
-                        "box-only-price"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
                         "manual-only-price"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
-                        "bgs-10-price"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
-                        "condition-17-price"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
-                        "condition-18-price"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
-                        "gamestop-price"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
-                        "gamestop-trade-price"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
-                        "retail-loose-buy"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
-                        "retail-loose-sell"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
-                        "retail-cib-buy"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
-                        "retail-cib-sell"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
-                        "retail-new-buy"
-                    )
-                ),
-
-                clean_price(
-                    row.get(
-                        "retail-new-sell"
-                    )
-                ),
-
-                clean_int(
-                    row.get(
-                        "sales-volume"
                     )
                 ),
 
@@ -420,8 +324,8 @@ if not skip_database_import:
                 f"Skipping row: {e}"
             )
 
-        print(f"Skipped {skipped_rows:,} rows")
-        print(f"Prepared {len(records):,} records")
+    print(f"Skipped {skipped_rows:,} rows")
+    print(f"Prepared {len(records):,} records")
 
     execute_values(
         cursor,
@@ -429,31 +333,14 @@ if not skip_database_import:
         INSERT INTO pokemon_card_prices (
             pricecharting_id,
             tcg_id,
-            upc,
-            asin,
-            epid,
             console_name,
             product_name,
             genre,
             release_date,
             loose_price,
-            cib_price,
             new_price,
             graded_price,
-            box_only_price,
             manual_only_price,
-            bgs_10_price,
-            condition_17_price,
-            condition_18_price,
-            gamestop_price,
-            gamestop_trade_price,
-            retail_loose_buy,
-            retail_loose_sell,
-            retail_cib_buy,
-            retail_cib_sell,
-            retail_new_buy,
-            retail_new_sell,
-            sales_volume,
             snapshot_date
         )
         VALUES %s
