@@ -237,7 +237,7 @@ if not skip_database_import:
     records = []
 
     skipped_rows = 0
-    
+
     for _, row in df.iterrows():
 
         genre = clean_text(row.get("genre"))
@@ -253,42 +253,71 @@ if not skip_database_import:
             continue
 
         try:
-            record = (
-                clean_int(
-                    row.get("id")
-                ),
 
-                clean_text(
-                    row.get("tcg-id")
-                ),
+            pricecharting_id = clean_int(
+                row.get("id")
+            )
 
-                clean_text(
-                    row.get(
-                        "console-name"
-                    )
-                ),
-
-                clean_text(
-                    row.get(
-                        "product-name"
-                    )
-                ),
-
-                clean_text(
-                    row.get("genre")
-                ),
-
+            cursor.execute(
+                """
+                INSERT INTO pokemon_cards (
+                    pricecharting_id,
+                    tcg_id,
+                    console_name,
+                    product_name,
+                    genre,
+                    release_date
+                )
+                VALUES (%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (pricecharting_id)
+                DO NOTHING
+                """,
                 (
-                    row.get(
-                        "release-date"
-                    )
-                    if pd.notna(
-                        row.get(
-                            "release-date"
+                    pricecharting_id,
+
+                    clean_text(
+                        row.get("tcg-id")
+                    ),
+
+                    clean_text(
+                        row.get("console-name")
+                    ),
+
+                    clean_text(
+                        row.get("product-name")
+                    ),
+
+                    clean_text(
+                        row.get("genre")
+                    ),
+
+                    (
+                        row.get("release-date")
+                        if pd.notna(
+                            row.get("release-date")
                         )
+                        else None
                     )
-                    else None
-                ),
+                )
+            )
+
+            cursor.execute(
+                """
+                SELECT id
+                FROM pokemon_cards
+                WHERE pricecharting_id = %s
+                """,
+                (
+                    pricecharting_id,
+                )
+            )
+
+            card_id = cursor.fetchone()[0]
+
+            record = (
+                card_id,
+
+                snapshot_date,
 
                 clean_price(
                     row.get(
@@ -312,9 +341,7 @@ if not skip_database_import:
                     row.get(
                         "manual-only-price"
                     )
-                ),
-
-                snapshot_date
+                )
             )
 
             records.append(record)
@@ -331,17 +358,12 @@ if not skip_database_import:
         cursor,
         """
         INSERT INTO pokemon_card_prices (
-            pricecharting_id,
-            tcg_id,
-            console_name,
-            product_name,
-            genre,
-            release_date,
+            card_id,
+            snapshot_date,
             loose_price,
             new_price,
             graded_price,
-            manual_only_price,
-            snapshot_date
+            manual_only_price
         )
         VALUES %s
         ON CONFLICT DO NOTHING
