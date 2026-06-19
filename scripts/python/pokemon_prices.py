@@ -236,7 +236,21 @@ if not skip_database_import:
 
     records = []
 
+    skipped_rows = 0
+    
     for _, row in df.iterrows():
+
+        genre = clean_text(row.get("genre"))
+
+        allowed_genres = {
+            "Pokemon Card",
+            "Pokemon Cards",
+            "Sealed Product"
+        }
+
+        if genre not in allowed_genres:
+            skipped_rows += 1
+            continue
 
         try:
             record = (
@@ -406,10 +420,8 @@ if not skip_database_import:
                 f"Skipping row: {e}"
             )
 
-    print(
-        f"Prepared "
-        f"{len(records):,} records"
-    )
+        print(f"Skipped {skipped_rows:,} rows")
+        print(f"Prepared {len(records):,} records")
 
     execute_values(
         cursor,
