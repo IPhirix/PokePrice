@@ -389,6 +389,22 @@ if not skip_database_import:
 
     print("Imported to Supabase")
 
+    cursor.execute(
+        """
+        DELETE FROM pokemon_card_prices
+        WHERE snapshot_date < CURRENT_DATE - INTERVAL '365 days'
+        """
+    )
+
+    deleted_rows = cursor.rowcount
+
+    conn.commit()
+
+    print(
+        f"Deleted {deleted_rows:,} rows "
+        f"older than 365 days"
+    )
+
 cursor.close()
 conn.close()
 
