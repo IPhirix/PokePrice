@@ -422,7 +422,7 @@ const SUPABASE_CONDITION_COL = {
   psa10:  'manual_only_price',
   psa9:   'graded_price',
   psa8:   'new_price',
-  cgc10:  'condition_17_price',
+  cgc10:  'graded_price',
   cgc9:   'graded_price',
   sealed: 'loose_price',
 }
@@ -436,7 +436,7 @@ async function resolveSupabaseId(card) {
   if (card.pricechartingId) return card.pricechartingId
   if (card.pricechartingName) {
     const res = await sbPool.query(
-      `SELECT pricecharting_id FROM pokemon_card_prices WHERE product_name ILIKE $1 LIMIT 1`,
+      `SELECT pricecharting_id FROM pokemon_cards WHERE product_name ILIKE $1 LIMIT 1`,
       [card.pricechartingName]
     )
     if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
@@ -447,14 +447,14 @@ async function resolveSupabaseId(card) {
     const productName = `${card.name} #${card.number}`
     if (card.setName) {
       const res = await sbPool.query(
-        `SELECT pricecharting_id FROM pokemon_card_prices WHERE product_name ILIKE $1 AND console_name ILIKE $2 LIMIT 1`,
+        `SELECT pricecharting_id FROM pokemon_cards WHERE product_name ILIKE $1 AND console_name ILIKE $2 LIMIT 1`,
         [productName, `%${card.setName}%`]
       )
       if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
     }
     // Fallback: match product_name only (no set filter)
     const res = await sbPool.query(
-      `SELECT pricecharting_id FROM pokemon_card_prices WHERE product_name ILIKE $1 LIMIT 1`,
+      `SELECT pricecharting_id FROM pokemon_cards WHERE product_name ILIKE $1 LIMIT 1`,
       [productName]
     )
     if (res.rows[0]?.pricecharting_id) return res.rows[0].pricecharting_id
@@ -466,10 +466,9 @@ async function resolveSupabaseId(card) {
       // The part of the card name before the keyword is the console_name (set name)
       const consolePart = card.name.toLowerCase().replace(keyword.toLowerCase(), '').trim()
       const res = await sbPool.query(
-        `SELECT DISTINCT ON (pricecharting_id) pricecharting_id
-         FROM pokemon_card_prices
+        `SELECT pricecharting_id
+         FROM pokemon_cards
          WHERE product_name ILIKE $1 AND LOWER(TRIM(console_name)) = $2
-         ORDER BY pricecharting_id, snapshot_date DESC
          LIMIT 1`,
         [`%${keyword}%`, consolePart]
       )
@@ -479,7 +478,7 @@ async function resolveSupabaseId(card) {
   return null
 }
 
-const ALLOWED_PRICE_COLS = new Set(['loose_price', 'manual_only_price', 'graded_price', 'new_price', 'condition_17_price'])
+const ALLOWED_PRICE_COLS = new Set(['loose_price', 'manual_only_price', 'graded_price', 'new_price'])
 
 async function fetchSupabaseHistory(card) {
   if (!sbPool) return []
@@ -489,7 +488,11 @@ async function fetchSupabaseHistory(card) {
   if (!pcId) return []
   // Query the condition-specific column (e.g. manual_only_price for PSA 10)
   const res = await sbPool.query(
-    `SELECT snapshot_date::date::text AS date, ${col} AS price FROM pokemon_card_prices WHERE pricecharting_id = $1 AND ${col} IS NOT NULL ORDER BY snapshot_date`,
+    `SELECT pcp.snapshot_date::date::text AS date, pcp.${col} AS price
+     FROM pokemon_card_prices pcp
+     JOIN pokemon_cards pc ON pc.id = pcp.card_id
+     WHERE pc.pricecharting_id = $1 AND pcp.${col} IS NOT NULL
+     ORDER BY pcp.snapshot_date`,
     [pcId]
   )
   if (res.rows.length > 0) {
@@ -499,7 +502,11 @@ async function fetchSupabaseHistory(card) {
   // at least the sparkline and change % have something to display
   if (col !== 'loose_price') {
     const fallback = await sbPool.query(
-      `SELECT snapshot_date::date::text AS date, loose_price AS price FROM pokemon_card_prices WHERE pricecharting_id = $1 AND loose_price IS NOT NULL ORDER BY snapshot_date`,
+      `SELECT pcp.snapshot_date::date::text AS date, pcp.loose_price AS price
+       FROM pokemon_card_prices pcp
+       JOIN pokemon_cards pc ON pc.id = pcp.card_id
+       WHERE pc.pricecharting_id = $1 AND pcp.loose_price IS NOT NULL
+       ORDER BY pcp.snapshot_date`,
       [pcId]
     )
     return fallback.rows.map(r => ({ date: r.date, price: parseFloat(r.price), source: 'supabase' }))
@@ -512,7 +519,12 @@ async function fetchSupabaseAllConditions(card) {
   const pcId = await resolveSupabaseId(card)
   if (!pcId) return {}
   const res = await sbPool.query(
-    `SELECT snapshot_date::date::text AS date, loose_price, manual_only_price, graded_price, new_price, condition_17_price FROM pokemon_card_prices WHERE pricecharting_id = $1 ORDER BY snapshot_date DESC LIMIT 1`,
+    `SELECT pcp.snapshot_date::date::text AS date, pcp.loose_price, pcp.manual_only_price, pcp.graded_price, pcp.new_price
+     FROM pokemon_card_prices pcp
+     JOIN pokemon_cards pc ON pc.id = pcp.card_id
+     WHERE pc.pricecharting_id = $1
+     ORDER BY pcp.snapshot_date DESC
+     LIMIT 1`,
     [pcId]
   )
   const row = res.rows[0]
@@ -524,7 +536,7 @@ async function fetchSupabaseAllConditions(card) {
     'PSA 10':   p(row.manual_only_price),
     'PSA 9':    p(row.graded_price),
     'PSA 8':    p(row.new_price),
-    'CGC 10':   p(row.condition_17_price),
+    'CGC 10':   null,
     'CGC 9':    p(row.graded_price),
   }
 }
@@ -873,7 +885,7 @@ ipcMain.handle('cards:getVariations', async (_, name, number, setName) => {
   try {
     const res = await sbPool.query(
       `SELECT DISTINCT ON (pricecharting_id) pricecharting_id, product_name, console_name
-       FROM pokemon_card_prices
+       FROM pokemon_cards
        WHERE (product_name = $1 OR product_name ILIKE $2)
          AND console_name ILIKE $3
          AND console_name NOT ILIKE '%Pocket%'
@@ -1394,7 +1406,7 @@ ipcMain.handle('cards:add', async (_, tcgCard, condition, quantity, section, pur
       const pcId = await resolveSupabaseId(newCard)
       if (pcId) {
         const nameRes = await sbPool.query(
-          `SELECT product_name FROM pokemon_card_prices WHERE pricecharting_id = $1 LIMIT 1`,
+          `SELECT product_name FROM pokemon_cards WHERE pricecharting_id = $1 LIMIT 1`,
           [pcId]
         )
         newCard.pricechartingId = pcId
@@ -1973,19 +1985,20 @@ ipcMain.handle('sealed:search', async (_, query) => {
   const seriesPart = q.replace(new RegExp(keyword, 'i'), '').trim()
   try {
     const params = [`%${keyword}%`]
-    let whereClause = 'WHERE product_name ILIKE $1'
+    let whereClause = 'WHERE pc.product_name ILIKE $1'
     if (seriesPart) {
       params.push(`%${seriesPart}%`)
-      whereClause += ' AND console_name ILIKE $2'
+      whereClause += ' AND pc.console_name ILIKE $2'
     }
     const res = await sbPool.query(
-      `SELECT DISTINCT ON (p.pricecharting_id)
-         p.pricecharting_id, p.console_name, p.product_name, p.loose_price,
+      `SELECT DISTINCT ON (pc.pricecharting_id)
+         pc.pricecharting_id, pc.console_name, pc.product_name, pcp.loose_price,
          si.image_url
-       FROM pokemon_card_prices p
-       LEFT JOIN sealed_images si ON si.pricecharting_id = p.pricecharting_id::text
-       ${whereClause.replace(/pricecharting_id/g, 'p.pricecharting_id').replace(/product_name/g, 'p.product_name').replace(/console_name/g, 'p.console_name')}
-       ORDER BY p.pricecharting_id, p.snapshot_date DESC
+       FROM pokemon_cards pc
+       JOIN pokemon_card_prices pcp ON pcp.card_id = pc.id
+       LEFT JOIN sealed_images si ON si.pricecharting_id = pc.pricecharting_id::text
+       ${whereClause}
+       ORDER BY pc.pricecharting_id, pcp.snapshot_date DESC
        LIMIT 50`,
       params
     )
