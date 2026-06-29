@@ -37,18 +37,23 @@ function makeSets() {
       name: "Crown Zenith",
       serie: { name: "Sword & Shield" },
       releaseDate: "2023-01-20",
+      logo: "https://assets.tcgdex.net/en/swsh/swsh12pt5/logo",
+      symbol: "https://assets.tcgdex.net/en/swsh/swsh12pt5/symbol",
     },
     {
       id: "base1",
       name: "Base Set",
       serie: { name: "Base" },
       releaseDate: "1999-01-09",
+      // no logo — older sets may not have one
     },
     {
       id: "sv1",
       name: "Scarlet & Violet",
       serie: { name: "Scarlet & Violet" },
       releaseDate: "2023-03-31",
+      logo: "https://assets.tcgdex.net/en/sv/sv1/logo",
+      symbol: "https://assets.tcgdex.net/en/sv/sv1/symbol",
     },
   ];
 }
@@ -215,5 +220,43 @@ describe("searchCardsAdvanced", () => {
     // No set ID resolved → no set filter → cards query still fires (name/rarity may be absent)
     // With no other filters and an unknown set, result should be empty
     expect(results).toHaveLength(0);
+  });
+});
+
+// ── getSets ──────────────────────────────────────────────────────────────────
+
+describe("getSets", () => {
+  it("returns logo URL with .webp suffix from TCGdex API response", async () => {
+    mockedAxios.get = vi.fn().mockResolvedValue({ data: makeSets() });
+    const { getSets } = await import("../tcgdex");
+    const sets = await getSets();
+    const crown = sets.find((s) => s.id === "swsh12pt5");
+    expect(crown).toBeDefined();
+    expect(crown!.logo).toBe(
+      "https://assets.tcgdex.net/en/swsh/swsh12pt5/logo.webp",
+    );
+  });
+
+  it("returns null logo when API omits logo field", async () => {
+    mockedAxios.get = vi.fn().mockResolvedValue({ data: makeSets() });
+    const { getSets } = await import("../tcgdex");
+    const sets = await getSets();
+    const base = sets.find((s) => s.id === "base1");
+    expect(base).toBeDefined();
+    expect(base!.logo).toBeNull();
+  });
+
+  it("returns all expected fields: id, name, series, releaseDate, logo", async () => {
+    mockedAxios.get = vi.fn().mockResolvedValue({ data: makeSets() });
+    const { getSets } = await import("../tcgdex");
+    const sets = await getSets();
+    const sv = sets.find((s) => s.id === "sv1");
+    expect(sv).toMatchObject({
+      id: "sv1",
+      name: "Scarlet & Violet",
+      series: "Scarlet & Violet",
+      releaseDate: "2023-03-31",
+      logo: "https://assets.tcgdex.net/en/sv/sv1/logo.webp",
+    });
   });
 });

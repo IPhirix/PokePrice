@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import Image from 'next/image'
 import { trpc } from '@/trpc/react'
 import type { CardCondition, TcgCard } from '@pokeprice/types'
@@ -133,6 +133,137 @@ function AddModal({ card, onClose }: { card: TcgCard; onClose: () => void }) {
   )
 }
 
+type SetEntry = { id: string; name: string; series: string; releaseDate: string; logo: string | null }
+
+function SetBrowser({
+  sets,
+  selected,
+  onSelect,
+  isLoading,
+}: {
+  sets: SetEntry[]
+  selected: string
+  onSelect: (id: string) => void
+  isLoading: boolean
+}) {
+  const [seriesFilter, setSeriesFilter] = useState('')
+  const [setSearch, setSetSearch] = useState('')
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  const groupedSets = useMemo(() => {
+    const q = setSearch.trim().toLowerCase()
+    const groups = new Map<string, SetEntry[]>()
+    for (const s of sets) {
+      if (q && !s.name.toLowerCase().includes(q)) continue
+      const series = s.series || 'Other'
+      if (!groups.has(series)) groups.set(series, [])
+      groups.get(series)!.push(s)
+    }
+    const result: { series: string; sets: SetEntry[] }[] = []
+    for (const s of SERIES_ORDER) {
+      if (groups.has(s)) result.push({ series: s, sets: groups.get(s)! })
+    }
+    for (const [series, sList] of groups) {
+      if (!SERIES_ORDER.includes(series)) result.push({ series, sets: sList })
+    }
+    return result
+  }, [sets, setSearch])
+
+  const activeSeries = seriesFilter || groupedSets[0]?.series || ''
+  const visibleSets = groupedSets.find(g => g.series === activeSeries)?.sets ?? []
+
+  // Reset scroll when series changes
+  useEffect(() => { scrollRef.current?.scrollTo({ left: 0 }) }, [activeSeries])
+
+  if (isLoading) {
+    return (
+      <div className="h-32 flex items-center justify-center text-slate-500 text-sm">
+        Loading sets…
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-3">
+      {/* Series tabs + set name search */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative flex-1 min-w-40">
+          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <circle cx="11" cy="11" r="8" /><line x1="21" y1="21" x2="16.65" y2="16.65" />
+          </svg>
+          <input
+            value={setSearch}
+            onChange={e => setSetSearch(e.target.value)}
+            placeholder="Filter sets…"
+            className="w-full bg-surface-900 border border-surface-600 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-accent"
+          />
+        </div>
+        <div className="flex gap-1.5 flex-wrap">
+          {groupedSets.map(g => (
+            <button
+              key={g.series}
+              onClick={() => setSeriesFilter(g.series)}
+              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                activeSeries === g.series
+                  ? 'bg-accent text-black'
+                  : 'bg-surface-700 text-slate-400 hover:text-white hover:bg-surface-600'
+              }`}
+            >
+              {g.series}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Set logo grid — horizontal scroll */}
+      <div ref={scrollRef} className="overflow-x-auto pb-1">
+        <div className="flex gap-2" style={{ width: 'max-content' }}>
+          {visibleSets.map(s => (
+            <button
+              key={s.id}
+              onClick={() => onSelect(selected === s.id ? '' : s.id)}
+              title={s.name}
+              className={`flex-shrink-0 flex flex-col items-center justify-center gap-1.5 rounded-xl border p-2 transition-all w-28 h-16 ${
+                selected === s.id
+                  ? 'border-accent bg-accent/10 ring-1 ring-accent/40'
+                  : 'border-surface-600 bg-surface-700 hover:border-surface-500 hover:bg-surface-600'
+              }`}
+            >
+              {s.logo ? (
+                <Image
+                  src={s.logo}
+                  alt={s.name}
+                  width={88}
+                  height={32}
+                  className="object-contain w-full h-8"
+                  unoptimized
+                />
+              ) : (
+                <span className="text-[10px] text-slate-400 text-center leading-tight line-clamp-2 px-1">{s.name}</span>
+              )}
+            </button>
+          ))}
+          {visibleSets.length === 0 && (
+            <p className="text-slate-500 text-xs py-4 px-2">No sets match</p>
+          )}
+        </div>
+      </div>
+
+      {/* Selected set label */}
+      {selected && (() => {
+        const sel = sets.find(s => s.id === selected)
+        return sel ? (
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <span className="text-accent font-medium">{sel.name}</span>
+            <span>selected</span>
+            <button onClick={() => onSelect('')} className="text-slate-500 hover:text-white transition-colors">✕</button>
+          </div>
+        ) : null
+      })()}
+    </div>
+  )
+}
+
 export default function AdvancedSearchClient() {
   const [nameQuery, setNameQuery] = useState('')
   const [selectedSet, setSelectedSet] = useState('')
@@ -157,24 +288,6 @@ export default function AdvancedSearchClient() {
     const t = setTimeout(() => setDebouncedName(val), 400)
     setTimer(t)
   }, [timer])
-
-  // Group sets by series for the select dropdown
-  const groupedSets = useMemo(() => {
-    const groups = new Map<string, typeof sets>()
-    for (const s of sets) {
-      const series = s.series || 'Other'
-      if (!groups.has(series)) groups.set(series, [])
-      groups.get(series)!.push(s)
-    }
-    const result: { series: string; sets: typeof sets }[] = []
-    for (const s of SERIES_ORDER) {
-      if (groups.has(s)) result.push({ series: s, sets: groups.get(s)! })
-    }
-    for (const [series, sList] of groups) {
-      if (!SERIES_ORDER.includes(series)) result.push({ series, sets: sList })
-    }
-    return result
-  }, [sets])
 
   // Unique rarities from set cards
   const rarities = useMemo(() => {
@@ -203,11 +316,21 @@ export default function AdvancedSearchClient() {
     <div className="max-w-4xl mx-auto px-6 py-8 space-y-6">
       <div>
         <h1 className="text-xl font-bold text-white mb-1">Advanced Search</h1>
-        <p className="text-slate-400 text-sm">Filter by set, rarity, or search by name across the entire catalog.</p>
+        <p className="text-slate-400 text-sm">Browse sets or search by name.</p>
       </div>
 
-      {/* Filter bar */}
-      <div className="bg-surface-800 border border-surface-600 rounded-2xl p-4 flex flex-wrap gap-3">
+      {/* Set browser */}
+      <div className="bg-surface-800 border border-surface-600 rounded-2xl p-4">
+        <SetBrowser
+          sets={sets as SetEntry[]}
+          selected={selectedSet}
+          onSelect={id => { setSelectedSet(id); setSelectedRarity('') }}
+          isLoading={setsLoading}
+        />
+      </div>
+
+      {/* Name search + rarity filter */}
+      <div className="flex flex-wrap gap-3">
         {/* Name search */}
         <div className="flex-1 min-w-48 relative">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -219,25 +342,6 @@ export default function AdvancedSearchClient() {
             placeholder="Card name…"
             className={`w-full ${inputCls} pl-10`}
           />
-        </div>
-
-        {/* Set selector */}
-        <div className="min-w-48">
-          <select
-            value={selectedSet}
-            onChange={e => { setSelectedSet(e.target.value); setSelectedRarity('') }}
-            className={`${inputCls} cursor-pointer w-full`}
-            disabled={setsLoading}
-          >
-            <option value="">— All Sets —</option>
-            {groupedSets.map(g => (
-              <optgroup key={g.series} label={g.series}>
-                {g.sets.map(s => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
         </div>
 
         {/* Rarity filter (only when set selected) */}
@@ -260,7 +364,7 @@ export default function AdvancedSearchClient() {
             onClick={() => { setSelectedSet(''); setSelectedRarity(''); setNameQuery(''); setDebouncedName('') }}
             className="px-3 py-2.5 text-sm text-slate-400 hover:text-white border border-surface-600 hover:border-surface-500 rounded-xl transition-colors"
           >
-            Clear
+            Clear all
           </button>
         )}
       </div>

@@ -28,6 +28,9 @@ jobs:
         run: |
           pip install -r scripts/card-shows/requirements.txt
 
+      - name: Run parser tests
+        run: python -m pytest scripts/card-shows/tests/ -v
+
       - name: Run Card Shows Scraper
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}

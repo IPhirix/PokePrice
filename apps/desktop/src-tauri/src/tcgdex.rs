@@ -145,18 +145,36 @@ async fn fetch_raw_sets(http: &Client) -> Vec<Value> {
     data.as_array().cloned().unwrap_or_default()
 }
 
+fn append_webp(v: &Value) -> Value {
+    match v.as_str() {
+        Some(s) if !s.is_empty() => json!(format!("{}.webp", s)),
+        _ => Value::Null,
+    }
+}
+
+fn format_set_for_client(s: &Value) -> Value {
+    let id = s["id"].as_str().unwrap_or("").to_string();
+    let series = s["serie"]["name"]
+        .as_str()
+        .unwrap_or_else(|| series_from_set_id(&id))
+        .to_string();
+    json!({
+        "id": id,
+        "name": s["name"],
+        "series": series,
+        "releaseDate": s["releaseDate"],
+        "images": {
+            "logo": append_webp(&s["logo"]),
+            "symbol": append_webp(&s["symbol"])
+        }
+    })
+}
+
 pub async fn list_sets(http: &Client) -> Vec<Value> {
     fetch_raw_sets(http)
         .await
         .into_iter()
-        .map(|s| {
-            let id = s["id"].as_str().unwrap_or("").to_string();
-            let series = s["serie"]["name"]
-                .as_str()
-                .unwrap_or_else(|| series_from_set_id(&id))
-                .to_string();
-            json!({ "id": id, "name": s["name"], "series": series, "releaseDate": s["releaseDate"] })
-        })
+        .map(|s| format_set_for_client(&s))
         .collect()
 }
 
@@ -630,6 +648,76 @@ mod tests {
         let d = json!({ "id": "x-1", "localId": "1", "name": "Test", "set": { "id": "base1" } });
         let mapped = map_card(&d, "", "", "1999-01-09");
         assert_eq!(mapped["set"]["releaseDate"].as_str().unwrap(), "1999-01-09");
+    }
+
+    // ── format_set_for_client ─────────────────────────────────────────────────
+
+    #[test]
+    fn format_set_includes_logo_in_images() {
+        let s = json!({
+            "id": "swsh12pt5",
+            "name": "Crown Zenith",
+            "serie": { "name": "Sword & Shield" },
+            "releaseDate": "2023-01-20",
+            "logo": "https://assets.tcgdex.net/en/swsh/swsh12pt5/logo",
+            "symbol": "https://assets.tcgdex.net/en/swsh/swsh12pt5/symbol"
+        });
+        let out = format_set_for_client(&s);
+        assert_eq!(
+            out["images"]["logo"].as_str().unwrap(),
+            "https://assets.tcgdex.net/en/swsh/swsh12pt5/logo.webp"
+        );
+        assert_eq!(
+            out["images"]["symbol"].as_str().unwrap(),
+            "https://assets.tcgdex.net/en/swsh/swsh12pt5/symbol.webp"
+        );
+    }
+
+    #[test]
+    fn format_set_logo_null_when_absent() {
+        let s = json!({
+            "id": "base1",
+            "name": "Base Set",
+            "serie": { "name": "Base" },
+            "releaseDate": "1999-01-09"
+        });
+        let out = format_set_for_client(&s);
+        assert!(out["images"]["logo"].is_null());
+        assert!(out["images"]["symbol"].is_null());
+    }
+
+    #[test]
+    fn append_webp_adds_suffix() {
+        assert_eq!(append_webp(&json!("https://example.com/logo")).as_str().unwrap(), "https://example.com/logo.webp");
+        assert!(append_webp(&Value::Null).is_null());
+        assert!(append_webp(&json!("")).is_null());
+    }
+
+    #[test]
+    fn format_set_includes_standard_fields() {
+        let s = json!({
+            "id": "sv1",
+            "name": "Scarlet & Violet",
+            "serie": { "name": "Scarlet & Violet" },
+            "releaseDate": "2023-03-31",
+            "logo": "https://assets.tcgdex.net/en/sv/sv1/logo"
+        });
+        let out = format_set_for_client(&s);
+        assert_eq!(out["id"].as_str().unwrap(), "sv1");
+        assert_eq!(out["name"].as_str().unwrap(), "Scarlet & Violet");
+        assert_eq!(out["series"].as_str().unwrap(), "Scarlet & Violet");
+        assert_eq!(out["releaseDate"].as_str().unwrap(), "2023-03-31");
+    }
+
+    #[test]
+    fn format_set_derives_series_from_id_when_serie_missing() {
+        let s = json!({
+            "id": "sv1",
+            "name": "Scarlet & Violet",
+            "releaseDate": "2023-03-31"
+        });
+        let out = format_set_for_client(&s);
+        assert_eq!(out["series"].as_str().unwrap(), "Scarlet & Violet");
     }
 
     #[test]

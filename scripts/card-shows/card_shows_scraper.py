@@ -79,17 +79,9 @@ def strip_tags(s):
     return TAG_PATTERN.sub("", s).strip() if s else ""
 
 
-def fetch_card_shows(state_code, state_name, session):
-    url = (
-        f"https://www.tcdb.com/CardShows.cfm"
-        f"?MODE=Location&State={state_code}"
-        f"&Display={requests.utils.quote(state_name)}"
-        f"&Country=United%20States"
-    )
-    resp = session.get(url, headers={"User-Agent": CHROME_UA}, timeout=30)
-    resp.raise_for_status()
-
-    soup = BeautifulSoup(resp.text, "html.parser")
+def parse_card_shows_html(html, state_code):
+    """Parse TCDB card shows HTML and return list of show dicts."""
+    soup = BeautifulSoup(html, "html.parser")
     results = []
 
     for strong in soup.find_all("strong"):
@@ -101,13 +93,16 @@ def fetch_card_shows(state_code, state_name, session):
         if not date_para or date_para.name != "p":
             continue
 
+        # TCDB wraps the <ul> inside the next <p>: <p><ul>...</ul></p>
         next_el = date_para.find_next_sibling()
-        while next_el and next_el.name != "ul":
-            next_el = next_el.find_next_sibling()
         if not next_el:
             continue
 
-        for li in next_el.find_all("li"):
+        ul = next_el if next_el.name == "ul" else next_el.find("ul")
+        if not ul:
+            continue
+
+        for li in ul.find_all("li"):
             link = li.find("a")
             name = link.get_text().strip() if link else ""
             href = link.get("href", "") if link else ""
@@ -118,26 +113,9 @@ def fetch_card_shows(state_code, state_name, session):
             parts = BR_PATTERN.split(li_html)
             all_parts = [p for p in (strip_tags(p) for p in parts[1:]) if p]
 
-            time_idx = next(
-                (i for i, p in enumerate(all_parts) if TIME_PATTERN.search(p)),
-                -1,
-            )
-
-            venue = all_parts[0] if all_parts else ""
-            address = ""
-            city_state = ""
-            show_time = ""
-
-            if time_idx >= 3:
-                address = all_parts[1] if len(all_parts) > 1 else ""
-                city_state = all_parts[2] if len(all_parts) > 2 else ""
-                show_time = all_parts[time_idx]
-            elif time_idx == 2:
-                city_state = all_parts[1] if len(all_parts) > 1 else ""
-                show_time = all_parts[2] if len(all_parts) > 2 else ""
-            else:
-                city_state = all_parts[1] if len(all_parts) > 1 else ""
-                show_time = all_parts[time_idx] if time_idx >= 0 else ""
+            venue = all_parts[0] if len(all_parts) > 0 else ""
+            city_state = all_parts[1] if len(all_parts) > 1 else ""
+            show_time = all_parts[2] if len(all_parts) > 2 else ""
 
             results.append(
                 {
@@ -145,13 +123,25 @@ def fetch_card_shows(state_code, state_name, session):
                     "name": name,
                     "date": date_text,
                     "venue": venue,
-                    "address": address,
+                    "address": "",
                     "city_state": city_state,
                     "time": show_time,
                 }
             )
 
     return results
+
+
+def fetch_card_shows(state_code, state_name, session):
+    url = (
+        f"https://www.tcdb.com/CardShows.cfm"
+        f"?MODE=Location&State={state_code}"
+        f"&Display={requests.utils.quote(state_name)}"
+        f"&Country=United%20States"
+    )
+    resp = session.get(url, headers={"User-Agent": CHROME_UA}, timeout=30)
+    resp.raise_for_status()
+    return parse_card_shows_html(resp.text, state_code)
 
 
 def card_show_synthetic_id(state_code, show):
