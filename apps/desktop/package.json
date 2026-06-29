@@ -7,7 +7,7 @@
     "dev": "pnpm tauri dev",
     "dev:web": "vite",
     "build": "vite build",
-    "build:tauri": "pnpm tauri build"
+    "build:tauri": "pnpm tauri build && copy /Y ..\\..\\..env src-tauri\\target\\release\\.env"
   },
   "dependencies": {
     "@pokeprice/types": "workspace:*",
