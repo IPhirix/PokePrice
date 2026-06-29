@@ -266,8 +266,24 @@ pub async fn card_shows_fetch(
     let code = state_code.as_deref().unwrap_or("OH");
     let name = state_name.as_deref().unwrap_or("Ohio");
 
-    let http = reqwest::Client::new();
-    let resp = http
+    let db = crate::db::new_db(&state.supabase_url, &state.supabase_service_key);
+
+    let http = reqwest::Client::builder()
+        .cookie_store(true)
+        .build()
+        .unwrap_or_default();
+
+    // Establish session cookies by hitting homepage first (TCDB blocks cold requests)
+    let _ = http
+        .get("https://www.tcdb.com/")
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .timeout(std::time::Duration::from_secs(15))
+        .send()
+        .await;
+
+    let fetch_result = http
         .get("https://www.tcdb.com/CardShows.cfm")
         .query(&[
             ("MODE", "Location"),
@@ -275,28 +291,35 @@ pub async fn card_shows_fetch(
             ("Display", name),
             ("Country", "United States"),
         ])
-        .header(
-            "User-Agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        )
+        .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .header("Referer", "https://www.tcdb.com/")
+        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+        .header("Accept-Language", "en-US,en;q=0.9")
         .timeout(std::time::Duration::from_secs(30))
         .send()
-        .await
-        .map_err(|e| format!("Failed to fetch card shows: {}", e))?;
+        .await;
 
-    if !resp.status().is_success() {
-        return Err(format!("TCDB returned HTTP {}", resp.status()));
-    }
-
-    let html = resp
-        .text()
-        .await
-        .map_err(|e| format!("Failed to read response: {}", e))?;
-
-    let live_shows = parse_card_shows_html(&html, code);
+    let live_shows = match fetch_result {
+        Ok(resp) if resp.status().is_success() => {
+            match resp.text().await {
+                Ok(html) => parse_card_shows_html(&html, code),
+                Err(e) => {
+                    log::warn!("[shows] failed to read TCDB response: {}", e);
+                    vec![]
+                }
+            }
+        }
+        Ok(resp) => {
+            log::warn!("[shows] TCDB returned HTTP {} — falling back to cache", resp.status());
+            vec![]
+        }
+        Err(e) => {
+            log::warn!("[shows] TCDB fetch failed: {} — falling back to cache", e);
+            vec![]
+        }
+    };
 
     // Upsert live shows into cache so past shows are preserved over time
-    let db = crate::db::new_db(&state.supabase_url, &state.supabase_service_key);
     if !live_shows.is_empty() {
         let now = chrono::Utc::now().to_rfc3339();
         let cache_rows: Vec<Value> = live_shows.iter().map(|s| json!({
@@ -322,7 +345,10 @@ pub async fn card_shows_fetch(
         return Ok(json!({ "shows": cached }));
     }
 
-    // Fallback to live-only if cache read fails
+    if live_shows.is_empty() {
+        return Err("Failed to load card shows: TCDB unavailable and no cached data found".to_string());
+    }
+
     Ok(json!({ "shows": live_shows }))
 }
 
