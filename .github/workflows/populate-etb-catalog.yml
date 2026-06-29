@@ -38,7 +38,7 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           if [ "${{ github.event.inputs.upload_images }}" = "true" ]; then
-            node scripts/populate-etb-catalog.js --upload-images
+            node scripts/import-prices/populate-etb-catalog.js --upload-images
           else
-            node scripts/populate-etb-catalog.js
+            node scripts/import-prices/populate-etb-catalog.js
           fi
