@@ -1,0 +1,53 @@
+{
+  "name": "@pokeprice/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@pokeprice/card-shows": "workspace:*",
+    "@pokeprice/database": "workspace:*",
+    "@pokeprice/pokemon": "workspace:*",
+    "@pokeprice/portfolio": "workspace:*",
+    "@pokeprice/pricing": "workspace:*",
+    "@pokeprice/types": "workspace:*",
+    "@pokeprice/ui": "workspace:*",
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.106.2",
+    "@tanstack/react-query": "^5",
+    "@trpc/client": "^11",
+    "@trpc/react-query": "^11",
+    "@trpc/server": "^11",
+    "@types/pg": "^8.20.0",
+    "next": "16.2.9",
+    "pg": "^8.21.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "recharts": "^2.12.7",
+    "superjson": "^2.2.6",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "@vitejs/plugin-react": "^4.3.1",
+    "@vitest/coverage-v8": "^2.1.9",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.9",
+    "jsdom": "^29.1.1",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^2.1.9"
+  }
+}

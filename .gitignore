@@ -11,3 +11,20 @@ credentials.json
 PokemonPrices/
 __pycache__/
 *.pyc
+
+# Turborepo
+.turbo/
+
+# pnpm
+.pnpm-store/
+pnpm-lock.yaml
+
+# Next.js
+apps/web/.next/
+apps/web/.env.local
+
+# Supabase
+supabase/.temp/
+
+# Tauri / Rust
+apps/desktop/src-tauri/target/

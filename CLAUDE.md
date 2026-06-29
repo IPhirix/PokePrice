@@ -2,115 +2,185 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Monorepo Structure
+
+```text
+pokeprice/
+├── apps/
+│   ├── desktop/     # Tauri app (React renderer + Rust backend)
+│   └── web/         # Next.js 16 (App Router) — in progress
+├── packages/
+│   ├── database/    # Supabase client singleton (@pokeprice/database)
+│   ├── types/       # Shared TS interfaces: Card, Database, PortfolioStats (@pokeprice/types)
+│   ├── pokemon/     # TCGdex card search + set list (@pokeprice/pokemon)
+│   ├── pricing/     # resolveSupabaseId, fetchPriceHistory, calcPriceChanges (@pokeprice/pricing)
+│   ├── portfolio/   # calcPortfolioStats (@pokeprice/portfolio)
+│   ├── card-shows/  # geocodeCity, geocodeZip, distanceKm (@pokeprice/card-shows)
+│   ├── rankings/    # Scaffold only — feature TBD (@pokeprice/rankings)
+│   └── ui/          # Shared React components (@pokeprice/ui)
+├── supabase/
+│   ├── migrations/  # SQL: user tables (collections, watchlists, profiles, trades, activity, etc.)
+│   └── functions/   # Deno Edge Functions: refresh-prices, check-alerts
+└── scripts/         # Python price import, one-off utilities
+```
+
+**Package manager**: pnpm with workspaces. **Build orchestration**: Turborepo.
+
 ## Commands
 
 ```bash
-npm run dev          # Start Electron app with Vite dev server (hot reload at localhost:5173)
-npm run dev:web      # Vite renderer only (no Electron)
-npm run build        # Production bundle
-npm run build:win    # Build portable Windows .exe via electron-builder → dist/PokePrice.exe
+# Root (runs all apps via Turborepo)
+pnpm dev                         # Dev all apps
+pnpm dev:web                     # Next.js web only
+
+# Desktop app (apps/desktop)
+cd apps/desktop
+pnpm dev                         # Tauri dev (Vite renderer + Rust backend)
+pnpm dev:web                     # Vite renderer only (localhost:5173, no Rust)
+pnpm build:tauri                 # Build Tauri .exe
 ```
 
 There is no test suite. Testing is manual by running the app.
 
-**Important**: Electron must be launched via `scripts/start-electron.js` (not directly), which clears `ELECTRON_RUN_AS_NODE=1` that Claude Code CLI sets. `npm run dev` handles this automatically. For a quick rebuild + launch cycle, use `scripts/rebuild.ps1`.
-
-## Architecture
+## Desktop App Architecture (apps/desktop)
 
 ### Process Model
 
-**Main process** (`src/main/index.js`, ~2550 lines) handles all data persistence, API calls, auth, and business logic. The renderer has no direct file system or network access.
+**Rust backend** (`src-tauri/src/`) handles all data persistence, API calls, auth, and business logic. The renderer has no direct file system or network access.
 
-**Preload bridge** (`src/preload/index.js`) exposes ~78 async methods as `window.api.*` using `contextBridge`. All renderer ↔ main communication goes through these IPC calls. Auth methods are nested under `window.api.auth.*`.
+**Tauri bridge** (`src/renderer/src/tauri-bridge.js`) exposes ~55 async methods as `window.api.*` via `invoke()`. All renderer ↔ backend communication goes through these IPC calls. Auth methods are nested under `window.api.auth.*`.
 
 **Renderer** (`src/renderer/`) is a React 18 + React Router 6 (hash routing) SPA. Components call `window.api.*` directly and store results in local `useState`. There is no Redux/Zustand — state lives in components and React Context.
 
+### Rust Backend Modules (`src-tauri/src/`)
+
+| Module | Responsibility |
+| ------ | -------------- |
+| `lib.rs` | App setup, module declarations, command registration |
+| `state.rs` | `AppState` — shared mutable state, file path helpers |
+| `auth.rs` | 18 auth commands — PBKDF2 login, session, OTP reset |
+| `cards.rs` | Cards CRUD, binders, account stats, activity, alerts |
+| `prices.rs` | Price history, manual prices, portfolio stats, DB refresh |
+| `settings.rs` | Per-user settings read/write, Supabase profile sync |
+| `trades.rs` | Trades CRUD |
+| `shows.rs` | Upcoming shows CRUD, geocoding (Nominatim + Zippopotam) |
+| `misc.rs` | TCGdex card search, sets list, app version, shell open |
+| `tcgdex.rs` | TCGdex API client — search, sets, variations |
+| `db.rs` | PostgreSQL client — resolve card ID, fetch price history |
+| `supabase.rs` | Supabase Auth REST API client (sign in, OTP, etc.) |
+| `utils.rs` | read_json, write_json, calc_change, is_pocket_card, etc. |
+
 ### Auth System
 
-The app uses local multi-user authentication backed by `auth.json` at the root of `userData`. Passwords are hashed with PBKDF2 + random salt. Session tokens are stored in `auth.json` and optionally persisted across restarts via "stay logged in".
+Local multi-user auth backed by `auth.json` at root of `userData`. Passwords hashed with PBKDF2-SHA512 + random salt (100k rounds). Session tokens in `tauri-session.json`, optionally persisted via "stay logged in".
 
-**Flow**: App starts → `AuthProvider` checks `auth:isSetup` and `auth:isSessionValid` → routes to `LoginPage` or `CreateAccountPage` if unauthenticated, or the main app if authenticated.
+**Flow**: App starts → `AuthProvider` checks `auth:isSetup` and `auth:isSessionValid` → routes to `LoginPage` or `CreateAccountPage` if unauthenticated, or main app if authenticated.
 
-Password reset supports two paths: email code (via Resend) or security question/answer.
+`current_user: Mutex<Option<String>>` in `AppState` is set on login and cleared on logout. All per-user file reads/writes go through `state.current_user_dir()` which returns `None` if no user logged in.
 
-`_currentUser` is set in the main process on login and cleared on logout. All per-user file reads/writes go through `getUserDir()` which throws if no user is logged in.
+### Data Storage (Desktop — local JSON)
 
-Data migration: on first login after upgrade, old flat `userData/*.json` files are copied into `users/{username}/`.
+`auth.json` and `tauri-session.json` live at root of `userData` (`{appData}/pokeprice`). All other files live in `{userData}/users/{username}/`:
 
-### Data Storage
-
-`auth.json` lives at the root of `userData` (shared across users). All other data files live in `userData/users/{username}/`:
-- `cards.json` — array of all tracked cards (portfolio + watchlist + sealed)
-- `prices-{cardId}.json` — price history array for each card `[{date, price, source}]`
-- `settings.json` — API tokens, currency, defaults, binder lists
+- `cards.json` — array of all tracked cards (portfolio + watchlist + sold)
+- `prices-{cardId}.json` — price history array `[{date, price, source}]`
+- `settings.json` — currency, defaults, binder lists
 - `trades.json` — historical trade records
 - `activity.json` — account activity log entries
 - `upcoming-shows.json` — saved card show events
 
-Shared (not per-user):
-- `sets-cache.json` — Pokemon TCG sets list cache
-- `cardshows-{stateCode}.json` — cached card show events per US state
-- `geocache.json` — geocoding cache for card show locations
-
 ### Card Object Shape
 
-```js
+```ts
 {
-  id,            // UUID
-  tcgId,         // Pokemon TCG API ID
-  name, setName, setId, number, rarity,
-  condition,     // 'raw' | 'psa10' | 'psa9' | 'psa8' | 'cgc10' | 'cgc9'
-  quantity, section,   // 'portfolio' | 'watchlist'
-  binder,        // string | null  (old cards may use 'folder' — both are checked)
-  purchasePrice, currentPrice, priceSource,
-  imageUrl, imageUrlLarge,
-  addedDate, lastPriceUpdate,
-  targetBuyPrice, targetSellPrice,
-  changeDay, changeWeek, changeMonth,  // % changes
-  recentHistory,  // last 90 days [{date, price}]
-  pptId, pptName  // reserved — not currently populated or used
+  id: string            // UUID
+  tcgId: string         // TCGdex card ID
+  name: string
+  setName: string | null
+  setId: string | null
+  number: string | null
+  rarity: string | null
+  condition: 'raw' | 'psa10' | 'psa9' | 'psa8' | 'cgc10' | 'cgc9'
+  quantity: number
+  section: 'portfolio' | 'watchlist'
+  binder: string | null
+  purchasePrice: number | null
+  currentPrice: number | null
+  priceSource: string | null
+  imageUrl: string | null
+  imageUrlLarge: string | null
+  addedDate: string
+  lastPriceUpdate: string | null
+  targetBuyPrice: number | null
+  targetSellPrice: number | null
+  changeDay: number | null      // % change
+  changeWeek: number | null
+  changeMonth: number | null
+  recentHistory: { date: string; price: number }[]   // last 90 days
+  pricechartingId: string | null
+  pricechartingName: string | null
 }
 ```
 
-Cards may have a `pricechartingId`/`pricechartingName` used to resolve their row in the Supabase price database.
-
 ### Price Refresh System
 
-All prices come from a **Supabase PostgreSQL database** seeded with PriceCharting data. The connection string is read from the `DATABASE_URL` environment variable; if absent, price refresh is a no-op.
+All prices come from a **Supabase PostgreSQL database** seeded with PriceCharting data. The connection string is read from the `DATABASE_URL` environment variable.
 
-- Prices are looked up via `resolveSupabaseId()` which matches `pricechartingId` → `pricechartingName` → constructed name+number
-- Per-condition columns: `loose_price` (raw/sealed), `manual_only_price` (PSA 10), `graded_price` (PSA 9 / CGC 9), `new_price` (PSA 8), `condition_17_price` (CGC 10)
-- Refresh triggered manually via `prices:refresh` IPC or by a `node-cron` job at 8am daily
+- Resolved via `db::resolve_supabase_id()` (pricechartingId → pricechartingName → name+number)
+- Per-condition columns: `loose_price` (raw/sealed), `manual_only_price` (PSA 10), `graded_price` (PSA 9/CGC 9), `new_price` (PSA 8)
+- Desktop: `prices_refresh` Tauri command; cron scheduling not yet ported (was node-cron)
+- Web/future: `supabase/functions/refresh-prices` Edge Function (daily cron)
 
 ### Styling
 
-Tailwind CSS with a custom dark theme. Key custom tokens:
+Tailwind CSS with custom dark theme. Key tokens:
+
 - `surface-900` → `surface-500` — dark panel backgrounds
 - `accent` — amber highlight color
+
+## Supabase Schema
+
+New user tables (in `supabase/migrations/20260622000001_user_tables.sql`):
+
+| Table | Replaces |
+| ----- | -------- |
+| `profiles` | `settings.json` |
+| `collections` | `cards.json` (portfolio) |
+| `watchlists` | `cards.json` (watchlist) |
+| `pokemon_card_prices` | `prices-{cardId}.json` |
+| `trades` | `trades.json` |
+| `activity` | `activity.json` |
+| `upcoming_shows` | `upcoming-shows.json` |
+| `card_shows_cache` | `cardshows-{state}.json` |
+
+All user tables have RLS: `user_id = auth.uid()`. `pokemon_prices` (price source DB) is read-only, unchanged.
 
 ## Key Files
 
 | File | Role |
-|------|------|
-| `src/main/index.js` | All IPC handlers, data CRUD, API integrations, auth, cron scheduling |
-| `src/preload/index.js` | `window.api` bridge definition |
-| `src/renderer/src/App.jsx` | Auth-gated routing: LoginPage / CreateAccountPage / main app |
-| `src/renderer/src/pages/Dashboard.jsx` | Main hub — portfolio/watchlist tabs, binder nav |
-| `src/renderer/src/pages/CardDetail.jsx` | Single card view, price chart, edit/alerts |
-| `src/renderer/src/pages/LoginPage.jsx` | Login form with password reset flow |
-| `src/renderer/src/pages/CreateAccountPage.jsx` | New account creation form |
-| `src/renderer/src/context/AuthContext.jsx` | Auth state: isSetup, isAuthenticated, login/logout/createAccount |
-| `src/renderer/src/context/CurrencyContext.jsx` | Live forex rates + USD conversion for all prices |
-| `src/renderer/src/context/AlertsContext.jsx` | Price alert state shared across components |
-| `src/renderer/src/components/AccountModal.jsx` | Account settings, password change, data management |
-| `src/renderer/src/components/ResetPasswordModal.jsx` | Password reset via email code or security question |
+| ---- | ---- |
+| `apps/desktop/src-tauri/src/lib.rs` | App entry, module declarations, command handler registration |
+| `apps/desktop/src-tauri/src/auth.rs` | All auth IPC commands |
+| `apps/desktop/src-tauri/src/cards.rs` | Cards/binders/account/activity/alerts IPC commands |
+| `apps/desktop/src-tauri/src/prices.rs` | Price IPC commands + DB refresh |
+| `apps/desktop/src-tauri/src/db.rs` | PostgreSQL queries (resolve ID, fetch history, all conditions) |
+| `apps/desktop/src/renderer/src/tauri-bridge.js` | `window.api.*` bridge — all invoke() wrappers |
+| `apps/desktop/src/renderer/src/App.jsx` | Auth-gated routing |
+| `apps/desktop/src/renderer/src/pages/Dashboard.jsx` | Portfolio/watchlist tabs, binder nav |
+| `apps/desktop/src/renderer/src/pages/CardDetail.jsx` | Single card view, price chart, alerts |
+| `packages/types/src/index.ts` | Shared TypeScript interfaces (Card, Database, PortfolioStats) |
+| `packages/pricing/src/index.ts` | resolveSupabaseId, fetchPriceHistory (Node reference — ported to Rust) |
+| `packages/pokemon/src/tcgdex.ts` | TCGdex search reference — ported to Rust `tcgdex.rs` |
+| `packages/card-shows/src/geocoding.ts` | Geocoding reference — ported to Rust `shows.rs` |
+| `supabase/functions/refresh-prices/index.ts` | Daily price refresh Edge Function |
+| `supabase/functions/check-alerts/index.ts` | Daily alert email Edge Function |
 
 ## External APIs
 
-- **Supabase (PostgreSQL)** — sole active price source; `DATABASE_URL` env var connects to the PriceCharting-seeded DB
-- **TCGdex** (`api.tcgdex.net/v2/en`) — card search, set lists, and card metadata
-- **open.er-api.com** — live exchange rates for currency conversion; called from the renderer (`CurrencyContext`), fallback to hardcoded rates
-- **Resend** — transactional email for password reset codes and price alert emails (`RESEND_KEY` env var)
-- **Nominatim (OpenStreetMap)** — geocoding for card show locations (`nominatim.openstreetmap.org`)
-- **Zippopotam** (`api.zippopotam.us`) — ZIP code to lat/lon for user location on card shows map
-- **TCDB** (`tcdb.com`) — card show event data scraped via a hidden Electron browser window
+- **Supabase (PostgreSQL)** — sole active price source; `DATABASE_URL` env var
+- **TCGdex** (`api.tcgdex.net/v2/en`) — card search, set lists, card metadata (called from Rust)
+- **open.er-api.com** — live exchange rates (called from renderer `CurrencyContext`)
+- **Resend** — email for password reset + price alerts (`RESEND_KEY` env var) — stub in Tauri
+- **Nominatim (OpenStreetMap)** — geocoding for card show locations (called from Rust)
+- **Zippopotam** (`api.zippopotam.us`) — ZIP to lat/lon (called from Rust)
+- **TCDB** (`tcdb.com`) — card show events — scraping not yet ported to Tauri

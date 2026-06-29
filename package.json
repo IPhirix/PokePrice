@@ -1,70 +1,24 @@
 {
   "name": "pokeprice",
   "version": "1.0.0",
-  "description": "Pokemon card price tracker",
+  "private": true,
+  "description": "Pokemon card price tracker monorepo",
   "author": "Jason Wilson",
-  "main": "src/main/index.js",
   "scripts": {
-    "dev": "concurrently -k -n VITE,ELECTRON -c cyan,yellow \"vite\" \"wait-on http://localhost:5173 && node scripts/start-electron.js\"",
-    "dev:web": "vite",
-    "build": "vite build",
-    "build:win": "npm run build && electron-builder --win --publish never",
-    "ship": "powershell -ExecutionPolicy Bypass -File scripts/build-and-run.ps1"
-  },
-  "dependencies": {
-    "@supabase/supabase-js": "^2.106.2",
-    "axios": "^1.7.2",
-    "cheerio": "^1.2.0",
-    "dotenv": "^17.4.2",
-    "node-cron": "^3.0.3",
-    "pg": "^8.21.0",
-    "resend": "^6.12.4",
-    "ws": "^8.21.0",
-    "xlsx": "^0.18.5"
+    "dev": "turbo dev",
+    "dev:web": "turbo dev --filter=@pokeprice/web",
+    "dev:desktop": "turbo dev --filter=@pokeprice/desktop",
+    "build": "turbo build",
+    "build:desktop": "turbo build --filter=@pokeprice/desktop",
+    "lint": "turbo lint",
+    "typecheck": "turbo typecheck"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.19",
-    "concurrently": "^8.2.2",
-    "electron": "^31.0.2",
-    "electron-builder": "^24.13.3",
-    "eslint": "^9.39.4",
-    "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "postcss": "^8.4.38",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.23.1",
-    "recharts": "^2.12.7",
-    "tailwindcss": "^3.4.4",
-    "vite": "^5.3.1",
-    "wait-on": "^7.2.0"
+    "turbo": "^2.3.3",
+    "typescript": "^5.6.3"
   },
-  "build": {
-    "appId": "com.pokeprice.app",
-    "productName": "PokePrice",
-    "asar": true,
-    "files": [
-      "src/main/**/*",
-      "dist/web/**/*",
-      "src/preload/**/*",
-      "assets/**/*"
-    ],
-    "extraResources": [".env"],
-    "win": {
-      "icon": "assets/icon.ico",
-      "executableName": "PokePrice",
-      "target": [
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "portable": {
-      "artifactName": "PokePrice.exe"
-    }
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
   }
 }

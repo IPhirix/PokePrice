@@ -227,6 +227,45 @@
     .sem-yellow    { color: #fde047; background: rgba(113,63,18,0.3); }
     .sem-muted     { color: #64748b; background: var(--surface-700); }
 
+    /* ── Toggle ── */
+    .demo-toggle {
+      position: relative; display: inline-flex;
+      width: 44px; height: 24px; border-radius: 9999px;
+      transition: background 0.2s; flex-shrink: 0; cursor: pointer;
+    }
+    .demo-toggle-on  { background: var(--accent); }
+    .demo-toggle-off { background: var(--surface-600); }
+    .demo-toggle-thumb {
+      position: absolute; top: 2px; width: 20px; height: 20px;
+      background: white; border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+      transition: transform 0.2s;
+    }
+    .demo-toggle-thumb-on  { transform: translateX(22px); left: 2px; }
+    .demo-toggle-thumb-off { transform: translateX(0);    left: 2px; }
+
+    /* ── Checkbox ── */
+    .demo-checkbox {
+      width: 16px; height: 16px; border-radius: 3px;
+      border: 1px solid; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .demo-checkbox-checked   { background: var(--accent); border-color: var(--accent); }
+    .demo-checkbox-unchecked { background: var(--surface-700); border-color: #475569; }
+
+    /* ── Inline Dropdown ── */
+    .demo-dropdown {
+      position: absolute; left: 0; top: calc(100% + 4px);
+      background: var(--surface-800); border: 1px solid var(--surface-600);
+      border-radius: 12px; box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+      min-width: 180px; padding: 4px 0; overflow: hidden; z-index: 10;
+    }
+    .demo-dropdown-item {
+      padding: 7px 16px; font-size: 0.8rem; color: var(--text-secondary);
+      cursor: pointer; transition: background 0.1s;
+    }
+    .demo-dropdown-item:hover { background: var(--surface-700); color: white; }
+
     /* ── Do/Don't ── */
     .rule {
       display: flex; gap: 12px; align-items: flex-start;
@@ -390,6 +429,87 @@
         </div>
       </div>
 
+      <div class="component-card">
+        <div class="component-label">Toggle / Switch</div>
+        <div class="component-preview" style="gap:20px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="demo-toggle demo-toggle-on">
+              <div class="demo-toggle-thumb demo-toggle-thumb-on"></div>
+            </div>
+            <span style="font-size:0.75rem;color:var(--text-muted)">On</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="demo-toggle demo-toggle-off">
+              <div class="demo-toggle-thumb demo-toggle-thumb-off"></div>
+            </div>
+            <span style="font-size:0.75rem;color:var(--text-muted)">Off</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="component-card">
+        <div class="component-label">Checkbox</div>
+        <div class="component-preview" style="gap:16px;">
+          <div class="demo-checkbox demo-checkbox-checked">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5L4 7.5L8.5 2.5" stroke="black" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </div>
+          <div class="demo-checkbox demo-checkbox-unchecked"></div>
+          <div class="demo-checkbox demo-checkbox-checked" style="background:var(--accent);border-color:var(--accent);">
+            <div style="width:8px;height:2px;background:black;border-radius:2px;"></div>
+          </div>
+          <span style="font-size:0.7rem;color:var(--text-muted)">checked · unchecked · indeterminate</span>
+        </div>
+      </div>
+
+      <div class="component-card">
+        <div class="component-label">Inline Dropdown</div>
+        <div class="component-preview" style="padding:12px;align-items:flex-start;justify-content:flex-start;">
+          <div style="position:relative;width:100%;">
+            <button class="demo-btn-secondary" style="font-size:0.75rem;padding:5px 12px;">Move to Binder ▾</button>
+            <div class="demo-dropdown">
+              <div class="demo-dropdown-item" style="color:var(--text-muted)">No Binder (unassign)</div>
+              <div style="border-top:1px solid var(--surface-700);margin:3px 0 3px;"></div>
+              <div class="demo-dropdown-item">Holos</div>
+              <div class="demo-dropdown-item">Base Set</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="component-card">
+        <div class="component-label">Empty State — Solid</div>
+        <div class="component-preview" style="flex-direction:column;gap:6px;">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#334155" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+          <p style="font-size:0.8rem;font-weight:600;color:#475569">No cards yet</p>
+          <p style="font-size:0.7rem;color:#334155">Add cards to get started</p>
+        </div>
+      </div>
+
+      <div class="component-card">
+        <div class="component-label">Empty State — Dashed</div>
+        <div class="component-preview" style="padding:12px;width:100%;">
+          <div style="width:100%;text-align:center;padding:20px 12px;border:2px dashed var(--surface-600);border-radius:12px;">
+            <p style="font-size:0.8rem;font-weight:600;color:#475569">No items added yet</p>
+            <p style="font-size:0.7rem;color:#334155;margin-top:4px;">Click "+ Add Items" to add cards</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="component-card" style="grid-column:span 2;">
+        <div class="component-label">Section Collapse Strip</div>
+        <div class="component-preview">
+          <div style="display:flex;align-items:center;gap:12px;width:100%;padding:0 12px;">
+            <div style="flex:1;height:1px;background:var(--surface-700);"></div>
+            <span style="display:flex;align-items:center;gap:6px;font-size:0.8rem;font-weight:500;color:#475569;white-space:nowrap;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+              Cards
+              <span style="font-size:0.7rem;padding:1px 7px;background:var(--surface-700);border-radius:9999px;color:#64748b;">12</span>
+            </span>
+            <div style="flex:1;height:1px;background:var(--surface-700);"></div>
+          </div>
+        </div>
+      </div>
+
     </div>
   </section>
 
@@ -461,6 +581,233 @@
     </div>
   </section>
 
+  <!-- ── SPACING & PADDING ── -->
+  <section>
+    <div class="section-title">Padding &amp; Margin Conventions</div>
+
+    <div class="card" style="padding:0; overflow:hidden;">
+      <div style="padding:10px 12px; background:var(--surface-700); font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); border-bottom:1px solid var(--surface-600);">Page &amp; Layout</div>
+      <table>
+        <thead><tr><th>Context</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Top header / banner bar</td><td><code>px-8 py-3</code></td></tr>
+          <tr><td>Main content scroll area</td><td><code>px-6 py-3</code></td></tr>
+          <tr><td>Sidebar / narrow scroll area</td><td><code>px-4 py-3</code></td></tr>
+          <tr><td>Section divider line</td><td><code>h-px mx-6</code></td></tr>
+        </tbody>
+      </table>
+
+      <div style="padding:10px 12px; background:var(--surface-700); font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); border-top:1px solid var(--surface-600); border-bottom:1px solid var(--surface-600);">Panel &amp; Card</div>
+      <table>
+        <thead><tr><th>Context</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Standard panel (<code>surface-800 rounded-xl</code>)</td><td><code>p-3</code></td></tr>
+          <tr><td>Roomy panel (pricing, detail boxes)</td><td><code>p-4</code></td></tr>
+          <tr><td>Card / row item</td><td><code>px-4 py-3</code></td></tr>
+          <tr><td>Compact pricing cell</td><td><code>p-2.5</code></td></tr>
+        </tbody>
+      </table>
+
+      <div style="padding:10px 12px; background:var(--surface-700); font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); border-top:1px solid var(--surface-600); border-bottom:1px solid var(--surface-600);">Modal</div>
+      <table>
+        <thead><tr><th>Context</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Modal header / tab bar</td><td><code>px-5 py-4</code> or <code>px-6 py-5</code></td></tr>
+          <tr><td>Modal body</td><td><code>p-5 space-y-5</code> or <code>p-4 space-y-3</code></td></tr>
+        </tbody>
+      </table>
+
+      <div style="padding:10px 12px; background:var(--surface-700); font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); border-top:1px solid var(--surface-600); border-bottom:1px solid var(--surface-600);">Input &amp; Button</div>
+      <table>
+        <thead><tr><th>Context</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Form inputs (standard)</td><td><code>px-3 py-2</code></td></tr>
+          <tr><td>Dense inputs</td><td><code>px-3 py-1.5</code></td></tr>
+          <tr><td>Medium buttons</td><td><code>px-4 py-2</code> or <code>px-4 py-1.5</code></td></tr>
+          <tr><td>Compact buttons</td><td><code>px-3 py-1.5</code></td></tr>
+          <tr><td>Micro badges</td><td><code>px-2 py-0.5</code></td></tr>
+        </tbody>
+      </table>
+
+      <div style="padding:10px 12px; background:var(--surface-700); font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.08em; color:var(--text-muted); border-top:1px solid var(--surface-600); border-bottom:1px solid var(--surface-600);">Margin &amp; Gap</div>
+      <table>
+        <thead><tr><th>Context</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Between major sections</td><td><code>mt-6 mb-2</code></td></tr>
+          <tr><td>Label above input / below heading</td><td><code>mb-1</code></td></tr>
+          <tr><td>Below a section block</td><td><code>mb-3</code> or <code>mb-4</code></td></tr>
+          <tr><td>Tight inline grouping</td><td><code>gap-1</code></td></tr>
+          <tr><td>Button / form groups, icon rows</td><td><code>gap-2</code></td></tr>
+          <tr><td>Card elements, section grouping</td><td><code>gap-3</code></td></tr>
+          <tr><td>Major layout sections</td><td><code>gap-4</code> – <code>gap-6</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── COLLECTION PAGE ── -->
+  <section>
+    <div class="section-title">Collection Page — Full UI Inventory</div>
+
+    <!-- Top Nav Bar -->
+    <div class="card" style="margin-bottom:12px;">
+      <h3>Top Nav Bar</h3>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:12px;">Container: <code>px-8 py-3</code> · <code>bg-surface-900</code> · <code>border-b border-surface-600</code></p>
+      <table>
+        <thead><tr><th>Element</th><th>Classes / Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Logo "POKEPRICE"</td><td><code>text-2xl font-black tracking-widest text-accent</code> · subtitle <code>text-slate-500 text-xs tracking-wider mt-0.5</code> · <code>mr-2</code> right margin</td></tr>
+          <tr><td>Nav tabs (each)</td><td><code>px-4 py-2 rounded-lg border text-sm font-medium</code> · active: <code>bg-{color}-900/30 border-{color}-500 text-{color}-400</code> · inactive: <code>border-transparent text-slate-500</code></td></tr>
+          <tr><td>Tab count badge</td><td><code>text-xs px-2 py-0.5 rounded-full bg-surface-600 text-slate-400</code> (inactive uses <code>bg-surface-700</code>)</td></tr>
+          <tr><td>Tab icons</td><td><code>w-4 h-4</code> · <code>gap-2</code> from label</td></tr>
+          <tr><td>Banner search input</td><td><code>ml-6 h-[34px] px-3 text-sm bg-surface-800 border border-surface-600 rounded-lg w-64</code></td></tr>
+          <tr><td>Refresh / My Account / Sign Out buttons</td><td><code>px-3 py-1.5 bg-surface-700 border border-surface-500 text-slate-300 text-sm font-medium rounded-lg</code> · <code>gap-2</code> between icon + label</td></tr>
+          <tr><td>Icon-only buttons (hide values, notifications, settings)</td><td><code>p-2 rounded-lg text-slate-400 hover:text-white hover:bg-surface-700</code></td></tr>
+          <tr><td>Alert badge on bell</td><td><code>absolute top-0.5 right-0.5 min-w-[16px] h-4 bg-accent text-surface-900 text-[9px] font-bold rounded-full px-1</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Portfolio Summary -->
+    <div class="card" style="margin-bottom:12px;">
+      <h3>Portfolio Summary (6-tile grid)</h3>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:12px;">Container: <code>grid grid-cols-3 gap-3 px-6 pb-2</code> · row height <code>132px</code></p>
+      <table>
+        <thead><tr><th>Element</th><th>Classes / Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Widget tile</td><td><code>bg-surface-800 border border-surface-600 rounded-xl p-2</code></td></tr>
+          <tr><td>Widget left info panel</td><td><code>w-32 flex-shrink-0 pl-3</code></td></tr>
+          <tr><td>Widget label</td><td><code>text-xs text-slate-500 uppercase tracking-wider font-medium mb-1</code></td></tr>
+          <tr><td>Widget value</td><td><code>text-2xl font-bold</code> (color varies by metric)</td></tr>
+          <tr><td>Widget subtitle</td><td><code>text-slate-400 text-xs mt-0.5</code></td></tr>
+          <tr><td>Widget sparkline area</td><td><code>flex-1 opacity-80</code></td></tr>
+          <tr><td>Cards Tracked tile (special)</td><td><code>bg-surface-800 border border-surface-600 rounded-xl p-2 pl-5</code> · 3 sub-columns with <code>w-px bg-surface-600 mx-1</code> dividers</td></tr>
+          <tr><td>Alert filter buttons (in Cards Tracked)</td><td><code>flex-1 flex flex-col items-center rounded-lg py-1</code> · active: <code>ring-1 ring-emerald-500/50 bg-emerald-900/20</code> or red variant</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Controls Sub-bar -->
+    <div class="card" style="margin-bottom:12px;">
+      <h3>Controls Sub-bar</h3>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:12px;">Container: <code>px-8 py-3 flex items-center gap-3</code></p>
+      <table>
+        <thead><tr><th>Element</th><th>Classes / Notes</th></tr></thead>
+        <tbody>
+          <tr><td>"My Collection" title</td><td><code>text-white font-bold text-xl</code></td></tr>
+          <tr><td>"+ Add to Collection" button</td><td><code>px-4 py-1.5 bg-accent text-black text-sm font-semibold rounded-lg</code></td></tr>
+          <tr><td>"+ Add to Watchlist" button</td><td><code>px-4 py-1.5 bg-sky-600 text-white text-sm font-semibold rounded-lg</code></td></tr>
+          <tr><td>"Bulk Edit" button</td><td><code>px-3 py-1.5 bg-red-900/30 border border-red-700/50 text-red-400 text-sm font-medium rounded-lg</code></td></tr>
+          <tr><td>View toggle (Detailed/Table) outer</td><td><code>bg-surface-900 border border-surface-600 rounded-lg p-0.5</code></td></tr>
+          <tr><td>View toggle buttons</td><td><code>px-2.5 py-1 rounded-md text-xs font-medium</code> · active: <code>bg-surface-600 text-white</code> · inactive: <code>text-slate-500</code></td></tr>
+          <tr><td>Filters button</td><td><code>px-3 py-1.5 border text-sm font-medium rounded-lg bg-surface-700 border-surface-500 text-slate-300</code> · filter icon <code>w-3.5 h-3.5</code> · chevron <code>w-3 h-3</code></td></tr>
+          <tr><td>Filters dropdown</td><td><code>absolute right-0 mt-1.5 bg-surface-800 border border-surface-600 rounded-xl shadow-2xl p-4 w-72 space-y-3</code></td></tr>
+          <tr><td>Filter section labels</td><td><code>text-slate-500 text-[11px] font-semibold uppercase tracking-wider mb-1.5</code></td></tr>
+          <tr><td>Filter inputs / selects</td><td><code>bg-surface-700 border border-surface-500 rounded-lg px-2 py-1.5 text-sm text-slate-300</code></td></tr>
+          <tr><td>Export button</td><td><code>px-3 py-1.5 bg-cyan-500/10 border border-cyan-500/50 text-cyan-400 text-sm font-medium rounded-lg</code></td></tr>
+          <tr><td>Share button</td><td><code>px-3 py-1.5 bg-violet-500/10 border border-violet-500/50 text-violet-400 text-sm font-medium rounded-lg</code></td></tr>
+          <tr><td>Divider below bar</td><td><code>border-b border-surface-700 mx-6</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Section Headers -->
+    <div class="card" style="margin-bottom:12px;">
+      <h3>Section Collapse Headers (Cards / Sealed / Sold)</h3>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:12px;">Outer margin: <code>mt-6 mb-2</code> · header: <code>w-full flex items-center gap-3 mb-3</code></p>
+      <table>
+        <thead><tr><th>Element</th><th>Classes / Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Left/right fill lines</td><td><code>flex-1 h-px bg-surface-700</code></td></tr>
+          <tr><td>Label text</td><td><code>text-slate-500 hover:text-slate-300 text-sm font-medium whitespace-nowrap</code></td></tr>
+          <tr><td>Chevron icon</td><td><code>w-3.5 h-3.5 transition-transform</code> · collapsed: <code>-rotate-90</code></td></tr>
+          <tr><td>Count badge</td><td><code>text-xs px-1.5 py-0.5 bg-surface-700 rounded-full text-slate-400</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Card Row Detailed -->
+    <div class="card" style="margin-bottom:12px;">
+      <h3>Card Row — Detailed View</h3>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:12px;">Container: <code>flex items-center gap-5 bg-surface-800 border border-surface-600 rounded-xl px-5 py-2 mb-3</code> · hover: <code>border-surface-500 bg-surface-700/50</code></p>
+      <table>
+        <thead><tr><th>Column</th><th>Width</th><th>Classes / Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Card image</td><td><code>w-16</code> (card) <code>w-20</code> (sealed)</td><td><code>self-stretch rounded-xl overflow-hidden border-2 border-transparent</code> · alert: <code>border-emerald-400</code> or <code>border-red-400</code> · img: <code>h-full w-full object-contain group-hover:scale-105 transition-transform</code></td></tr>
+          <tr><td>Divider</td><td>1px</td><td><code>w-px h-10 bg-surface-600 rounded-full self-stretch flex items-center</code></td></tr>
+          <tr><td>Card identity</td><td><code>w-64</code></td><td><code>flex-shrink-0 flex flex-col justify-between self-stretch py-0.5</code></td></tr>
+          <tr><td>Card name</td><td>—</td><td><code>font-bold leading-tight text-white</code> · scaled 11–18px via FitText</td></tr>
+          <tr><td>Card number</td><td>—</td><td><code>text-slate-500 text-xs flex-shrink-0</code></td></tr>
+          <tr><td>Condition badge</td><td>—</td><td><code>text-xs px-2 py-0.5 rounded-full font-semibold</code> · see Condition Badge Colors</td></tr>
+          <tr><td>"For Trade" badge</td><td>—</td><td><code>text-[9px] font-bold uppercase px-1.5 py-[2px] rounded-full</code> · red glow via inline style</td></tr>
+          <tr><td>Set line</td><td>—</td><td><code>text-slate-400 text-xs truncate</code></td></tr>
+          <tr><td>Date added</td><td>—</td><td><code>text-slate-600 text-sm mt-1</code> · clickable inline editor</td></tr>
+          <tr><td>Binder pill (assigned)</td><td>—</td><td><code>rounded-full bg-surface-700 border border-surface-600 text-xs text-slate-400 pl-2 pr-1 py-0.5</code></td></tr>
+          <tr><td>Binder button (unassigned)</td><td>—</td><td><code>text-xs px-2 py-0.5 rounded-full border border-dashed border-surface-500 text-slate-600</code></td></tr>
+          <tr><td>Notes button</td><td>—</td><td><code>text-xs px-2 py-0.5 rounded-full border</code> · amber tint if notes exist, else <code>bg-surface-700 border-surface-600 text-slate-400</code></td></tr>
+          <tr><td>Price change stack</td><td><code>w-28</code></td><td><code>flex-shrink-0 flex flex-col items-center justify-center gap-2</code> · 3× PriceChangeIndicator</td></tr>
+          <tr><td>Sparkline</td><td>flex-1</td><td><code>self-stretch min-h-0</code> with X-axis</td></tr>
+          <tr><td>Alert price section</td><td><code>w-24</code></td><td><code>flex-shrink-0 space-y-2</code> · button: <code>w-full py-1 rounded-lg text-xs font-medium border</code> · amber tint when set</td></tr>
+          <tr><td>Pricing (portfolio)</td><td><code>w-36</code></td><td><code>flex-shrink-0 text-right space-y-1.5</code> · labels <code>text-slate-500 text-xs</code> · prices <code>font-bold text-xl</code></td></tr>
+          <tr><td>Pricing (watchlist)</td><td><code>w-36</code></td><td><code>flex-shrink-0 text-center</code> · market <code>text-accent font-bold text-3xl</code> · 30D avg <code>text-slate-500 text-xs mt-1</code></td></tr>
+          <tr><td>Remove button</td><td>—</td><td><code>text-slate-600 hover:text-red-400 text-xl</code></td></tr>
+          <tr><td>Remove confirm popover</td><td>—</td><td><code>absolute right-full mr-2 bg-surface-700 border border-surface-500 rounded-lg px-3 py-2.5 flex items-center gap-2 shadow-xl whitespace-nowrap</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Card Row Table -->
+    <div class="card" style="margin-bottom:12px;">
+      <h3>Card Row — Table (Compact) View</h3>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:12px;">Container: <code>flex items-center gap-2.5 bg-surface-800 border border-surface-600 rounded-xl px-4 py-2 mb-2</code> · dividers: <code>w-px h-5 bg-surface-600 rounded-full</code></p>
+      <table>
+        <thead><tr><th>Column</th><th>Width</th><th>Classes / Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Thumbnail</td><td><code>w-8 h-12</code> / <code>w-12 h-12</code> (sealed)</td><td><code>flex-shrink-0 rounded overflow-hidden</code></td></tr>
+          <tr><td>Identity</td><td><code>w-52</code></td><td>name <code>text-sm font-semibold text-white</code> · series <code>text-[11px] text-slate-500 mt-0.5</code></td></tr>
+          <tr><td>Grade</td><td><code>w-14</code></td><td>condition badge <code>text-[10px] px-1.5 py-px rounded-full font-semibold</code></td></tr>
+          <tr><td>1D / 1W / 1M</td><td><code>w-[252px]</code></td><td><code>flex gap-1.5</code> · each: <code>flex-1 text-xs font-semibold py-1 rounded text-center</code> with color bg</td></tr>
+          <tr><td>Sparkline</td><td>flex-1 min-w-[80px]</td><td><code>h-12</code></td></tr>
+          <tr><td>Alert price</td><td><code>w-24</code></td><td>label <code>text-[10px]</code> · value <code>text-lg font-bold</code> · click to edit inline</td></tr>
+          <tr><td>Market price</td><td><code>w-20</code></td><td>label <code>text-[10px] text-slate-600 mb-2</code> · value <code>text-lg font-bold text-accent</code></td></tr>
+          <tr><td>P&amp;L</td><td><code>w-20</code></td><td>label <code>text-[10px] text-slate-600 mb-2</code> · value <code>text-lg font-bold</code> emerald/red</td></tr>
+          <tr><td>Bell icon</td><td><code>w-8 h-8</code></td><td><code>flex items-center justify-center rounded-lg text-accent hover:bg-accent/10</code></td></tr>
+          <tr><td>Remove</td><td>—</td><td><code>text-slate-600 hover:text-red-400 text-xl</code></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Sold Card Row -->
+    <div class="card" style="margin-bottom:12px;">
+      <h3>Sold Card Row</h3>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin-bottom:12px;">Container: <code>flex items-center gap-4 bg-surface-800 border border-surface-700 rounded-xl px-4 py-3 mb-2</code></p>
+      <table>
+        <thead><tr><th>Element</th><th>Classes / Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Thumbnail</td><td><code>w-10 h-14 rounded overflow-hidden bg-surface-900 border border-surface-700</code></td></tr>
+          <tr><td>Name column</td><td><code>w-56</code> · name <code>text-slate-300 font-semibold text-sm</code> · set <code>text-slate-600 text-xs truncate</code></td></tr>
+          <tr><td>"Sold" / "Traded" badge</td><td><code>text-xs font-semibold px-2 py-0.5 rounded-full</code> · sold: <code>bg-emerald-900/40 border border-emerald-600/40 text-emerald-400</code> · traded: sky variant</td></tr>
+          <tr><td>Date</td><td><code>text-slate-500 text-sm flex-1</code></td></tr>
+          <tr><td>Sale Price column</td><td><code>w-28 text-right</code> · label <code>text-slate-600 text-xs mb-0.5</code> · value <code>text-slate-300 font-bold text-sm</code></td></tr>
+          <tr><td>P&amp;L column</td><td><code>w-24 text-right</code> · label <code>text-slate-600 text-xs mb-0.5</code> · value <code>font-bold text-sm</code> emerald/red</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Empty State -->
+    <div class="card">
+      <h3>Empty State (card list)</h3>
+      <table>
+        <thead><tr><th>Element</th><th>Classes / Notes</th></tr></thead>
+        <tbody>
+          <tr><td>Wrapper</td><td><code>flex flex-col items-center justify-center py-12 text-slate-600</code></td></tr>
+          <tr><td>Primary text</td><td><code>text-base mb-1</code></td></tr>
+          <tr><td>CTA text</td><td><code>text-sm</code> · CTA word colored <code>text-accent</code> (collection) or <code>text-sky-400</code> (watchlist)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <!-- ── DO / DON'T ── -->
   <section>
     <div class="section-title">Do / Don't</div>
@@ -484,6 +831,18 @@
     <div class="rule">
       <span class="rule-icon">✓</span>
       <span><strong>Number inputs hide spinners globally.</strong> <code>index.css</code> removes <code>-webkit-inner-spin-button</code> everywhere — don't fight it with custom styles.</span>
+    </div>
+    <div class="rule">
+      <span class="rule-icon">✓</span>
+      <span><strong>Dashed empty states only when inviting action.</strong> Use <code>border-2 border-dashed border-surface-600 rounded-xl</code> for dropzones/awaiting-content areas. Use the solid centered layout for read-only empty lists.</span>
+    </div>
+    <div class="rule">
+      <span class="rule-icon">✓</span>
+      <span><strong>Trade Analyzer uses <code>yellow-400</code> as its module accent.</strong> CTAs, focus rings, and highlights inside TradeAnalyzer use <code>yellow-400 / yellow-300</code> instead of <code>accent</code> — intentional module differentiation, not a bug.</span>
+    </div>
+    <div class="rule">
+      <span class="rule-icon">✓</span>
+      <span><strong><code>progressBar</code> animation lives in <code>index.css</code>.</strong> The indeterminate loading bar uses <code>animation: progressBar 1.4s ease-in-out infinite</code> — do not redefine it inline.</span>
     </div>
   </section>
 
