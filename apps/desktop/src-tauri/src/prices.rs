@@ -280,10 +280,20 @@ pub async fn prices_refresh(
     #[allow(non_snake_case)] cardId: Option<String>,
     section: Option<String>,
 ) -> Result<Value, String> {
+    Ok(refresh_prices_impl(&state, cardId, section).await)
+}
+
+/// Core logic behind the `prices_refresh` command, extracted so it can be
+/// exercised directly in tests against a plain `&AppState` (no Tauri runtime needed).
+pub async fn refresh_prices_impl(
+    state: &AppState,
+    #[allow(non_snake_case)] cardId: Option<String>,
+    section: Option<String>,
+) -> Value {
     let db = db::new_db(&state.supabase_url, &state.supabase_service_key);
     let today = local_date_str();
 
-    let all_cards = read_cards(&state);
+    let all_cards = read_cards(state);
     let to_refresh: Vec<Value> = if let Some(ref id) = cardId {
         all_cards.into_iter().filter(|c| c["id"].as_str() == Some(id.as_str())).collect()
     } else if let Some(ref sec) = section {
@@ -297,6 +307,10 @@ pub async fn prices_refresh(
     };
 
     let mut refreshed = 0usize;
+    // Ids of cards we actually wrote fresh price data for. Only these get their
+    // lastPriceUpdate stamp bumped — a card whose DB lookup/fetch failed must not
+    // be marked "up to date" or the UI silently hides a stale/missing refresh.
+    let mut refreshed_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     for card in &to_refresh {
         let card_id = match card["id"].as_str() {
@@ -308,7 +322,7 @@ pub async fn prices_refresh(
             history if history.is_empty() => continue,
             history => {
                 // Bulk-replace local history with database history
-                write_prices(&state, &card_id, &history);
+                write_prices(state, &card_id, &history);
                 // Upsert today's price: use DB's today entry, else use most recent DB price.
                 // This ensures cards always show a current price even when DB is one day behind.
                 let today_price = history.iter()
@@ -316,33 +330,37 @@ pub async fn prices_refresh(
                     .or_else(|| history.last())
                     .and_then(|e| e["price"].as_f64());
                 if let Some(price) = today_price {
-                    append_price(&state, &card_id, price, "supabase");
+                    append_price(state, &card_id, price, "supabase");
                 }
                 refreshed += 1;
+                refreshed_ids.insert(card_id);
             }
         }
     }
 
-    // Update lastPriceUpdate on each refreshed card
-    let mut updated = read_cards(&state);
-    for card in &to_refresh {
+    // Update lastPriceUpdate only on cards that actually got fresh price data written.
+    let mut updated = read_cards(state);
+    for card in &mut updated {
         let id = card["id"].as_str().unwrap_or("");
-        if let Some(c) = updated.iter_mut().find(|c| c["id"].as_str() == Some(id)) {
-            if let Some(obj) = c.as_object_mut() {
+        if refreshed_ids.contains(id) {
+            if let Some(obj) = card.as_object_mut() {
                 obj.insert("lastPriceUpdate".into(), json!(today));
             }
         }
     }
-    write_cards(&state, &updated);
+    write_cards(state, &updated);
 
-    // Update settings.lastRefreshed
-    let mut settings = read_settings(&state);
-    if let Some(obj) = settings.as_object_mut() {
-        obj.insert("lastRefreshed".into(), json!(chrono::Utc::now().to_rfc3339()));
+    // Update settings.lastRefreshed only if at least one card was actually refreshed,
+    // so a fully-failed refresh doesn't get reported to the UI as "up to date".
+    if refreshed > 0 {
+        let mut settings = read_settings(state);
+        if let Some(obj) = settings.as_object_mut() {
+            obj.insert("lastRefreshed".into(), json!(chrono::Utc::now().to_rfc3339()));
+        }
+        write_settings(state, &settings);
     }
-    write_settings(&state, &settings);
 
-    Ok(json!({ "refreshed": refreshed }))
+    json!({ "refreshed": refreshed, "attempted": to_refresh.len() })
 }
 
 #[tauri::command]
@@ -433,4 +451,118 @@ pub async fn prices_diagnose(state: State<'_, AppState>) -> Result<Value, String
 
     let result = db::diagnose(&db_client, &first).await;
     Ok(result)
+}
+
+#[cfg(test)]
+mod refresh_tests {
+    use super::*;
+    use uuid::Uuid;
+
+    /// Builds an AppState rooted at a fresh temp directory with `current_user`
+    /// already set, so cards/prices/settings file helpers resolve normally.
+    fn make_test_state() -> (AppState, std::path::PathBuf) {
+        dotenvy::dotenv().ok();
+        let url = std::env::var("SUPABASE_URL").expect("SUPABASE_URL not set");
+        let key = std::env::var("SUPABASE_SERVICE_ROLE_KEY").expect("SUPABASE_SERVICE_ROLE_KEY not set");
+
+        let data_dir = std::env::temp_dir().join(format!("pokeprice-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(data_dir.join("users").join("testuser")).unwrap();
+
+        let state = AppState::new(data_dir.clone(), url, String::new(), key, String::new());
+        *state.current_user.lock().unwrap() = Some("testuser".into());
+
+        (state, data_dir)
+    }
+
+    fn cleanup(dir: &std::path::Path) {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Regression test: a card whose DB lookup fails must NOT have its
+    /// lastPriceUpdate stamped, and settings.lastRefreshed must NOT move —
+    /// otherwise the UI believes prices are current when nothing was written.
+    #[tokio::test]
+    async fn refresh_does_not_stamp_cards_it_failed_to_update() {
+        let (state, dir) = make_test_state();
+
+        let card_id = Uuid::new_v4().to_string();
+        let cards = vec![json!({
+            "id": card_id,
+            "name": "Definitely Not A Real Card Name Zzyzx",
+            "number": "999999",
+            "setName": "Nonexistent Set",
+            "pricechartingId": "",
+            "pricechartingName": "",
+            "condition": "raw",
+            "section": "collection",
+        })];
+        write_cards(&state, &cards);
+
+        let result = refresh_prices_impl(&state, None, None).await;
+        assert_eq!(result["refreshed"].as_u64(), Some(0), "unresolvable card should not count as refreshed");
+
+        let updated = read_cards(&state);
+        let card = updated.iter().find(|c| c["id"].as_str() == Some(card_id.as_str())).unwrap();
+        assert!(
+            card.get("lastPriceUpdate").is_none(),
+            "lastPriceUpdate must not be stamped when no price data was actually written"
+        );
+
+        let settings = read_settings(&state);
+        assert!(
+            settings.get("lastRefreshed").is_none(),
+            "settings.lastRefreshed must not be updated when nothing was refreshed"
+        );
+
+        cleanup(&dir);
+    }
+
+    /// Regression test for the reported bug: clicking refresh must actually
+    /// persist fresh price history locally (including days since the last
+    /// successful sync), not just silently mark the card as up to date.
+    #[tokio::test]
+    async fn refresh_writes_fresh_price_history_for_a_resolvable_card() {
+        let (state, dir) = make_test_state();
+
+        let card_id = Uuid::new_v4().to_string();
+        let cards = vec![json!({
+            "id": card_id,
+            "name": "Charizard",
+            "number": "4",
+            "setName": "Base Set",
+            "pricechartingId": "",
+            "pricechartingName": "",
+            "condition": "raw",
+            "section": "collection",
+        })];
+        write_cards(&state, &cards);
+        // Seed local history as stale/empty, mimicking a card that hasn't
+        // synced in days — this is the exact state that reproduced the bug.
+        write_prices(&state, &card_id, &[]);
+
+        let result = refresh_prices_impl(&state, None, None).await;
+        assert_eq!(result["refreshed"].as_u64(), Some(1), "resolvable card should be refreshed");
+
+        let history = read_prices(&state, &card_id);
+        assert!(!history.is_empty(), "price history file was not written by refresh");
+
+        let latest_date = history.last().unwrap()["date"].as_str().unwrap_or("");
+        let cutoff = (chrono::Local::now() - chrono::Duration::days(7))
+            .format("%Y-%m-%d")
+            .to_string();
+        assert!(
+            latest_date >= cutoff.as_str(),
+            "refresh should pull recent data, latest entry was {}",
+            latest_date
+        );
+
+        let updated = read_cards(&state);
+        let card = updated.iter().find(|c| c["id"].as_str() == Some(card_id.as_str())).unwrap();
+        assert_eq!(card["lastPriceUpdate"].as_str(), Some(local_date_str().as_str()));
+
+        let settings = read_settings(&state);
+        assert!(settings.get("lastRefreshed").is_some());
+
+        cleanup(&dir);
+    }
 }
