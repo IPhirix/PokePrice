@@ -5,6 +5,9 @@ use crate::utils::is_pocket_card;
 
 const BASE: &str = "https://api.tcgdex.net/v2/en";
 const TIMEOUT_SECS: u64 = 15;
+// Safety cap on how many 60-item pages search_advanced will fetch for one
+// query (10 pages = 600 cards) — far more than any real TCGdex set/name filter.
+const MAX_ADVANCED_SEARCH_PAGES: u32 = 10;
 
 fn series_from_set_id(id: &str) -> &'static str {
     if id.starts_with("sv")         { "Scarlet & Violet" }
@@ -280,6 +283,21 @@ fn parse_lucene_query(s: &str) -> std::collections::HashMap<String, String> {
     map
 }
 
+/// Case-insensitive exact match of a set name against the raw `/sets` list.
+/// Returns `None` if no set has that exact name (the caller must treat this
+/// as "no such set" — never as "no filter").
+fn resolve_set_name(name: &str, raw_sets: &[Value]) -> Option<String> {
+    let name_lower = name.to_lowercase();
+    raw_sets.iter().find_map(|s| {
+        let n = s["name"].as_str()?;
+        if n.to_lowercase() == name_lower {
+            s["id"].as_str().map(|id| id.to_string())
+        } else {
+            None
+        }
+    })
+}
+
 pub async fn search_advanced(http: &Client, q: &Value) -> Vec<Value> {
     // Accept either a Lucene-style string (e.g. `set.name:"Crown Zenith"`) or
     // a structured JSON object { name, setId, rarity }.  The renderer always
@@ -333,19 +351,19 @@ pub async fn search_advanced(http: &Client, q: &Value) -> Vec<Value> {
     let set_map = build_set_map(&raw_sets);
 
     // Resolve set.name → set.id via the sets list (case-insensitive).
-    let resolved_set_id: Option<String> = set_id_opt.or_else(|| {
-        set_name_opt.as_ref().and_then(|sn| {
-            let sn_lower = sn.to_lowercase();
-            raw_sets.iter().find_map(|s| {
-                let n = s["name"].as_str()?;
-                if n.to_lowercase() == sn_lower {
-                    s["id"].as_str().map(|id| id.to_string())
-                } else {
-                    None
-                }
-            })
-        })
-    });
+    let resolved_set_id: Option<String> = set_id_opt
+        .clone()
+        .or_else(|| set_name_opt.as_deref().and_then(|sn| resolve_set_name(sn, &raw_sets)));
+
+    // A set-name filter that doesn't match any real set must return zero
+    // results — NOT fall through to an unfiltered query. Falling through
+    // silently drops the filter and returns arbitrary unrelated cards from
+    // the top of the TCGdex DB (e.g. a plain-text search for "Zekrom" also
+    // fires a parallel `set.name:"Zekrom"` lookup; since no set is named
+    // "Zekrom" this used to return 60 random cards merged into the results).
+    if set_id_opt.is_none() && set_name_opt.is_some() && resolved_set_id.is_none() {
+        return vec![];
+    }
 
     let mut params: Vec<(&str, String)> = vec![("pagination:itemsPerPage", "60".into())];
     if !name.is_empty() {
@@ -373,34 +391,43 @@ pub async fn search_advanced(http: &Client, q: &Value) -> Vec<Value> {
         params.push(("subtypes", subtypes));
     }
 
-    let Ok(resp) = http
-        .get(format!("{}/cards", BASE))
-        .query(&params)
-        .timeout(std::time::Duration::from_secs(TIMEOUT_SECS))
-        .send()
-        .await
-    else {
-        return vec![];
-    };
+    let items_per_page: usize = 60;
+    let mut all_cards: Vec<Value> = Vec::new();
+    for page in 1..=MAX_ADVANCED_SEARCH_PAGES {
+        let mut page_params = params.clone();
+        page_params.push(("pagination:page", page.to_string()));
 
-    let Ok(data) = resp.json::<Value>().await else {
-        return vec![];
-    };
+        let Ok(resp) = http
+            .get(format!("{}/cards", BASE))
+            .query(&page_params)
+            .timeout(std::time::Duration::from_secs(TIMEOUT_SECS))
+            .send()
+            .await
+        else {
+            break;
+        };
 
-    map_results(data, &set_map)
+        let Ok(data) = resp.json::<Value>().await else {
+            break;
+        };
+
+        let page_len = data.as_array().map(|a| a.len()).unwrap_or(0);
+        all_cards.extend(data.as_array().cloned().unwrap_or_default());
+
+        if !should_fetch_next_page(page_len, items_per_page) {
+            break;
+        }
+    }
+
+    map_results(Value::Array(all_cards), &set_map)
 }
 
-// All cards sharing the same Pokémon name, excluding the current printing.
-pub async fn get_variations(http: &Client, name: &str, number: &str, set_name: &str) -> Vec<Value> {
-    search_cards(http, name)
-        .await
-        .into_iter()
-        .filter(|c| {
-            let same_num = c["number"].as_str() == Some(number);
-            let same_set = c["set"]["name"].as_str() == Some(set_name);
-            !(same_num && same_set)
-        })
-        .collect()
+/// TCGdex caps each page at `items_per_page` results. A page that comes back
+/// full means another page may exist; a short (or empty) page means we've
+/// reached the end. Capped by `MAX_ADVANCED_SEARCH_PAGES` in the caller so a
+/// misbehaving API response can't loop forever.
+fn should_fetch_next_page(page_len: usize, items_per_page: usize) -> bool {
+    page_len > 0 && page_len >= items_per_page
 }
 
 /// Fetch a single card's full detail from the TCGdex detail endpoint.
@@ -522,46 +549,62 @@ mod tests {
             "serie": { "name": "Sword & Shield" },
             "releaseDate": "2023-01-20"
         })];
-        let sn = "Crown Zenith";
-        let found = sets.iter().find_map(|s| {
-            let n = s["name"].as_str()?;
-            if n.to_lowercase() == sn.to_lowercase() {
-                s["id"].as_str().map(|id| id.to_string())
-            } else {
-                None
-            }
-        });
-        assert_eq!(found.as_deref(), Some("swsh12pt5"));
+        assert_eq!(resolve_set_name("Crown Zenith", &sets).as_deref(), Some("swsh12pt5"));
     }
 
     #[test]
     fn resolve_set_name_case_insensitive() {
         let sets = vec![json!({ "id": "base1", "name": "Base Set", "serie": {} })];
-        let sn = "base set";
-        let found = sets.iter().find_map(|s| {
-            let n = s["name"].as_str()?;
-            if n.to_lowercase() == sn.to_lowercase() {
-                s["id"].as_str().map(|id| id.to_string())
-            } else {
-                None
-            }
-        });
-        assert_eq!(found.as_deref(), Some("base1"));
+        assert_eq!(resolve_set_name("base set", &sets).as_deref(), Some("base1"));
     }
 
     #[test]
     fn resolve_set_name_not_found_returns_none() {
         let sets = vec![json!({ "id": "base1", "name": "Base Set", "serie": {} })];
-        let sn = "Nonexistent Set";
-        let found: Option<String> = sets.iter().find_map(|s| {
-            let n = s["name"].as_str()?;
-            if n.to_lowercase() == sn.to_lowercase() {
-                s["id"].as_str().map(|id| id.to_string())
-            } else {
-                None
-            }
-        });
-        assert!(found.is_none());
+        assert!(resolve_set_name("Nonexistent Set", &sets).is_none());
+    }
+
+    #[test]
+    fn resolve_set_name_does_not_match_pokemon_name_as_set() {
+        // Regression: a Pokemon name search (e.g. "Zekrom") also fires a
+        // parallel `set.name:"Zekrom"` lookup from the renderer. No set is
+        // named "Zekrom", so this must resolve to None, not partial-match
+        // some unrelated set.
+        let sets = vec![
+            json!({ "id": "base1", "name": "Base Set", "serie": {} }),
+            json!({ "id": "swsh12pt5", "name": "Crown Zenith", "serie": {} }),
+        ];
+        assert!(resolve_set_name("Zekrom", &sets).is_none());
+    }
+
+    // ── search_advanced: unresolved set.name must not fall through to an
+    //    unfiltered query (the bug: it used to return arbitrary cards) ──────
+
+    #[test]
+    fn unresolved_set_name_is_treated_as_zero_results_not_no_filter() {
+        let set_id_opt: Option<String> = None;
+        let set_name_opt = Some("Zekrom".to_string());
+        let raw_sets = vec![json!({ "id": "base1", "name": "Base Set", "serie": {} })];
+        let resolved_set_id = set_id_opt
+            .clone()
+            .or_else(|| set_name_opt.as_deref().and_then(|sn| resolve_set_name(sn, &raw_sets)));
+        let should_short_circuit =
+            set_id_opt.is_none() && set_name_opt.is_some() && resolved_set_id.is_none();
+        assert!(should_short_circuit, "unresolved set name must short-circuit to zero results");
+    }
+
+    #[test]
+    fn resolved_set_name_does_not_short_circuit() {
+        let set_id_opt: Option<String> = None;
+        let set_name_opt = Some("Base Set".to_string());
+        let raw_sets = vec![json!({ "id": "base1", "name": "Base Set", "serie": {} })];
+        let resolved_set_id = set_id_opt
+            .clone()
+            .or_else(|| set_name_opt.as_deref().and_then(|sn| resolve_set_name(sn, &raw_sets)));
+        let should_short_circuit =
+            set_id_opt.is_none() && set_name_opt.is_some() && resolved_set_id.is_none();
+        assert!(!should_short_circuit);
+        assert_eq!(resolved_set_id.as_deref(), Some("base1"));
     }
 
     fn make_card(image: &str) -> Value {
@@ -718,6 +761,66 @@ mod tests {
         });
         let out = format_set_for_client(&s);
         assert_eq!(out["series"].as_str().unwrap(), "Scarlet & Violet");
+    }
+
+    // ── should_fetch_next_page (advanced-search pagination) ──────────────────
+
+    #[test]
+    fn should_fetch_next_page_when_page_is_full() {
+        // 151 set page 1: exactly 60 of 207 cards returned — more must exist.
+        assert!(should_fetch_next_page(60, 60));
+    }
+
+    #[test]
+    fn should_not_fetch_next_page_when_page_is_short() {
+        // 151 set page 4: last 27 of 207 cards — end of set reached.
+        assert!(!should_fetch_next_page(27, 60));
+    }
+
+    #[test]
+    fn should_not_fetch_next_page_when_page_is_empty() {
+        assert!(!should_fetch_next_page(0, 60));
+    }
+
+    #[test]
+    fn should_not_fetch_next_page_when_page_exceeds_size_defensively() {
+        // Still "full" even if the API ever returns more than requested.
+        assert!(should_fetch_next_page(75, 60));
+    }
+
+    // Hits the real TCGdex API — run explicitly with `cargo test -- --ignored`.
+    // Regression check for the set-selection bug: 151 (sv03.5) has 207 cards,
+    // more than one 60-item page, so this fails if pagination isn't followed.
+    #[tokio::test]
+    #[ignore]
+    async fn search_advanced_fetches_all_cards_in_a_set_over_60() {
+        let http = Client::new();
+        let cards = search_advanced(&http, &json!({ "setId": "sv03.5" })).await;
+        assert_eq!(cards.len(), 207);
+    }
+
+    // Hits the real TCGdex API — run explicitly with `cargo test -- --ignored`.
+    // Regression check for the "Zekrom returns Unown/Arcanine/etc" bug: an
+    // unresolved `set.name:"Zekrom"` lookup must return zero cards, not an
+    // unfiltered page of the whole card database.
+    #[tokio::test]
+    #[ignore]
+    async fn search_advanced_unresolved_set_name_returns_no_cards() {
+        let http = Client::new();
+        let cards = search_advanced(&http, &json!(r#"set.name:"Zekrom""#)).await;
+        assert_eq!(cards.len(), 0);
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn search_advanced_zekrom_name_search_only_returns_zekrom_cards() {
+        let http = Client::new();
+        let cards = search_advanced(&http, &json!(r#"name:"Zekrom*""#)).await;
+        assert!(!cards.is_empty());
+        for c in &cards {
+            let name = c["name"].as_str().unwrap_or("").to_lowercase();
+            assert!(name.contains("zekrom"), "unexpected non-Zekrom card in results: {}", name);
+        }
     }
 
     #[test]

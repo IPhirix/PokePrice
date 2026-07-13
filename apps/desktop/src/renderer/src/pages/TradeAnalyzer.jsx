@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useCurrency } from '../context/CurrencyContext'
 import { useCardSearch } from '../hooks/useCardSearch'
 import CardSearchInput from '../components/CardSearchInput'
+import { filterValidVariations } from '../utils/cardVariations'
 
 const CONDITIONS = [
   { value: 'raw',   label: 'Raw' },
@@ -154,11 +155,12 @@ function TradeCardSearch({ side, onAdd, onClose }) {
     setLoadingVariations(true)
     try {
       const vars = await window.api.getCardVariations(card.name, card.number || '', card.set?.name || '')
-      if (vars.length > 1) {
-        setVariations(vars)
+      const validVars = filterValidVariations(vars)
+      if (validVars.length > 1) {
+        setVariations(validVars)
         setVariationStep(true)
       } else {
-        setSelectedVariation(vars[0] || null)
+        setSelectedVariation(validVars[0] || null)
       }
     } catch (e) { console.warn('[TradeAnalyzer] getCardVariations failed:', e?.message) }
     setLoadingVariations(false)

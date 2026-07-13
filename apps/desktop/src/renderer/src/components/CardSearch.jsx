@@ -9,6 +9,7 @@ import {
   normalizeForSealedSearch,
   parseSealedProducts,
 } from "../utils/sealedSearch";
+import { filterValidVariations } from "../utils/cardVariations";
 
 const CONDITIONS = [
   { value: "raw", label: "Raw" },
@@ -176,11 +177,12 @@ export default function CardSearch({ section, onAdd, onClose }) {
         card.number || "",
         card.set?.name || "",
       );
-      if (vars.length > 1) {
-        setVariations(vars);
+      const validVars = filterValidVariations(vars);
+      if (validVars.length > 1) {
+        setVariations(validVars);
         setVariationStep(true);
       } else {
-        setSelectedVariation(vars[0] || null);
+        setSelectedVariation(validVars[0] || null);
       }
     } catch (e) {
       console.warn("[CardSearch] getCardVariations failed:", e?.message);

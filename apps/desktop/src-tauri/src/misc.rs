@@ -51,12 +51,13 @@ pub async fn cards_get_by_id(_state: State<'_, AppState>, id: String) -> Result<
 
 #[tauri::command]
 pub async fn cards_get_variations(
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
     name: String,
     number: String,
     #[allow(non_snake_case)] setName: String,
 ) -> Result<Vec<Value>, String> {
-    Ok(tcgdex::get_variations(&http(), &name, &number, &setName).await)
+    let db = db::new_db(&state.supabase_url, &state.supabase_service_key);
+    Ok(db::get_card_variations(&db, &name, &number, &setName).await)
 }
 
 #[tauri::command]

@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use tauri::State;
 use uuid::Uuid;
 
+use crate::prices::refresh_prices_impl;
 use crate::settings::{read_settings, write_settings};
 use crate::state::AppState;
 use crate::utils::{calc_change, is_pocket_card, is_valid_uuid, local_date_str, read_json, write_json};
@@ -175,8 +176,23 @@ pub fn cards_list_sold(state: State<'_, AppState>) -> Vec<Value> {
 }
 
 #[tauri::command]
-pub fn cards_add(
+pub async fn cards_add(
     state: State<'_, AppState>,
+    #[allow(non_snake_case)] tcgCard: Value,
+    condition: String,
+    quantity: u32,
+    section: String,
+    #[allow(non_snake_case)] purchasePrice: Option<f64>,
+    binder: Option<String>,
+    #[allow(non_snake_case)] addedDate: Option<String>,
+) -> Result<Value, String> {
+    add_card_impl(&state, tcgCard, condition, quantity, section, purchasePrice, binder, addedDate).await
+}
+
+/// Core logic behind the `cards_add` command, extracted so it can be
+/// exercised directly in tests against a plain `&AppState` (no Tauri runtime needed).
+pub async fn add_card_impl(
+    state: &AppState,
     #[allow(non_snake_case)] tcgCard: Value,
     condition: String,
     quantity: u32,
@@ -226,6 +242,11 @@ pub fn cards_add(
     let mut cards = read_cards(&state);
     cards.push(new_card.clone());
     write_cards(&state, &cards);
+
+    // Backfill historical pricing immediately so the card shows a chart and
+    // current price right away, instead of waiting for the next scheduled refresh.
+    let new_card_id = new_card["id"].as_str().unwrap_or("").to_string();
+    refresh_prices_impl(&state, Some(new_card_id), None).await;
 
     let section_label = if new_card["section"].as_str() == Some("collection") { "collection" } else { "watchlist" };
     let cond = new_card["condition"].as_str().unwrap_or("raw");
@@ -767,4 +788,107 @@ pub fn alerts_get_triggered(state: State<'_, AppState>) -> Vec<Value> {
             if pct >= 0.0 { current >= alert_price } else { current <= alert_price }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod add_card_tests {
+    use super::*;
+    use uuid::Uuid as TestUuid;
+
+    /// Builds an AppState rooted at a fresh temp directory with `current_user`
+    /// already set, so cards/prices/settings file helpers resolve normally.
+    fn make_test_state() -> (AppState, std::path::PathBuf) {
+        dotenvy::dotenv().ok();
+        let url = std::env::var("SUPABASE_URL").expect("SUPABASE_URL not set");
+        let key = std::env::var("SUPABASE_SERVICE_ROLE_KEY").expect("SUPABASE_SERVICE_ROLE_KEY not set");
+
+        let data_dir = std::env::temp_dir().join(format!("pokeprice-addcard-test-{}", TestUuid::new_v4()));
+        std::fs::create_dir_all(data_dir.join("users").join("testuser")).unwrap();
+
+        let state = AppState::new(data_dir.clone(), url, String::new(), key, String::new());
+        *state.current_user.lock().unwrap() = Some("testuser".into());
+
+        (state, data_dir)
+    }
+
+    fn cleanup(dir: &std::path::Path) {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// Regression test for the reported bug: a card added to the collection/watchlist
+    /// must have historical pricing available immediately, not only after the next
+    /// scheduled refresh — previously cards_add never fetched price history at all.
+    #[tokio::test]
+    async fn adding_a_resolvable_card_backfills_price_history_immediately() {
+        let (state, dir) = make_test_state();
+
+        let tcg_card = json!({
+            "id": "base1-4",
+            "name": "Charizard",
+            "number": "4",
+            "set": { "id": "base1", "name": "Base Set", "series": "Base" },
+            "rarity": "Rare Holo",
+            "images": { "small": "", "large": "" },
+        });
+
+        let added = add_card_impl(
+            &state,
+            tcg_card,
+            "raw".to_string(),
+            1,
+            "collection".to_string(),
+            None,
+            None,
+            None,
+        ).await.expect("add_card_impl failed");
+
+        let card_id = added["id"].as_str().unwrap().to_string();
+
+        let history = read_prices(&state, &card_id);
+        assert!(!history.is_empty(), "newly added card has no price history — backfill did not run");
+
+        let updated_cards = read_cards(&state);
+        let stored = updated_cards.iter().find(|c| c["id"].as_str() == Some(card_id.as_str())).unwrap();
+        assert!(
+            stored["lastPriceUpdate"].as_str().is_some(),
+            "lastPriceUpdate was not stamped after add-time backfill"
+        );
+
+        cleanup(&dir);
+    }
+
+    /// A card that can't be resolved against pokemon_cards (unknown name/set)
+    /// must still be added successfully — the backfill failing silently should
+    /// not block adding the card to the collection.
+    #[tokio::test]
+    async fn adding_an_unresolvable_card_still_succeeds_with_no_history() {
+        let (state, dir) = make_test_state();
+
+        let tcg_card = json!({
+            "id": "zzz-1",
+            "name": "Definitely Not A Real Card Name Zzyzx",
+            "number": "999999",
+            "set": { "id": "zzz", "name": "Nonexistent Set", "series": "" },
+        });
+
+        let added = add_card_impl(
+            &state,
+            tcg_card,
+            "raw".to_string(),
+            1,
+            "watchlist".to_string(),
+            None,
+            None,
+            None,
+        ).await.expect("add_card_impl failed");
+
+        let card_id = added["id"].as_str().unwrap().to_string();
+        let updated_cards = read_cards(&state);
+        assert!(
+            updated_cards.iter().any(|c| c["id"].as_str() == Some(card_id.as_str())),
+            "card was not saved even though backfill found no price data"
+        );
+
+        cleanup(&dir);
+    }
 }

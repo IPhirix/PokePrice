@@ -306,6 +306,39 @@ pub async fn search_sealed_products(db: &SupabaseDb, product_kw: &str, set_name:
     }).collect()
 }
 
+/// Finds PriceCharting product variants (different rarities/editions) of a card
+/// by name+number within a set, for the "which variation?" picker shown when
+/// a search result maps to multiple pokemon_cards rows.
+/// Mirrors the pre-Tauri `cards:getVariations` IPC query.
+pub async fn get_card_variations(db: &SupabaseDb, name: &str, number: &str, set_name: &str) -> Vec<Value> {
+    if name.trim().is_empty() || number.trim().is_empty() {
+        return vec![];
+    }
+    let base = format!("{} #{}", name, number);
+    let variant = format!("{} [*] #{}", name, number);
+    let or_filter = format!("(product_name.eq.{},product_name.ilike.{})", base, variant);
+    let set_filter = format!("ilike.*{}*", set_name);
+
+    let rows = match db.get("pokemon_cards", &[
+        ("or", or_filter.as_str()),
+        ("console_name", set_filter.as_str()),
+        ("console_name", "not.ilike.*Pocket*"),
+        ("select", "product_name,console_name,pricecharting_id"),
+        ("limit", "50"),
+    ]).await {
+        Ok(r) => r,
+        Err(e) => { log::error!("[db] get_card_variations error: {}", e); return vec![]; }
+    };
+
+    // DISTINCT ON (pricecharting_id) equivalent — keep first occurrence per id,
+    // and drop rows missing the fields the variation picker renders.
+    let mut seen = std::collections::HashSet::new();
+    rows.into_iter()
+        .filter(|r| r["pricecharting_id"].is_i64() && r["product_name"].is_string())
+        .filter(|r| seen.insert(r["pricecharting_id"].as_i64()))
+        .collect()
+}
+
 pub fn new_db(supabase_url: &str, supabase_service_key: &str) -> SupabaseDb {
     SupabaseDb::new(supabase_url, supabase_service_key)
 }
@@ -397,6 +430,51 @@ mod tests {
         let id = resolve_card_id(&db, &card).await;
         println!("Charizard #4 Base Set card_id: {:?}", id);
         assert!(id.is_some(), "Could not resolve Charizard #4 Base Set");
+    }
+
+    // ── get_card_variations ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_get_card_variations_empty_name_returns_empty() {
+        let db = make_db();
+        let rows = get_card_variations(&db, "", "4", "Base Set").await;
+        assert!(rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_card_variations_empty_number_returns_empty() {
+        let db = make_db();
+        let rows = get_card_variations(&db, "Charizard", "", "Base Set").await;
+        assert!(rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_card_variations_charizard_base_set() {
+        let db = make_db();
+        let rows = get_card_variations(&db, "Charizard", "4", "Base Set").await;
+        println!("Charizard #4 Base Set variations ({}):", rows.len());
+        for r in &rows {
+            println!("  product_name={:?} console_name={:?} pc_id={:?}",
+                r["product_name"], r["console_name"], r["pricecharting_id"]);
+        }
+        // Every row must carry the fields the frontend variation picker renders —
+        // this is the regression this test guards against (blank rows in the picker).
+        for r in &rows {
+            assert!(r["product_name"].is_string(), "row missing product_name: {:?}", r);
+            assert!(r["console_name"].is_string(), "row missing console_name: {:?}", r);
+            assert!(r["pricecharting_id"].is_i64(), "row missing pricecharting_id: {:?}", r);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_card_variations_deduped_by_pricecharting_id() {
+        let db = make_db();
+        let rows = get_card_variations(&db, "Charizard", "4", "Base Set").await;
+        let mut ids: Vec<i64> = rows.iter().filter_map(|r| r["pricecharting_id"].as_i64()).collect();
+        let before = ids.len();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), before, "get_card_variations returned duplicate pricecharting_id rows");
     }
 
     #[tokio::test]
